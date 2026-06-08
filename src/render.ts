@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { buildSRD, srdManifestPath } from "./srd.js";
 import {
@@ -46,6 +46,11 @@ export function renderSRD(brief: Brief, evidence: EvidenceItem[], opts: RenderOp
   const srd = buildSRD(brief, evidence, { level: opts.level, generatedAt: opts.generatedAt });
   const files: string[] = [];
   const out = opts.out;
+
+  // ADR filenames are id-derived and can change between renders (e.g. when a
+  // self-host ADR is added, the data ADR shifts 0002→0003). Clear the directory
+  // first so a re-render never leaves a stale, duplicate-numbered orphan behind.
+  rmSync(join(out, "architecture", "decisions"), { recursive: true, force: true });
 
   writeFile(out, "00-overview/VISION.md", renderVision(srd), files);
   writeFile(out, "00-overview/SCOPE.md", renderScope(srd), files);

@@ -169,7 +169,8 @@ export function renderLandscape(srd: SRD): string {
   if (srd.competitive.competitors.length) {
     out.push(`| Product | Note | Evidence |`, `|---|---|---|`);
     for (const c of srd.competitive.competitors) {
-      out.push(`| ${c.name} | ${c.note} | ${c.evidence.map((id) => `[${id}]`).join("") || "—"} |`);
+      const ev = c.evidence.length ? c.evidence.map((id) => `[${id}]`).join("") : "_ungrounded_";
+      out.push(`| ${c.name} | ${c.note} | ${ev} |`);
     }
   } else {
     out.push(`_No competitors captured. Use the market research angle to discover them._`);
@@ -179,7 +180,8 @@ export function renderLandscape(srd: SRD): string {
     out.push(`| Project | Note | Evidence |`, `|---|---|---|`);
     for (const o of srd.competitive.oss) {
       const name = o.url ? `[${o.name}](${o.url})` : o.name;
-      out.push(`| ${name} | ${o.note} | ${o.evidence.map((id) => `[${id}]`).join("") || "—"} |`);
+      const ev = o.evidence.length ? o.evidence.map((id) => `[${id}]`).join("") : "_ungrounded_";
+      out.push(`| ${name} | ${o.note} | ${ev} |`);
     }
   } else {
     out.push(`_No OSS prior art captured. Use the oss research angle to mine comparable projects._`);
@@ -193,7 +195,10 @@ export function renderBuildPlan(srd: SRD): string {
   for (const m of srd.buildPlan) {
     out.push(`## ${m.title}`, ``, m.outcome, ``);
     out.push(`- **Requirements:** ${m.frIds.length ? m.frIds.join(", ") : "—"}`);
-    out.push(`- **Risks:** ${m.risks.length ? m.risks.join("; ") : "to be assessed"}`);
+    if (m.risks.length) {
+      out.push(`- **Risks:**`);
+      for (const r of m.risks) out.push(`  - ${r}`);
+    }
     out.push(``);
   }
   return out.join("\n");

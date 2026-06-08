@@ -1,4 +1,5 @@
 import type { ResearchContext, SourceResult, RawItem } from "../types.js";
+import { rankedKeywords } from "../util.js";
 import { discover, webFetchUrls } from "./web.js";
 import { stackoverflow } from "./stackoverflow.js";
 
@@ -24,14 +25,28 @@ export async function techAngle(ctx: ResearchContext): Promise<SourceResult[]> {
   }
   if (techs.length === 0) docNotes.push("No candidate technologies in the brief — nothing to ground feasibility against.");
 
-  // --- so: pitfalls of the candidate technologies for this problem. --------
-  const soQuery = [techs.join(" "), ideaKw].filter(Boolean).join(" ").trim();
-  const soRes: SourceResult = soQuery
-    ? await stackoverflow(soQuery, ctx.perSource)
-    : { source: "so", items: [], notes: ["No candidate technologies to search StackOverflow for."] };
+  // --- so: pitfalls of each candidate technology, one focused query per tech.
+  // (A single combined "<all techs> <whole idea>" query over-constrains to zero.)
+  const topKw = rankedKeywords(ideaKw)[0] ?? "";
+  const soItems: RawItem[] = [];
+  const soNotes: string[] = [];
+  const seen = new Set<string>();
+  const per = Math.max(2, Math.ceil(ctx.perSource / Math.max(1, techs.length)));
+  for (const tech of techs) {
+    const q = `${tech} ${topKw}`.trim();
+    const r = await stackoverflow(q, per);
+    for (const it of r.items) {
+      if (!seen.has(it.ref)) {
+        seen.add(it.ref);
+        soItems.push(it);
+      }
+    }
+    soNotes.push(...r.notes);
+  }
+  if (techs.length === 0) soNotes.push("No candidate technologies to search StackOverflow for.");
 
   return [
     { source: "docs", items: docItems, notes: docNotes },
-    soRes,
+    { source: "so", items: soItems, notes: soNotes },
   ];
 }

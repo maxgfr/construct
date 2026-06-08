@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -65,6 +65,15 @@ describe("renderSRD", () => {
     renderSRD(brief, evidence, { level: "light", out: out2, merge: false, generatedAt: "T" });
     const scope2 = readFileSync(join(out2, "00-overview/SCOPE.md"), "utf8");
     expect(scope2).not.toContain("🧠");
+  });
+
+  it("clears stale id-derived ADR files on re-render", () => {
+    const out = freshDir();
+    renderSRD(brief, evidence, { level: "complex", out, merge: false, generatedAt: "T" });
+    const stale = join(out, "architecture/decisions/9999-stale-orphan.md");
+    writeFileSync(stale, "# stale\n> 🧠 leftover\n");
+    renderSRD(brief, evidence, { level: "complex", out, merge: false, generatedAt: "T" });
+    expect(existsSync(stale)).toBe(false);
   });
 
   it("is byte-deterministic for the same inputs and generatedAt", () => {

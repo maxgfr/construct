@@ -4,6 +4,10 @@ import { keywords as extractKeywords } from "../util.js";
 type RawItem = Omit<EvidenceItem, "id">;
 
 const UA = "construct/0.x (+https://github.com/maxgfr/construct)";
+// A recent desktop-browser UA, used ONLY as a fallback when the polite bot UA is
+// blocked (some sites 403/429 unknown agents). Off the default to stay honest.
+const BROWSER_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 
 export interface HttpResult {
   ok: boolean;
@@ -15,10 +19,10 @@ export interface HttpResult {
 
 // Minimal HTTP GET on top of Node's built-in fetch (Node ≥18) — no
 // dependencies. Times out, sends a UA, and caps the body so a huge page can't
-// blow up memory.
+// blow up memory. `headers` overrides/extends the defaults (e.g. a browser UA).
 export async function httpGet(
   url: string,
-  opts: { timeoutMs?: number; accept?: string; maxBytes?: number } = {},
+  opts: { timeoutMs?: number; accept?: string; maxBytes?: number; headers?: Record<string, string> } = {},
 ): Promise<HttpResult> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 20_000);
@@ -26,7 +30,7 @@ export async function httpGet(
     const res = await fetch(url, {
       signal: ctrl.signal,
       redirect: "follow",
-      headers: { "user-agent": UA, accept: opts.accept ?? "*/*" },
+      headers: { "user-agent": UA, accept: opts.accept ?? "*/*", ...(opts.headers ?? {}) },
     });
     const buf = Buffer.from(await res.arrayBuffer());
     const max = opts.maxBytes ?? 4 * 1024 * 1024;
@@ -110,7 +114,14 @@ export function htmlToText(html: string): string {
 // Fetch a URL and return its readable text (HTML stripped to prose). Used by
 // the external-docs and web sources.
 export async function fetchAndExtract(url: string): Promise<{ text: string; note?: string }> {
-  const res = await httpGet(url, { accept: "text/html,text/plain,*/*" });
+  let res = await httpGet(url, { accept: "text/html,text/plain,*/*" });
+  // Some sites block the polite bot UA — retry once as a browser before giving up.
+  if (!res.ok && (res.status === 403 || res.status === 429)) {
+    res = await httpGet(url, {
+      accept: "text/html,application/xhtml+xml,*/*",
+      headers: { "user-agent": BROWSER_UA, "accept-language": "en-US,en;q=0.9" },
+    });
+  }
   if (!res.ok) {
     return { text: "", note: `Could not fetch ${url} (status ${res.status}${res.error ? ", " + res.error : ""}).` };
   }
@@ -157,7 +168,9 @@ export function excerptsFromText(
     if (!snippet.trim()) continue;
     items.push({
       source,
-      title,
+      // Disambiguate the second+ excerpt of one page by its line range, so two
+      // excerpts of the same URL don't render identical titles.
+      title: items.length === 0 ? title : `${title} (lines ${start + 1}–${end})`,
       ref: url,
       location: `${url}#~${start + 1}`,
       score: Number((h.cov + 1).toFixed(3)),

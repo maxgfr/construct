@@ -157,6 +157,16 @@ export function checkRun(runDir: string): CheckResult {
   }
   if (srd.functional.length === 0) warnings.push("No functional requirements — the SRD has nothing to build.");
 
+  // Advisory enrichment nudges (never fail the gate): point the author at the
+  // parts a deterministic render leaves generic.
+  const noTrace = srd.functional.filter((fr) => fr.entities.length === 0 && fr.interfaces.length === 0).length;
+  if (noTrace) {
+    warnings.push(`${noTrace} functional requirement(s) have no data/interface traceability — fill DATA-MODEL.md / INTERFACES.md and set FR.entities/interfaces.`);
+  }
+  if (srd.level === "complex" && srd.architecture.dataModel.length === 0) {
+    warnings.push("Data model is empty — a complex SRD should name its core entities.");
+  }
+
   // Required NFR categories for the level.
   const presentCats = new Set(srd.nonFunctional.map((n) => n.category.toLowerCase()));
   for (const cat of REQUIRED_NFR[srd.level]) {

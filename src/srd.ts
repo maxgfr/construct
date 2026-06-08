@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { keywords } from "./util.js";
+import { resolveRepo } from "./clone.js";
 import { SRD_SCHEMA_VERSION } from "./types.js";
 import type {
   Brief,
@@ -27,23 +28,49 @@ function pad4(n: number): string {
   return String(n).padStart(4, "0");
 }
 
+// Evidence sources allowed to ground each claim type. A *functional* requirement
+// can legitimately rest on prior art OR market signal (a competitor offering the
+// feature validates building it). A *non-functional* requirement is a technical
+// quality — marketing pages must not ground it (otherwise a competitor FAQ
+// "grounds" a performance NFR via incidental word overlap).
+const GROUND_REQUIREMENT = ["market", "oss", "docs", "so", "issue", "pr"];
+const GROUND_QUALITY = ["oss", "docs", "so", "issue", "pr"];
+
 // Deterministic keyword-overlap match: return up to `n` evidence ids whose
-// title+snippet share the most keywords with `text`. This auto-attaches the
-// [E#] hooks at render time; the agent refines them during authoring.
+// title+snippet share the most *distinctive* keywords with `text`. Matching is
+// token-set membership (word boundaries, not substring), requires a real overlap
+// (so a single generic token can't ground a claim), and de-duplicates by URL so
+// two excerpts of the same page never both cite.
 export function matchEvidence(text: string, evidence: EvidenceItem[], n: number, onlySources?: string[]): string[] {
   const kws = keywords(text).map((k) => k.toLowerCase());
   if (kws.length === 0) return [];
+  // Require a meaningful overlap: at least min(2, #kw) distinctive tokens AND a
+  // third of the query's tokens. A one-word query (e.g. a competitor name) needs
+  // one hit; a long statement needs several — this drops generic-word noise.
+  const need = Math.min(2, kws.length);
+  const ratioFloor = 0.34;
+
   const scored = evidence
     .filter((e) => !onlySources || onlySources.includes(e.source))
     .map((e) => {
-      const hay = `${e.title} ${e.snippet}`.toLowerCase();
+      const hay = new Set(keywords(`${e.title} ${e.snippet}`).map((k) => k.toLowerCase()));
       let cov = 0;
-      for (const kw of kws) if (hay.includes(kw)) cov++;
-      return { id: e.id, cov, score: e.score };
+      for (const kw of kws) if (hay.has(kw)) cov++;
+      return { id: e.id, url: e.url ?? "", cov, ratio: cov / kws.length, score: e.score };
     })
-    .filter((x) => x.cov > 0)
-    .sort((a, b) => b.cov - a.cov || b.score - a.score || a.id.localeCompare(b.id));
-  return scored.slice(0, n).map((x) => x.id);
+    .filter((x) => x.cov >= need && x.ratio >= ratioFloor)
+    .sort((a, b) => b.cov - a.cov || b.ratio - a.ratio || b.score - a.score || a.id.localeCompare(b.id));
+
+  // De-dupe by canonical URL (keep the highest-ranked excerpt of any one page).
+  const seenUrl = new Set<string>();
+  const out: string[] = [];
+  for (const x of scored) {
+    if (x.url && seenUrl.has(x.url)) continue;
+    if (x.url) seenUrl.add(x.url);
+    out.push(x.id);
+    if (out.length >= n) break;
+  }
+  return out;
 }
 
 // Required NFR categories per level. The hard `check` enforces these are present.
@@ -51,6 +78,26 @@ const REQUIRED_NFR: Record<Level, string[]> = {
   light: ["performance", "security", "reliability"],
   complex: ["performance", "security", "reliability", "usability", "observability", "cost"],
 };
+
+// Keyword signals that link a functional requirement to a non-core NFR category,
+// so the traceability matrix carries real per-FR signal (privacy/a11y stop being
+// orphaned).
+const NFR_SIGNALS: Record<string, RegExp> = {
+  privacy: /privac|gdpr|personal data|consent|self[- ]?host|own (your|the) data|no account/i,
+  accessibility: /accessib|a11y|screen reader|wcag|keyboard/i,
+  security: /auth|login|password|secret|token|encrypt|credential|account/i,
+  performance: /fast|latenc|speed|sub-?second|under \d+ ?(s|sec|second|ms|minute)/i,
+  reliability: /reliab|availab|recover|double-?book|never|busy|conflict|sync/i,
+  observability: /log|metric|trace|monitor|audit/i,
+  usability: /usab|onboard|guest|no account|widget|embed|reminder/i,
+  cost: /cost|budget|cheap|self[- ]?host/i,
+  i18n: /locale|i18n|timezone|language|translat/i,
+};
+
+// Integration nouns that signal an external boundary (used for system context,
+// the FR→data-ADR trace, and failure-path acceptance criteria).
+const INTEGRATION_RE = /calendar|caldav|google|ical|ics|sync|webhook|email|smtp|sms|widget|iframe|embed|oauth|payment|api/i;
+const PERSIST_RE = /persist|store|database|datastore|save|record|booking|event|schedul|inventory|history/i;
 
 const NFR_TEMPLATES: Record<string, { statement: string; metric: string }> = {
   performance: {
@@ -114,13 +161,13 @@ function priorityOf(p: Priority | undefined): Priority {
 }
 
 // Build the in-memory SRD model from a brief + the evidence dossier. Pure and
-// deterministic: same inputs → same output (no timestamps in the body; the
-// caller stamps generatedAt). This is the keystone the renderer and `check`
-// both rely on.
+// deterministic. The caller stamps generatedAt.
 export function buildSRD(brief: Brief, evidence: EvidenceItem[], opts: { level: Level; generatedAt: string }): SRD {
   const level = opts.level;
   const productName = brief.product.name || titleFromIdea(brief.idea);
-  const userLabel = brief.product.users?.[0] || "user";
+  const compliance = brief.constraints.compliance ?? [];
+  const selfHost = /self[- ]?host|privacy|gdpr|own (your|the) data/i.test(`${brief.idea} ${brief.product.valueProp ?? ""}`) || compliance.length > 0;
+  const timeGoal = timeTokenFromGoals(brief.goals);
 
   // --- Non-functional requirements: required core + brief priorities. -------
   const categories: string[] = [];
@@ -131,117 +178,153 @@ export function buildSRD(brief: Brief, evidence: EvidenceItem[], opts: { level: 
   }
   const nonFunctional: NFR[] = categories.map((cat, i) => {
     const t = nfrFor(cat);
+    const metric = specialiseMetric(cat, t.metric, { compliance, selfHost, timeGoal });
+    const statement = specialiseStatement(cat, t.statement, { compliance, selfHost });
     return {
       id: `NFR-${pad3(i + 1)}`,
       category: cat,
-      statement: t.statement,
-      metric: t.metric,
-      rationaleEvidence: matchEvidence(`${cat} ${t.statement}`, evidence, 1),
+      statement,
+      metric,
+      // Ground over the *specialised* text + distinctive brief facts (CalDAV,
+      // GDPR…), restricted to authoritative sources (no marketing pages).
+      rationaleEvidence: matchEvidence(`${cat} ${statement} ${brief.candidateTech.join(" ")} ${compliance.join(" ")}`, evidence, 1, GROUND_QUALITY),
     };
   });
-  // The core NFR ids every functional requirement is expected to honour.
-  const coreNfrIds = nonFunctional
-    .filter((n) => REQUIRED_NFR.light.includes(n.category.toLowerCase()))
-    .map((n) => n.id);
-
-  // --- Functional requirements from the feature wishlist. -------------------
-  const functional: FR[] = brief.featureWishlist.map((f, i) => {
-    const priority = priorityOf(f.priority);
-    const acceptance = [
-      {
-        given: `${productName} is available to a ${userLabel}`,
-        when: `they ${lowerFirst(f.title)}`,
-        then: `the system fulfils the requirement and reflects the result`,
-      },
-      ...(level === "complex"
-        ? [
-            {
-              given: `a ${userLabel} attempts to ${lowerFirst(f.title)} with invalid or missing input`,
-              when: `the action is submitted`,
-              then: `the system rejects it with a clear, actionable error and no side effects`,
-            },
-          ]
-        : []),
-    ];
-    return {
-      id: `FR-${pad3(i + 1)}`,
-      title: f.title,
-      description: f.notes?.trim() || `The product lets a ${userLabel} ${lowerFirst(f.title)}.`,
-      priority,
-      acceptance,
-      rationaleEvidence: matchEvidence(`${f.title} ${f.notes ?? ""}`, evidence, 2),
-      entities: [],
-      interfaces: [],
-      nfrs: coreNfrIds,
-      unresolved: false,
-    };
-  });
+  const coreNfrIds = nonFunctional.filter((n) => REQUIRED_NFR.light.includes(n.category.toLowerCase())).map((n) => n.id);
 
   // --- Architecture decision records. --------------------------------------
   const adrs: ADR[] = [];
   const stack = brief.candidateTech.length ? brief.candidateTech.join(", ") : "a stack to be selected";
   adrs.push({
-    id: pad4(1),
+    id: "",
     title: "Primary technology stack",
     status: brief.candidateTech.length ? "accepted" : "proposed",
     context: `Building "${productName}" requires a stack that fits the team (${brief.constraints.team || "to be defined"}) and timeline (${brief.constraints.timeline || "to be defined"}).`,
     decision: `Adopt ${stack} as the primary stack for the initial build.`,
     consequences: `The team commits to ${stack}; hiring, tooling and operational knowledge align to it. Revisit if a hard requirement is unmet.`,
-    alternatives: brief.competitors.length
-      ? `Stacks observed in comparable products: ${brief.competitors.join(", ")}.`
+    alternatives: brief.candidateTech.length
+      ? "No explicit alternative stack was provided in the brief; evaluate one comparable option before locking this in."
       : "Alternative stacks were considered but not selected.",
     evidence: matchEvidence(`${stack} architecture stack`, evidence, 2, ["docs", "oss", "so"]),
   });
-  if (level === "complex") {
+  if (selfHost) {
     adrs.push({
-      id: pad4(2),
-      title: "Data persistence and integration approach",
-      status: "proposed",
-      context: `"${productName}" must persist state and integrate with external services reliably.`,
-      decision: "Use a single primary datastore with explicit, versioned integration boundaries.",
-      consequences: "A clear data ownership model; integrations are testable in isolation. Cross-service consistency must be designed explicitly.",
-      alternatives: "A polyglot-persistence or event-sourced approach was considered; deferred until scale demands it.",
-      evidence: matchEvidence("database persistence integration", evidence, 2, ["docs", "oss", "so"]),
+      id: "",
+      title: "Self-hosting and data-ownership model",
+      status: "accepted",
+      context: `"${productName}" is positioned as privacy-first / self-hostable${compliance.length ? ` and must satisfy: ${compliance.join(", ")}` : ""}.`,
+      decision: "Ship as a self-hostable deployment where the host owns all data; no user data is sent to a third-party service by default.",
+      consequences: "Data residency and compliance become the host's responsibility (a feature, not a liability); the product must run with no mandatory external dependencies and document its data flows.",
+      alternatives: "A hosted multi-tenant SaaS was considered but rejected as it conflicts with the privacy/data-ownership value proposition.",
+      evidence: matchEvidence(`self-host privacy data ownership ${compliance.join(" ")}`, evidence, 2, GROUND_QUALITY),
     });
   }
-
-  // --- Competitive landscape. ----------------------------------------------
-  const competitors: CompetitorRow[] = brief.competitors.map((name) => ({
-    name,
-    note: `Comparable product / alternative to "${productName}".`,
-    evidence: matchEvidence(name, evidence, 2, ["market"]),
-  }));
-  const ossEvidence = evidence.filter((e) => e.source === "oss" || e.source === "issue" || e.source === "pr");
-  const ossByRef = new Map<string, OssRow>();
-  for (const seed of brief.ossSeeds) {
-    ossByRef.set(seed, { name: seed, url: /^https?:/.test(seed) ? seed : undefined, note: "Seed OSS project to mine for prior art.", evidence: matchEvidence(seed, evidence, 2) });
+  const integrates = brief.featureWishlist.some((f) => INTEGRATION_RE.test(`${f.title} ${f.notes ?? ""}`)) || INTEGRATION_RE.test(brief.idea);
+  if (level === "complex" && (PERSIST_RE.test(briefText(brief)) || integrates)) {
+    adrs.push({
+      id: "",
+      title: "Data persistence and integration approach",
+      status: "proposed",
+      context: `"${productName}" must persist state and integrate with external services (${brief.candidateTech.filter((t) => INTEGRATION_RE.test(t)).join(", ") || "calendar/email and similar"}) reliably.`,
+      decision: "Use a single primary datastore with explicit, versioned integration boundaries for each external service.",
+      consequences: "A clear data-ownership model; integrations are testable in isolation behind an adapter. Cross-service consistency must be designed explicitly.",
+      alternatives: "A polyglot-persistence or event-sourced approach was considered; deferred until scale demands it.",
+      evidence: matchEvidence(`${brief.candidateTech.join(" ")} database persistence integration`, evidence, 2, ["docs", "oss", "so"]),
+    });
   }
-  for (const e of ossEvidence.filter((x) => x.source === "oss")) {
-    if (!ossByRef.has(e.ref)) {
-      ossByRef.set(e.ref, { name: e.title.replace(/ —.*$/, ""), url: e.url, note: "Comparable open-source project (prior art).", evidence: [e.id] });
+  adrs.forEach((a, i) => (a.id = pad4(i + 1)));
+  const stackAdrId = adrs[0]!.id;
+  const dataAdr = adrs.find((a) => /persistence|integration/i.test(a.title));
+  const privacyAdr = adrs.find((a) => /self-hosting|data-ownership/i.test(a.title));
+
+  // --- Functional requirements from the feature wishlist. -------------------
+  const functional: FR[] = brief.featureWishlist.map((f, i) => {
+    const priority = priorityOf(f.priority);
+    const text = `${f.title} ${f.notes ?? ""}`;
+    const touchesIntegration = INTEGRATION_RE.test(text);
+    const outcome = concreteOutcome(f.title, f.notes);
+    const acceptance = [
+      {
+        given: `${productName} is available to a user`,
+        when: `they ${lowerFirst(f.title)}`,
+        then: outcome,
+      },
+      ...(level === "complex"
+        ? [failurePath(f.title, touchesIntegration)]
+        : []),
+    ];
+    // Per-FR NFR linkage: the required core + any non-core NFR the FR's text
+    // signals (so privacy/a11y/etc. stop being orphaned).
+    const nfrs = [...coreNfrIds];
+    for (const n of nonFunctional) {
+      if (coreNfrIds.includes(n.id)) continue;
+      const sig = NFR_SIGNALS[n.category.toLowerCase()];
+      if (sig && sig.test(text)) nfrs.push(n.id);
     }
+    return {
+      id: `FR-${pad3(i + 1)}`,
+      title: f.title,
+      description: f.notes?.trim() || `The product lets a user ${lowerFirst(f.title)}.`,
+      priority,
+      acceptance,
+      rationaleEvidence: matchEvidence(text, evidence, 2, GROUND_REQUIREMENT),
+      entities: [],
+      interfaces: [],
+      nfrs,
+      unresolved: false,
+    };
+  });
+
+  // --- Competitive landscape (notes derived from the matched evidence). -----
+  const evById = new Map(evidence.map((e) => [e.id, e]));
+  const competitors: CompetitorRow[] = brief.competitors.map((name) => {
+    const ev = matchEvidence(name, evidence, 2, ["market"]);
+    return { name, note: noteFrom(ev, evById) || `Comparable product / alternative to "${productName}".`, evidence: ev };
+  });
+  const ossByKey = new Map<string, OssRow>();
+  const keyOf = (s: string) => {
+    try {
+      return resolveRepo(s).slug;
+    } catch {
+      return s.toLowerCase();
+    }
+  };
+  for (const seed of brief.ossSeeds) {
+    const ref = resolveRepo(seed);
+    const label = ref.owner && ref.repo ? `${ref.owner}/${ref.repo}` : seed;
+    const ev = matchEvidence(`${ref.owner ?? ""} ${ref.repo ?? ""}`.trim() || seed, evidence, 2, ["oss", "issue", "pr"]);
+    ossByKey.set(keyOf(seed), { name: label, url: ref.webUrl ?? (/^https?:/.test(seed) ? seed : undefined), note: noteFrom(ev, evById) || "Seed OSS project mined for prior art.", evidence: ev });
   }
-  const oss: OssRow[] = [...ossByRef.values()];
+  for (const e of evidence.filter((x) => x.source === "oss")) {
+    const k = keyOf(e.ref);
+    if (ossByKey.has(k)) {
+      if (!ossByKey.get(k)!.evidence.includes(e.id)) ossByKey.get(k)!.evidence.push(e.id);
+      continue;
+    }
+    ossByKey.set(k, { name: e.title.replace(/ —.*$/, ""), url: e.url, note: firstSentence(e.snippet) || "Comparable open-source project (prior art).", evidence: [e.id] });
+  }
+  const oss = [...ossByKey.values()];
 
-  // --- Build plan: milestones grouped by priority. -------------------------
-  const buildPlan: Milestone[] = buildMilestones(functional);
+  // --- Build plan: milestones grouped by priority, risks from prior art. ----
+  const buildPlan = buildMilestones(functional, brief, evidence, evById);
 
-  // --- Traceability matrix. ------------------------------------------------
-  const traceability: TraceRow[] = functional.map((fr) => ({
-    fr: fr.id,
-    nfrs: fr.nfrs,
-    adrs: [adrs[0]!.id],
-    entities: fr.entities,
-    interfaces: fr.interfaces,
-  }));
+  // --- Traceability matrix (per-FR NFRs + the ADRs the FR actually touches). -
+  const traceability: TraceRow[] = functional.map((fr) => {
+    const text = `${fr.title} ${fr.description}`;
+    const adrIds = [stackAdrId];
+    if (dataAdr && (PERSIST_RE.test(text) || INTEGRATION_RE.test(text))) adrIds.push(dataAdr.id);
+    if (privacyAdr && NFR_SIGNALS.privacy!.test(text)) adrIds.push(privacyAdr.id);
+    return { fr: fr.id, nfrs: fr.nfrs, adrs: adrIds, entities: fr.entities, interfaces: fr.interfaces };
+  });
 
-  // --- Evidence index: every [E#] the SRD references. ----------------------
+  // --- Evidence index. -----------------------------------------------------
   const referenced = new Set<string>();
   for (const fr of functional) fr.rationaleEvidence.forEach((id) => referenced.add(id));
   for (const n of nonFunctional) n.rationaleEvidence.forEach((id) => referenced.add(id));
   for (const a of adrs) a.evidence.forEach((id) => referenced.add(id));
   for (const c of competitors) c.evidence.forEach((id) => referenced.add(id));
   for (const o of oss) o.evidence.forEach((id) => referenced.add(id));
+  for (const m of buildPlan) (m.risks ?? []).forEach((r) => citationsIn(r).forEach((id) => referenced.add(id)));
   const evidenceIndex = [...referenced].sort((a, b) => evNum(a) - evNum(b));
 
   return {
@@ -271,21 +354,74 @@ export function buildSRD(brief: Brief, evidence: EvidenceItem[], opts: { level: 
   };
 }
 
-function buildMilestones(functional: FR[]): Milestone[] {
+// A concrete positive-path outcome: prefer a real clause from the notes; never
+// emit the old tautology.
+function concreteOutcome(title: string, notes?: string): string {
+  const n = (notes ?? "").trim();
+  const m = /\b(never|always|so that|so it|must|guarantee[sd]?|without|in under [^.]+)\b[^.]*/i.exec(n);
+  if (m) {
+    const clause = m[0].trim().replace(/[,;]$/, "");
+    return `the action succeeds and ${lowerFirst(clause)}`;
+  }
+  return `the result of "${title.toLowerCase()}" is persisted and visible to the user`;
+}
+
+// A failure-path criterion, made concrete for external-integration features.
+function failurePath(title: string, integration: boolean): { given: string; when: string; then: string } {
+  if (integration) {
+    return {
+      given: `the external service required by "${title.toLowerCase()}" is unreachable or rejects the request`,
+      when: `a user performs the action`,
+      then: `the system surfaces a clear, specific error and makes no partial or inconsistent change`,
+    };
+  }
+  return {
+    given: `a user submits invalid or missing input for "${title.toLowerCase()}"`,
+    when: `the action is submitted`,
+    then: `the system rejects it with a clear, actionable error and no side effects`,
+  };
+}
+
+function specialiseMetric(cat: string, base: string, ctx: { compliance: string[]; selfHost: boolean; timeGoal?: string }): string {
+  const c = cat.toLowerCase();
+  if ((c === "performance" || c === "usability") && ctx.timeGoal) {
+    return `${base} Honour the product goal: ${ctx.timeGoal}.`;
+  }
+  if ((c === "privacy" || c === "security") && ctx.compliance.length) {
+    return `${base} Comply with: ${ctx.compliance.join(", ")}.`;
+  }
+  return base;
+}
+
+function specialiseStatement(cat: string, base: string, ctx: { compliance: string[]; selfHost: boolean }): string {
+  const c = cat.toLowerCase();
+  if ((c === "privacy" || c === "security") && ctx.selfHost) {
+    return `${base} No personal data leaves the self-hosted instance unless the host configures it.`;
+  }
+  return base;
+}
+
+function buildMilestones(functional: FR[], brief: Brief, evidence: EvidenceItem[], evById: Map<string, EvidenceItem>): Milestone[] {
   const groups: { key: Priority; title: string; outcome: string }[] = [
     { key: "must", title: "M1 — Walking skeleton (must-haves)", outcome: "A usable end-to-end slice covering every must-have requirement." },
     { key: "should", title: "M2 — Rounded product (should-haves)", outcome: "The product is complete enough for real users." },
     { key: "could", title: "M3 — Enhancements (could-haves)", outcome: "Nice-to-have capabilities that differentiate the product." },
   ];
+  const priorPitfalls = evidence.filter((e) => e.source === "issue" || e.source === "pr");
   const out: Milestone[] = [];
   for (const g of groups) {
-    const frIds = functional.filter((f) => f.priority === g.key).map((f) => f.id);
-    if (frIds.length === 0) continue;
-    out.push({ title: g.title, outcome: g.outcome, frIds, risks: [] });
+    const frs = functional.filter((f) => f.priority === g.key);
+    if (frs.length === 0) continue;
+    const risks: string[] = [];
+    const text = frs.map((f) => `${f.title} ${f.description}`).join(" ");
+    const matched = matchEvidence(text, priorPitfalls, 2);
+    for (const id of matched) {
+      const e = evById.get(id);
+      if (e) risks.push(`Prior art shows a related pitfall: ${firstSentence(e.title)} [${id}]`);
+    }
+    out.push({ title: g.title, outcome: g.outcome, frIds: frs.map((f) => f.id), risks });
   }
-  if (out.length === 0) {
-    out.push({ title: "M1 — Initial build", outcome: "Deliver the first usable version.", frIds: functional.map((f) => f.id), risks: [] });
-  }
+  if (out.length === 0) out.push({ title: "M1 — Initial build", outcome: "Deliver the first usable version.", frIds: functional.map((f) => f.id), risks: [] });
   return out;
 }
 
@@ -299,9 +435,61 @@ function deriveAssumptions(brief: Brief): string[] {
   return a;
 }
 
+// Enumerate the real external boundaries named in the brief, instead of a bare
+// forward-reference.
 function contextProse(name: string, brief: Brief): string {
-  const integrations = brief.candidateTech.length ? ` It is expected to build on ${brief.candidateTech.join(", ")}.` : "";
-  return `"${name}" is a new product that ${lowerFirst(brief.idea)}.${integrations} External services and integration boundaries are defined in the ADRs and refined during authoring.`;
+  const actors = brief.product.users?.length ? brief.product.users : ["users"];
+  const haystack = `${brief.idea} ${brief.candidateTech.join(" ")} ${brief.featureWishlist.map((f) => `${f.title} ${f.notes ?? ""}`).join(" ")}`;
+  const boundaries: string[] = [];
+  const add = (re: RegExp, label: string) => {
+    if (re.test(haystack) && !boundaries.includes(label)) boundaries.push(label);
+  };
+  add(/calendar|caldav|ical|ics/i, "calendar systems (CalDAV/iCal)");
+  add(/google/i, "Google APIs");
+  add(/email|smtp/i, "an email/SMTP provider");
+  add(/sms|twilio/i, "an SMS provider");
+  add(/widget|iframe|embed/i, "external host sites (embed/iframe)");
+  add(/payment|stripe|billing/i, "a payments provider");
+  add(/webhook/i, "outbound webhooks");
+  const stack = brief.candidateTech.length ? ` Built on ${brief.candidateTech.join(", ")}.` : "";
+  const ext = boundaries.length ? ` It integrates with: ${boundaries.join("; ")}.` : "";
+  return `"${name}" serves ${actors.join(", ")}.${stack}${ext} Each integration boundary is owned by an ADR and detailed in INTERFACES.md during authoring.`;
+}
+
+function noteFrom(ids: string[], evById: Map<string, EvidenceItem>): string | undefined {
+  for (const id of ids) {
+    const e = evById.get(id);
+    const s = e ? firstSentence(e.snippet) : "";
+    if (s) return s;
+  }
+  return undefined;
+}
+
+function firstSentence(s: string): string {
+  const clean = s.replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  const m = /^(.{20,200}?[.!?])(\s|$)/.exec(clean);
+  return (m ? m[1]! : clean.slice(0, 160)).trim();
+}
+
+function timeTokenFromGoals(goals: string[]): string | undefined {
+  for (const g of goals) {
+    const m = /\b(?:in |under |within )?(\d+)\s*(seconds?|secs?|minutes?|mins?|hours?)\b/i.exec(g);
+    if (m) return `complete the primary task in under ${m[1]} ${m[2]!.toLowerCase()}`;
+  }
+  return undefined;
+}
+
+function briefText(brief: Brief): string {
+  return `${brief.idea} ${brief.product.problem ?? ""} ${brief.featureWishlist.map((f) => `${f.title} ${f.notes ?? ""}`).join(" ")}`;
+}
+
+function citationsIn(s: string): string[] {
+  const out: string[] = [];
+  const re = /\[(E\d+)\]/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s))) out.push(m[1]!);
+  return out;
 }
 
 function titleFromIdea(idea: string): string {
