@@ -1,0 +1,52 @@
+[
+  {
+    "id": "E1",
+    "source": "market",
+    "title": "Web — Pocket vs Instapaper vs Omnivore comparison",
+    "ref": "https://example.com/read-later-comparison",
+    "location": "https://example.com/read-later-comparison#~12",
+    "score": 3,
+    "snippet": "Pocket and Instapaper are hosted read-it-later services; Omnivore is the open-source self-hosted alternative with full-text search and tagging.",
+    "url": "https://example.com/read-later-comparison"
+  },
+  {
+    "id": "E2",
+    "source": "oss",
+    "title": "omnivore-app/omnivore — prior art",
+    "ref": "omnivore-app/omnivore",
+    "location": "https://github.com/omnivore-app/omnivore",
+    "score": 1200,
+    "snippet": "Languages: ts:800, tsx:200. A self-hosted read-it-later app: save articles, full-text search, tagging, mobile reading.",
+    "url": "https://github.com/omnivore-app/omnivore"
+  },
+  {
+    "id": "E3",
+    "source": "docs",
+    "title": "Docs — Meilisearch typo tolerance",
+    "ref": "https://www.meilisearch.com/docs",
+    "location": "https://www.meilisearch.com/docs#~40",
+    "score": 2,
+    "snippet": "Meilisearch provides sub-second full-text search with built-in typo tolerance and relevancy ranking out of the box.",
+    "url": "https://www.meilisearch.com/docs"
+  },
+  {
+    "id": "E4",
+    "source": "so",
+    "title": "Best way to extract clean readable content from a URL",
+    "ref": "so:5551212",
+    "location": "https://stackoverflow.com/q/5551212",
+    "score": 47,
+    "snippet": "score: 47 · answered · answers: 6 · tags: readability, scraping\n\nUse a Readability-style extractor to pull the article body from a saved URL.",
+    "url": "https://stackoverflow.com/q/5551212"
+  },
+  {
+    "id": "E5",
+    "source": "issue",
+    "title": "#1421 Importing a large Pocket export times out [open]",
+    "ref": "issue#1421",
+    "location": "https://github.com/omnivore-app/omnivore/issues/1421",
+    "score": 0,
+    "snippet": "state: open · labels: import\n\nImporting a large Pocket export of saved articles times out; needs batching.",
+    "url": "https://github.com/omnivore-app/omnivore/issues/1421"
+  }
+]

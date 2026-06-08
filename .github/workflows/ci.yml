@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [24]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm run typecheck
+      - name: Build is reproducible
+        run: pnpm run check:build
+      - name: Test
+        run: pnpm test
+      - name: Smoke-run the committed bundle (offline render + check)
+        run: pnpm run demo
+      - name: Assert the SRD was produced and is structurally complete
+        run: |
+          test -f /tmp/construct-demo/SRD.json
+          test -f /tmp/construct-demo/requirements/FUNCTIONAL.md
+          test -f /tmp/construct-demo/SRD.md
+
+  runtime-node-floor:
+    runs-on: ubuntu-latest
+    name: runtime (Node 18 floor, zero-dep bundle)
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 18
+      - name: The committed bundle renders + checks an SRD on Node 18 (no install)
+        run: |
+          mkdir -p "$RUNNER_TEMP/run18/evidence"
+          cp tests/fixtures/sample-brief.json "$RUNNER_TEMP/run18/brief.json"
+          cp tests/fixtures/sample-evidence.json "$RUNNER_TEMP/run18/evidence/evidence.json"
+          node scripts/construct.mjs render --out "$RUNNER_TEMP/run18" --level complex --merge
+          node scripts/construct.mjs check --out "$RUNNER_TEMP/run18"
+          test -f "$RUNNER_TEMP/run18/SRD.json"
+          test -f "$RUNNER_TEMP/run18/TRACEABILITY.md"
