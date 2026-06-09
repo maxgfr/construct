@@ -7,7 +7,7 @@ import { pathToFileURL, fileURLToPath as fileURLToPath2 } from "url";
 import { realpathSync } from "fs";
 
 // src/types.ts
-var VERSION = "1.0.1";
+var VERSION = "1.0.2";
 var ALL_SOURCE_KINDS = [
   "market",
   "oss",
