@@ -8,12 +8,20 @@ import { stackoverflow } from "./stackoverflow.js";
 //   (b) mines StackOverflow for the known pitfalls of that technology.
 // Emits `docs` + `so` evidence the ADRs and NFRs can cite.
 export async function techAngle(ctx: ResearchContext): Promise<SourceResult[]> {
-  const techs = ctx.brief.candidateTech.slice(0, 3);
+  // Bound the run to the first few technologies; surface the cap honestly rather
+  // than silently dropping the rest of the user's candidateTech list.
+  const allTechs = ctx.brief.candidateTech;
+  const techs = allTechs.slice(0, 3);
   const ideaKw = ctx.query || ctx.brief.idea;
 
   // --- docs: official documentation of each candidate technology. ----------
   const docItems: RawItem[] = [];
   const docNotes: string[] = [];
+  if (allTechs.length > techs.length) {
+    docNotes.push(
+      `Only the first ${techs.length} of ${allTechs.length} candidate technologies were grounded; skipped: ${allTechs.slice(techs.length).join(", ")}. Drill them with \`construct tech --out <run> --q "<tech>"\`.`,
+    );
+  }
   for (const tech of techs) {
     const q = `${tech} official documentation`;
     const { urls, via, notes } = await discover(q, ctx.webEngine, ctx.perSource);

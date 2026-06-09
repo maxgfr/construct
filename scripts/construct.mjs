@@ -1092,10 +1092,16 @@ ${body || "(no body)"}`,
 
 // src/research/tech.ts
 async function techAngle(ctx) {
-  const techs = ctx.brief.candidateTech.slice(0, 3);
+  const allTechs = ctx.brief.candidateTech;
+  const techs = allTechs.slice(0, 3);
   const ideaKw = ctx.query || ctx.brief.idea;
   const docItems = [];
   const docNotes = [];
+  if (allTechs.length > techs.length) {
+    docNotes.push(
+      `Only the first ${techs.length} of ${allTechs.length} candidate technologies were grounded; skipped: ${allTechs.slice(techs.length).join(", ")}. Drill them with \`construct tech --out <run> --q "<tech>"\`.`
+    );
+  }
   for (const tech of techs) {
     const q = `${tech} official documentation`;
     const { urls, via, notes } = await discover(q, ctx.webEngine, ctx.perSource);
@@ -2029,6 +2035,8 @@ function renderSRD(brief, evidence, opts) {
   files.push("SRD.json");
   if (opts.merge) {
     writeFile(out, "SRD.md", renderMergeBundle(srd), files);
+  } else {
+    rmSync2(join8(out, "SRD.md"), { force: true });
   }
   return { dir: out, files, srd };
 }
@@ -2177,7 +2185,9 @@ function checkRun(runDir) {
     for (const i of fr.interfaces) if (!interfaceNames.has(i)) errors.push(`${fr.id} references unknown interface "${i}".`);
     for (const n of fr.nfrs) if (!nfrIds.has(n)) errors.push(`${fr.id} references unknown NFR "${n}".`);
   }
-  if (srd.functional.length === 0) warnings.push("No functional requirements \u2014 the SRD has nothing to build.");
+  if (srd.functional.length === 0) {
+    errors.push("No functional requirements \u2014 an SRD must specify at least one. Capture features in the brief (featureWishlist) and re-render.");
+  }
   const noTrace = srd.functional.filter((fr) => fr.entities.length === 0 && fr.interfaces.length === 0).length;
   if (noTrace) {
     warnings.push(`${noTrace} functional requirement(s) have no data/interface traceability \u2014 fill DATA-MODEL.md / INTERFACES.md and set FR.entities/interfaces.`);

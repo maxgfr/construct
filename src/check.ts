@@ -170,7 +170,14 @@ export function checkRun(runDir: string): CheckResult {
     for (const i of fr.interfaces) if (!interfaceNames.has(i)) errors.push(`${fr.id} references unknown interface "${i}".`);
     for (const n of fr.nfrs) if (!nfrIds.has(n)) errors.push(`${fr.id} references unknown NFR "${n}".`);
   }
-  if (srd.functional.length === 0) warnings.push("No functional requirements — the SRD has nothing to build.");
+  // Zero FRs is a HARD failure, not a nudge: the gate certifies a *buildable*
+  // SRD, and a document with nothing to build is incomplete by definition. It
+  // also keeps the gate consistent — one FR missing acceptance criteria fails,
+  // so an SRD missing every FR must fail too (else the SKILL.md "loop until
+  // check passes" terminates on an empty scaffold).
+  if (srd.functional.length === 0) {
+    errors.push("No functional requirements — an SRD must specify at least one. Capture features in the brief (featureWishlist) and re-render.");
+  }
 
   // Advisory enrichment nudges (never fail the gate): point the author at the
   // parts a deterministic render leaves generic.

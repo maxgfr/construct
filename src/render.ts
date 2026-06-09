@@ -72,6 +72,12 @@ export function renderSRD(brief: Brief, evidence: EvidenceItem[], opts: RenderOp
 
   if (opts.merge) {
     writeFile(out, "SRD.md", renderMergeBundle(srd), files);
+  } else {
+    // A prior `--merge` run may have left an SRD.md behind. Drop it on a
+    // non-merge re-render — same hygiene as the decisions dir above — so the
+    // tree stays the single source of truth and `check` never validates a stale
+    // bundle (e.g. an old 🧠 the current render already resolved).
+    rmSync(join(out, "SRD.md"), { force: true });
   }
 
   return { dir: out, files, srd };

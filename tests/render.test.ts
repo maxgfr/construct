@@ -87,6 +87,17 @@ describe("renderSRD", () => {
     expect(existsSync(stale)).toBe(false);
   });
 
+  it("drops a stale SRD.md from a prior --merge run when re-rendering without --merge", () => {
+    const out = freshDir();
+    // First render WITH merge (and an open question, so SRD.md carries a 🧠).
+    renderSRD({ ...brief, openQuestions: ["Pick a license model"] }, evidence, { level: "complex", out, merge: true, generatedAt: "T" });
+    expect(existsSync(join(out, "SRD.md"))).toBe(true);
+    // Re-render WITHOUT merge and with the decision resolved — the stale bundle
+    // must not linger for `check` to flag.
+    renderSRD(brief, evidence, { level: "light", out, merge: false, generatedAt: "T" });
+    expect(existsSync(join(out, "SRD.md"))).toBe(false);
+  });
+
   it("is byte-deterministic for the same inputs and generatedAt", () => {
     const a = freshDir();
     const b = freshDir();

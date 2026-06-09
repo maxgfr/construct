@@ -79,9 +79,9 @@ loop to completion; only pause to ask the user a real decision.
 
 5. **Validate (two layers).**
    - *Structural (hard):* `node scripts/construct.mjs check --out <run>`. It
-     fails on any unresolved `🧠`/TODO, an FR with no acceptance criteria, a
-     dangling entity/interface/NFR reference, a missing required NFR category, or
-     a malformed ADR. Fix until it passes.
+     fails on any unresolved `🧠`, no functional requirements at all, an FR with
+     no acceptance criteria, a dangling entity/interface/NFR reference, a missing
+     required NFR category, or a malformed ADR. Fix until it passes.
    - *Grounding (advisory):* the same command prints coverage — what fraction of
      requirements/decisions cite evidence. Raise it where it matters (the load-
      bearing decisions); see `references/grounding-coverage.md`. It never fails

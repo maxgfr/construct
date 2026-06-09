@@ -80,6 +80,12 @@ describe("checkRun — hard structural gate", () => {
     expect(r.ok).toBe(false);
     expect(r.structural.errors.join(" ")).toMatch(/Missing required NFR category.*usability/);
   });
+
+  it("fails when the SRD has no functional requirements (nothing to build)", () => {
+    const r = checkRun(renderRun({ briefOverride: { featureWishlist: [] } }));
+    expect(r.ok).toBe(false);
+    expect(r.structural.errors.join(" ")).toMatch(/no functional requirements/i);
+  });
 });
 
 describe("checkRun — advisory grounding (never fails the build)", () => {

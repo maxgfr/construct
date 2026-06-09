@@ -43,4 +43,12 @@ describe("techAngle StackOverflow", () => {
     expect(so!.items.length).toBe(3); // distinct question ids, deduped by ref
     expect(docs!.source).toBe("docs");
   });
+
+  it("notes honestly when candidateTech is capped beyond the first three", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => fail())); // no docs/SO results
+    const [docs] = await techAngle(ctx(["Next.js", "PostgreSQL", "Prisma", "Redis", "Kafka"]));
+    const notes = docs!.notes.join(" ");
+    expect(notes).toMatch(/Only the first 3 of 5 candidate technologies/);
+    expect(notes).toMatch(/Redis, Kafka/);
+  });
 });
