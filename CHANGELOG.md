@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+## [1.0.1](https://github.com/maxgfr/construct/compare/v1.0.0...v1.0.1) (2026-06-09)
+
+
+### Bug Fixes
+
+* resolve 24 correctness bugs from the adversarial bug hunt ([f610c20](https://github.com/maxgfr/construct/commit/f610c202030ab28297c5aea9750f93f850565756))
+
 # 1.0.0 (2026-06-08)
 
 
