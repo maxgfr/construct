@@ -56,4 +56,13 @@ describe("htmlToText", () => {
   it("strips tags and decodes entities", () => {
     expect(htmlToText("<p>a &amp; b</p>")).toBe("a & b");
   });
+  it("decodes each entity exactly once (no double-decode of &amp;lt;)", () => {
+    expect(htmlToText("&amp;lt;")).toBe("&lt;");
+  });
+  it("decodes hex and decimal numeric entities", () => {
+    expect(htmlToText("&#x41;&#66;")).toBe("AB");
+  });
+  it("puts unclosed <li> items on their own lines", () => {
+    expect(htmlToText("<ul><li>first<li>second<li>third</ul>").split("\n")).toEqual(["first", "second", "third"]);
+  });
 });

@@ -1,4 +1,4 @@
-import { readdirSync, statSync, readFileSync } from "node:fs";
+import { readdirSync, lstatSync, readFileSync } from "node:fs";
 import { join, relative, sep, extname } from "node:path";
 
 // Directories that never carry signal for a documentation/code question and
@@ -60,7 +60,9 @@ export function walk(root: string, opts: WalkOptions = {}): WalkedFile[] {
       const abs = join(dir, name);
       let st;
       try {
-        st = statSync(abs);
+        // lstat (not stat) so symlinks report as symlinks: a symlinked dir is
+        // neither isDirectory nor isFile here, so it is skipped — no clone loops.
+        st = lstatSync(abs);
       } catch {
         continue;
       }

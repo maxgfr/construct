@@ -39,6 +39,17 @@ describe("normalizeBrief", () => {
     expect(b.candidateTech).toEqual([]);
     expect(b.product).toEqual({ name: undefined, problem: undefined, users: [], valueProp: undefined });
   });
+
+  it("collapses internal whitespace/newlines on free text (blocks markdown injection)", () => {
+    const b = normalizeBrief({
+      idea: "an  app",
+      featureWishlist: [{ title: "Do a thing\n# Fake heading\n- fake item", priority: "must" }],
+      competitors: ["A | B"],
+    });
+    expect(b.featureWishlist[0]!.title).toBe("Do a thing # Fake heading - fake item");
+    expect(b.featureWishlist[0]!.title).not.toContain("\n");
+    expect(b.idea).toBe("an app");
+  });
 });
 
 describe("validateBrief", () => {

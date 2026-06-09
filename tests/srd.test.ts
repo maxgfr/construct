@@ -106,6 +106,23 @@ describe("buildSRD", () => {
     expect(rows[0]!.evidence).toContain("E1");
   });
 
+  it("derives a concrete acceptance outcome from the notes without a double-modal or leaked ';'", () => {
+    const b: Brief = { ...brief, featureWishlist: [{ title: "User login", priority: "must", notes: "The user must authenticate with email and password." }] };
+    const then = buildSRD(b, evidence, { level: "light", generatedAt: "T" }).functional[0]!.acceptance[0]!.then;
+    expect(then).toMatch(/authenticate with email and password/);
+    expect(then).not.toMatch(/and must authenticate/); // no double-modal
+    const b2: Brief = { ...brief, featureWishlist: [{ title: "Durability", priority: "must", notes: "Data is always consistent; durable." }] };
+    const then2 = buildSRD(b2, evidence, { level: "light", generatedAt: "T" }).functional[0]!.acceptance[0]!.then;
+    expect(then2).not.toContain(";"); // the mid-string ';' must not leak
+  });
+
+  it("keeps a genuinely short first sentence in OSS notes (does not merge sentences)", () => {
+    const ev = [{ id: "E1", source: "oss", title: "acme/widget — prior art", ref: "acme/widget", url: "https://github.com/acme/widget", score: 5, snippet: "It is fast. The internals use a custom index for full-text search." }] as EvidenceItem[];
+    const b: Brief = { ...brief, ossSeeds: [] };
+    const note = buildSRD(b, ev, { level: "light", generatedAt: "T" }).competitive.oss[0]!.note;
+    expect(note).toBe("It is fast.");
+  });
+
   it("specialises NFR metrics from the brief (compliance + time goals)", () => {
     const srd = buildSRD(brief, evidence, { level: "complex", generatedAt: "T" });
     const security = srd.nonFunctional.find((n) => n.category === "security")!;

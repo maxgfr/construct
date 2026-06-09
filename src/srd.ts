@@ -358,11 +358,16 @@ export function buildSRD(brief: Brief, evidence: EvidenceItem[], opts: { level: 
 // emit the old tautology.
 function concreteOutcome(title: string, notes?: string): string {
   const n = (notes ?? "").trim();
-  const m = /\b(never|always|so that|so it|must|guarantee[sd]?|without|in under [^.]+)\b[^.]*/i.exec(n);
-  if (m) {
-    const clause = m[0].trim().replace(/[,;]$/, "");
-    return `the action succeeds and ${lowerFirst(clause)}`;
+  // Capture the predicate AFTER the trigger word (not including it, so we don't
+  // splice a double-modal like "succeeds and must …"), up to the first
+  // sub-clause boundary (so a mid-string ';' can't leak through).
+  const m = /\b(?:never|always|so that|so it|must|should|guarantee[sd]?|ensure[sd]?|without)\b\s+([^.;,]{4,})/i.exec(n);
+  if (m && m[1]) {
+    const clause = m[1].split(/[;,]/)[0]!.trim().replace(/\s+/g, " ");
+    if (clause.length > 3) return `the action succeeds and ${lowerFirst(clause)}`;
   }
+  const t = /\bin under [^.;,]+/i.exec(n);
+  if (t) return `the action completes ${t[0].trim().replace(/\s+/g, " ")}`;
   return `the result of "${title.toLowerCase()}" is persisted and visible to the user`;
 }
 
@@ -468,7 +473,9 @@ function noteFrom(ids: string[], evById: Map<string, EvidenceItem>): string | un
 function firstSentence(s: string): string {
   const clean = s.replace(/\s+/g, " ").trim();
   if (!clean) return "";
-  const m = /^(.{20,200}?[.!?])(\s|$)/.exec(clean);
+  // Match the EARLIEST sentence terminator (a genuine short first sentence like
+  // "It is fast." must not be merged with the next sentence).
+  const m = /^(.{1,200}?[.!?])(\s|$)/.exec(clean);
   return (m ? m[1]! : clean.slice(0, 160)).trim();
 }
 

@@ -2,8 +2,8 @@ import { resolve, join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
-import { VERSION } from "./types.js";
-import type { Angle, ResearchContext, WebEngine, EvidenceItem, DossierMeta, Level, SourceResult } from "./types.js";
+import { VERSION, ALL_SOURCE_KINDS } from "./types.js";
+import type { Angle, ResearchContext, WebEngine, EvidenceItem, DossierMeta, Level, SourceResult, SourceKind } from "./types.js";
 import { slugify } from "./util.js";
 import { initBrief, saveBrief, loadBrief, validateBrief } from "./brief.js";
 import { runResearch } from "./research/registry.js";
@@ -68,7 +68,7 @@ Workflow:
 
 const COMMANDS = new Set(["init", "research", "web", "oss", "tech", "so", "render", "check", "status", "semantic"]);
 const VALUE_FLAGS = new Set([
-  "idea", "out", "run", "angles", "q", "question", "url", "seeds", "docs-url", "level", "web-engine", "per-source",
+  "idea", "out", "run", "angles", "q", "question", "url", "seeds", "docs-url", "level", "web-engine", "per-source", "source",
 ]);
 const BOOL_FLAGS = new Set(["semantic", "merge", "json", "refresh"]);
 
@@ -172,7 +172,8 @@ function csv(s: string | undefined): string[] {
 }
 
 function requireOut(p: Parsed): string {
-  const out = p.values.out ?? p.values.run;
+  // Use || (not ??) and trim so an empty `--out=` doesn't shadow a valid `--run`.
+  const out = (p.values.out || p.values.run || "").trim();
   if (!out) fail("missing --out <run>");
   return resolve(out);
 }
@@ -272,8 +273,11 @@ async function main(): Promise<void> {
         if (p.values.url) {
           const urls = csv(p.values.url);
           const q = ctx.query || urls.join(" ");
-          const { items, notes } = await webFetchUrls(urls, q, ctx.perSource, "market");
-          results = [{ source: "market", items, notes }];
+          // The user named these URLs explicitly: file them under the source kind
+          // they asked for (default market) and fetch ALL of them, not half.
+          const source = oneOf<SourceKind>("source", p.values.source ?? "market", ALL_SOURCE_KINDS);
+          const { items, notes } = await webFetchUrls(urls, q, ctx.perSource, source, true);
+          results = [{ source, items, notes }];
         } else {
           results = await marketAngle(ctx);
         }
@@ -350,10 +354,16 @@ function loadEvidence(runDir: string): EvidenceItem[] {
   if (!existsSync(path)) return [];
   try {
     const data = JSON.parse(readFileSync(path, "utf8"));
-    return Array.isArray(data) ? data : [];
+    // Reject not just non-arrays but malformed elements (a null/partial entry in
+    // a hand-edited dossier otherwise crashes render at e.source).
+    return Array.isArray(data) ? data.filter(isEvidenceItem) : [];
   } catch {
     return [];
   }
+}
+
+function isEvidenceItem(e: unknown): e is EvidenceItem {
+  return !!e && typeof e === "object" && typeof (e as { id?: unknown }).id === "string" && typeof (e as { source?: unknown }).source === "string";
 }
 
 // Only run when invoked directly (node scripts/construct.mjs), not when imported

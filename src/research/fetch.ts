@@ -79,30 +79,38 @@ export async function httpJson(
   }
 }
 
-const ENTITIES: Record<string, string> = {
-  "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'", "&apos;": "'",
-  "&nbsp;": " ", "&mdash;": "—", "&ndash;": "–", "&hellip;": "…", "&copy;": "©",
+const NAMED: Record<string, string> = {
+  amp: "&", lt: "<", gt: ">", quot: '"', apos: "'",
+  nbsp: " ", mdash: "—", ndash: "–", hellip: "…", copy: "©",
 };
 
 // Extract readable text from an HTML page. Zero-dep and intentionally simple:
 // drop script/style/head/nav/footer, turn block tags into newlines, strip the
-// rest, decode common entities, collapse whitespace. Good enough to ground an
-// answer in the prose of a docs page without pulling in a DOM library.
+// rest, decode common entities (once — no double-decode), collapse whitespace.
+// Good enough to ground an answer in the prose of a docs page without a DOM lib.
 export function htmlToText(html: string): string {
   let s = html;
   s = s.replace(/<!--[\s\S]*?-->/g, " ");
   s = s.replace(/<(script|style|noscript|head|nav|footer|svg)[\s\S]*?<\/\1>/gi, " ");
-  s = s.replace(/<\/(p|div|section|article|li|tr|h[1-6]|pre|blockquote|br)>/gi, "\n");
+  // Break on closing AND opening block tags (so unclosed <li>/<td>/<tr> still
+  // land on their own line) plus <br>/<hr>.
+  s = s.replace(/<\/(p|div|section|article|li|tr|td|th|ul|ol|h[1-6]|pre|blockquote)>/gi, "\n");
+  s = s.replace(/<(p|div|section|article|li|tr|td|th|ul|ol|h[1-6]|pre|blockquote|table)\b[^>]*>/gi, "\n");
   s = s.replace(/<(br|hr)\s*\/?>/gi, "\n");
   s = s.replace(/<[^>]+>/g, " ");
-  s = s.replace(/&#(\d+);/g, (_m, n) => {
-    try {
-      return String.fromCodePoint(Number(n));
-    } catch {
-      return " ";
+  // Single non-rescanning pass: hex + decimal + named, each decoded exactly once
+  // (so '&amp;lt;' stays '&lt;' instead of collapsing to '<').
+  s = s.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos|nbsp|mdash|ndash|hellip|copy);/gi, (m, g: string) => {
+    if (g[0] === "#") {
+      const n = g[1] === "x" || g[1] === "X" ? parseInt(g.slice(2), 16) : Number(g.slice(1));
+      try {
+        return Number.isFinite(n) ? String.fromCodePoint(n) : " ";
+      } catch {
+        return " ";
+      }
     }
+    return NAMED[g.toLowerCase()] ?? m;
   });
-  for (const [k, v] of Object.entries(ENTITIES)) s = s.split(k).join(v);
   s = s.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n");
   return s
     .split("\n")
@@ -152,18 +160,19 @@ export function excerptsFromText(
   hits.sort((a, b) => b.cov - a.cov || a.idx - b.idx);
 
   const items: RawItem[] = [];
-  const seen = new Set<number>();
+  const ranges: { start: number; end: number }[] = [];
   const take = hits.length ? hits : [{ idx: 0, cov: 0 }];
   // At most 2 excerpts per document, so the per-source budget spans several
   // distinct pages rather than many slices of one.
   const perDoc = Math.min(2, Math.max(1, perSource));
   for (const h of take) {
     if (items.length >= perDoc) break;
-    const block = Math.floor(h.idx / 12);
-    if (seen.has(block)) continue;
-    seen.add(block);
     const start = Math.max(0, h.idx - 3);
     const end = Math.min(lines.length, h.idx + 12);
+    // Skip a hit whose window overlaps one we already emitted (block-index
+    // bucketing alone let near-duplicate excerpts straddle a boundary).
+    if (ranges.some((r) => start < r.end && end > r.start)) continue;
+    ranges.push({ start, end });
     const snippet = lines.slice(start, end).join("\n").slice(0, 1500);
     if (!snippet.trim()) continue;
     items.push({

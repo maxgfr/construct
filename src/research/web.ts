@@ -60,7 +60,10 @@ export async function discover(
   if (engine === "searxng" || engine === "auto") {
     const s = await viaSearxng(query, n);
     if (s && s.length) return { urls: s, via: "searxng", notes };
-    if (engine === "searxng") notes.push(`SearXNG unreachable at ${SEARXNG_BASE}. Run \`construct semantic up\`.`);
+    // null = unreachable/parse failure; [] = reachable but zero results.
+    if (engine === "searxng") {
+      notes.push(s === null ? `SearXNG unreachable at ${SEARXNG_BASE}. Run \`construct semantic up\`.` : "SearXNG returned no results.");
+    }
   }
   if (engine === "ddg" || engine === "auto") {
     const d = await viaDuckDuckGo(query, n);
@@ -83,10 +86,14 @@ export async function webFetchUrls(
   question: string,
   perSource: number,
   source: SourceKind = "market",
+  fetchAll = false,
 ): Promise<{ items: RawItem[]; notes: string[] }> {
   const items: RawItem[] = [];
   const notes: string[] = [];
-  for (const url of urls.slice(0, Math.max(1, Math.ceil(perSource / 2)))) {
+  // Discovery shares the per-source budget across pages; but URLs the user named
+  // explicitly (fetchAll) must all be fetched, never silently dropped.
+  const toFetch = fetchAll ? urls : urls.slice(0, Math.max(1, Math.ceil(perSource / 2)));
+  for (const url of toFetch) {
     const { text, note } = await fetchAndExtract(url);
     if (note) notes.push(note);
     if (!text) continue;

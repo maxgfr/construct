@@ -57,22 +57,26 @@ export function loadBrief(runDir: string): Brief {
 // hand-edited brief never crashes the renderer.
 export function normalizeBrief(data: unknown): Brief {
   const d = (data ?? {}) as Partial<Brief>;
-  const arr = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+  // Collapse internal whitespace/newlines on free text so a multi-line value
+  // can't inject Markdown structure (fake headings/list items) at render time.
+  const line = (v: unknown): string | undefined => (typeof v === "string" ? v.replace(/\s+/g, " ").trim() : undefined);
+  const arr = (v: unknown): string[] =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean) : [];
   return {
     schemaVersion: typeof d.schemaVersion === "number" ? d.schemaVersion : BRIEF_SCHEMA_VERSION,
-    idea: typeof d.idea === "string" ? d.idea : "",
+    idea: line(d.idea) ?? "",
     product: {
-      name: d.product?.name,
-      problem: d.product?.problem,
+      name: line(d.product?.name),
+      problem: line(d.product?.problem),
       users: arr(d.product?.users),
-      valueProp: d.product?.valueProp,
+      valueProp: line(d.product?.valueProp),
     },
     goals: arr(d.goals),
     nonGoals: arr(d.nonGoals),
     constraints: {
-      budget: d.constraints?.budget,
-      timeline: d.constraints?.timeline,
-      team: d.constraints?.team,
+      budget: line(d.constraints?.budget),
+      timeline: line(d.constraints?.timeline),
+      team: line(d.constraints?.team),
       compliance: arr(d.constraints?.compliance),
     },
     candidateTech: arr(d.candidateTech),
@@ -82,10 +86,11 @@ export function normalizeBrief(data: unknown): Brief {
       ? d.featureWishlist
           .filter((f): f is { title: string } => !!f && typeof (f as { title?: unknown }).title === "string")
           .map((f) => ({
-            title: f.title,
+            title: line(f.title) ?? "",
             priority: (f as { priority?: Brief["featureWishlist"][number]["priority"] }).priority,
-            notes: (f as { notes?: string }).notes,
+            notes: line((f as { notes?: string }).notes),
           }))
+          .filter((f) => f.title)
       : [],
     nfrPriorities: arr(d.nfrPriorities),
     openQuestions: arr(d.openQuestions),

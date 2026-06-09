@@ -17,11 +17,12 @@ const REQUIRED_FILES = [
   "SRD.json",
 ];
 
-// Markers that mean "unfinished": the 🧠 open-decision callout and the usual
-// placeholder words. Their presence in a rendered section fails the hard gate.
-const PLACEHOLDER_RE = /🧠|\bTODO\b|\bTBD\b|\bFIXME\b/;
-
-const EVIDENCE_TOKEN_RE = /\[(E\d+)\](?!\()/g;
+// The 🧠 glyph is ONLY ever renderer-emitted (the open-decision callout), so its
+// presence unambiguously means an unresolved decision → hard fail. TODO/TBD/
+// FIXME, by contrast, can legitimately appear in a feature title ("Add a TODO
+// list") — those are an advisory nudge, never a hard failure.
+const DECISION_RE = /🧠/;
+const PLACEHOLDER_RE = /\bTODO\b|\bTBD\b|\bFIXME\b/;
 
 // Recursively list rendered .md files under a run dir, excluding the evidence
 // dossier (its snippets legitimately contain arbitrary source text).
@@ -62,8 +63,12 @@ function loadEvidence(runDir: string): { evidence: EvidenceItem[]; note?: string
     return { evidence: [], note: `No evidence/evidence.json — grounding coverage is 0 (run \`construct research\` to ground the SRD).` };
   }
   try {
-    const data = JSON.parse(readFileSync(path, "utf8")) as EvidenceItem[];
-    return { evidence: Array.isArray(data) ? data : [] };
+    const data = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    // Drop malformed/null elements so a hand-edited dossier never crashes check.
+    const evidence = Array.isArray(data)
+      ? (data.filter((e) => !!e && typeof e === "object" && typeof (e as { id?: unknown }).id === "string" && typeof (e as { source?: unknown }).source === "string") as EvidenceItem[])
+      : [];
+    return { evidence };
   } catch (e) {
     return { evidence: [], note: `evidence.json unreadable: ${(e as Error).message}` };
   }
@@ -80,6 +85,15 @@ function computeCoverage(srd: SRD, evidence: EvidenceItem[]): CoverageReport & {
   srd.architecture.adrs.forEach((a) => note(a.evidence));
   srd.competitive.competitors.forEach((c) => note(c.evidence));
   srd.competitive.oss.forEach((o) => note(o.evidence));
+  // Build-plan risks carry inline [E#] citations too — count them so coverage,
+  // dangling and uncited stay accurate.
+  srd.buildPlan.forEach((m) =>
+    (m.risks ?? []).forEach((r) => {
+      const re = /\[(E\d+)\]/g;
+      let mm: RegExpExecArray | null;
+      while ((mm = re.exec(r))) referenced.add(mm[1]!);
+    }),
+  );
 
   const grounded = (arr: string[]) => arr.some((id) => ids.has(id));
   const frGrounded = srd.functional.filter((f) => grounded(f.rationaleEvidence)).length;
@@ -134,10 +148,11 @@ export function checkRun(runDir: string): CheckResult {
     return { ok: false, structural: { ok: false, errors, warnings }, coverage: emptyCoverage };
   }
 
-  // Leftover placeholders / open decisions in rendered sections.
+  // Unresolved decisions (🧠) hard-fail; stray placeholder words only warn.
   for (const rel of mdFiles(runDir)) {
     const text = readFileSync(join(runDir, rel), "utf8");
-    if (PLACEHOLDER_RE.test(text)) errors.push(`Unresolved placeholder/decision (🧠/TODO/TBD) in ${rel}.`);
+    if (DECISION_RE.test(text)) errors.push(`Unresolved decision (🧠) in ${rel} — resolve it before the SRD is complete.`);
+    else if (PLACEHOLDER_RE.test(text)) warnings.push(`Possible leftover placeholder (TODO/TBD/FIXME) in ${rel} — confirm it is intentional.`);
   }
   if (srd.openQuestions.length) {
     errors.push(`${srd.openQuestions.length} open decision(s) unresolved in the brief — resolve them (into ADRs/requirements) before the SRD is complete.`);

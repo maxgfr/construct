@@ -8,6 +8,14 @@ import { realpathSync } from "fs";
 
 // src/types.ts
 var VERSION = "1.0.0";
+var ALL_SOURCE_KINDS = [
+  "market",
+  "oss",
+  "docs",
+  "so",
+  "issue",
+  "pr"
+];
 var BRIEF_SCHEMA_VERSION = 1;
 var SRD_SCHEMA_VERSION = 1;
 
@@ -214,32 +222,33 @@ function loadBrief(runDir) {
 }
 function normalizeBrief(data) {
   const d = data ?? {};
-  const arr = (v) => Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+  const line = (v) => typeof v === "string" ? v.replace(/\s+/g, " ").trim() : void 0;
+  const arr = (v) => Array.isArray(v) ? v.filter((x) => typeof x === "string").map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean) : [];
   return {
     schemaVersion: typeof d.schemaVersion === "number" ? d.schemaVersion : BRIEF_SCHEMA_VERSION,
-    idea: typeof d.idea === "string" ? d.idea : "",
+    idea: line(d.idea) ?? "",
     product: {
-      name: d.product?.name,
-      problem: d.product?.problem,
+      name: line(d.product?.name),
+      problem: line(d.product?.problem),
       users: arr(d.product?.users),
-      valueProp: d.product?.valueProp
+      valueProp: line(d.product?.valueProp)
     },
     goals: arr(d.goals),
     nonGoals: arr(d.nonGoals),
     constraints: {
-      budget: d.constraints?.budget,
-      timeline: d.constraints?.timeline,
-      team: d.constraints?.team,
+      budget: line(d.constraints?.budget),
+      timeline: line(d.constraints?.timeline),
+      team: line(d.constraints?.team),
       compliance: arr(d.constraints?.compliance)
     },
     candidateTech: arr(d.candidateTech),
     competitors: arr(d.competitors),
     ossSeeds: arr(d.ossSeeds),
     featureWishlist: Array.isArray(d.featureWishlist) ? d.featureWishlist.filter((f) => !!f && typeof f.title === "string").map((f) => ({
-      title: f.title,
+      title: line(f.title) ?? "",
       priority: f.priority,
-      notes: f.notes
-    })) : [],
+      notes: line(f.notes)
+    })).filter((f) => f.title) : [],
     nfrPriorities: arr(d.nfrPriorities),
     openQuestions: arr(d.openQuestions),
     createdAt: typeof d.createdAt === "string" ? d.createdAt : ""
@@ -320,34 +329,37 @@ async function httpJson(method, url, body, opts = {}) {
     clearTimeout(t);
   }
 }
-var ENTITIES = {
-  "&amp;": "&",
-  "&lt;": "<",
-  "&gt;": ">",
-  "&quot;": '"',
-  "&#39;": "'",
-  "&apos;": "'",
-  "&nbsp;": " ",
-  "&mdash;": "\u2014",
-  "&ndash;": "\u2013",
-  "&hellip;": "\u2026",
-  "&copy;": "\xA9"
+var NAMED = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: " ",
+  mdash: "\u2014",
+  ndash: "\u2013",
+  hellip: "\u2026",
+  copy: "\xA9"
 };
 function htmlToText(html) {
   let s = html;
   s = s.replace(/<!--[\s\S]*?-->/g, " ");
   s = s.replace(/<(script|style|noscript|head|nav|footer|svg)[\s\S]*?<\/\1>/gi, " ");
-  s = s.replace(/<\/(p|div|section|article|li|tr|h[1-6]|pre|blockquote|br)>/gi, "\n");
+  s = s.replace(/<\/(p|div|section|article|li|tr|td|th|ul|ol|h[1-6]|pre|blockquote)>/gi, "\n");
+  s = s.replace(/<(p|div|section|article|li|tr|td|th|ul|ol|h[1-6]|pre|blockquote|table)\b[^>]*>/gi, "\n");
   s = s.replace(/<(br|hr)\s*\/?>/gi, "\n");
   s = s.replace(/<[^>]+>/g, " ");
-  s = s.replace(/&#(\d+);/g, (_m, n) => {
-    try {
-      return String.fromCodePoint(Number(n));
-    } catch {
-      return " ";
+  s = s.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos|nbsp|mdash|ndash|hellip|copy);/gi, (m, g) => {
+    if (g[0] === "#") {
+      const n = g[1] === "x" || g[1] === "X" ? parseInt(g.slice(2), 16) : Number(g.slice(1));
+      try {
+        return Number.isFinite(n) ? String.fromCodePoint(n) : " ";
+      } catch {
+        return " ";
+      }
     }
+    return NAMED[g.toLowerCase()] ?? m;
   });
-  for (const [k, v] of Object.entries(ENTITIES)) s = s.split(k).join(v);
   s = s.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n");
   return s.split("\n").map((l) => l.trim()).filter((l) => l.length > 0).join("\n");
 }
@@ -378,16 +390,15 @@ function excerptsFromText(text, url, title, source, question, perSource) {
   }
   hits.sort((a, b) => b.cov - a.cov || a.idx - b.idx);
   const items = [];
-  const seen = /* @__PURE__ */ new Set();
+  const ranges = [];
   const take = hits.length ? hits : [{ idx: 0, cov: 0 }];
   const perDoc = Math.min(2, Math.max(1, perSource));
   for (const h of take) {
     if (items.length >= perDoc) break;
-    const block = Math.floor(h.idx / 12);
-    if (seen.has(block)) continue;
-    seen.add(block);
     const start = Math.max(0, h.idx - 3);
     const end = Math.min(lines.length, h.idx + 12);
+    if (ranges.some((r) => start < r.end && end > r.start)) continue;
+    ranges.push({ start, end });
     const snippet = lines.slice(start, end).join("\n").slice(0, 1500);
     if (!snippet.trim()) continue;
     items.push({
@@ -446,7 +457,9 @@ async function discover(query2, engine, n) {
   if (engine === "searxng" || engine === "auto") {
     const s = await viaSearxng(query2, n);
     if (s && s.length) return { urls: s, via: "searxng", notes };
-    if (engine === "searxng") notes.push(`SearXNG unreachable at ${SEARXNG_BASE}. Run \`construct semantic up\`.`);
+    if (engine === "searxng") {
+      notes.push(s === null ? `SearXNG unreachable at ${SEARXNG_BASE}. Run \`construct semantic up\`.` : "SearXNG returned no results.");
+    }
   }
   if (engine === "ddg" || engine === "auto") {
     const d = await viaDuckDuckGo(query2, n);
@@ -460,10 +473,11 @@ async function discover(query2, engine, n) {
   }
   return { urls: [], via: "none", notes };
 }
-async function webFetchUrls(urls, question, perSource, source = "market") {
+async function webFetchUrls(urls, question, perSource, source = "market", fetchAll = false) {
   const items = [];
   const notes = [];
-  for (const url of urls.slice(0, Math.max(1, Math.ceil(perSource / 2)))) {
+  const toFetch = fetchAll ? urls : urls.slice(0, Math.max(1, Math.ceil(perSource / 2)));
+  for (const url of toFetch) {
     const { text, note } = await fetchAndExtract(url);
     if (note) notes.push(note);
     if (!text) continue;
@@ -508,7 +522,7 @@ async function marketAngle(ctx) {
 }
 
 // src/clone.ts
-import { existsSync as existsSync2, statSync, mkdirSync as mkdirSync2, readdirSync } from "fs";
+import { existsSync as existsSync2, statSync, mkdirSync as mkdirSync2, readdirSync, rmSync } from "fs";
 import { resolve, join as join2, basename } from "path";
 import { tmpdir } from "os";
 function cacheRoot() {
@@ -516,19 +530,21 @@ function cacheRoot() {
 }
 function resolveRepo(raw) {
   const trimmed = raw.trim();
-  const asPath = resolve(trimmed);
-  if (existsSync2(asPath) && statSync(asPath).isDirectory()) {
-    return {
-      raw: trimmed,
-      host: "local",
-      isLocal: true,
-      slug: "local-" + slugify(basename(asPath) + "-" + asPath)
-    };
+  if (trimmed) {
+    const asPath = resolve(trimmed);
+    if (existsSync2(asPath) && statSync(asPath).isDirectory()) {
+      return {
+        raw: trimmed,
+        host: "local",
+        isLocal: true,
+        slug: "local-" + slugify(basename(asPath) + "-" + asPath)
+      };
+    }
   }
   let host;
   let path;
   const scp = /^git@([^:]+):(.+)$/.exec(trimmed);
-  const url = /^https?:\/\/([^/]+)\/(.+)$/.exec(trimmed);
+  const url = /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/]+@)?([^/:]+)(?::\d+)?\/(.+)$/i.exec(trimmed);
   const hostPath = /^([a-z0-9.-]+\.[a-z]{2,})\/(.+)$/i.exec(trimmed);
   if (scp) {
     host = scp[1];
@@ -539,15 +555,18 @@ function resolveRepo(raw) {
   } else if (hostPath) {
     host = hostPath[1];
     path = hostPath[2];
-  } else {
+  } else if (/^[\w.-]+\/[\w.-]+$/.test(trimmed)) {
     host = "github.com";
     path = trimmed;
+  } else {
+    return { raw: trimmed, host: "generic", isLocal: false, slug: slugify(trimmed) || "seed" };
   }
+  host = host.toLowerCase();
   path = path.replace(/\.git$/, "").replace(/\/+$/, "");
   const segments = path.split("/").filter(Boolean);
   const repo = segments.length ? segments[segments.length - 1] : void 0;
   const owner = segments.length > 1 ? segments.slice(0, -1).join("/") : void 0;
-  const cloneUrl = /^https?:\/\//.test(trimmed) || scp ? trimmed : `https://${host}/${path}.git`;
+  const cloneUrl = /^https?:\/\//i.test(trimmed) || scp ? trimmed : `https://${host}/${path}.git`;
   const webUrl = `https://${host}/${path}`;
   return {
     raw: trimmed,
@@ -576,6 +595,7 @@ function ensureClone(ref, opts = {}) {
   args.push(ref.cloneUrl, dir);
   const res = sh("git", args, { timeoutMs: 3e5 });
   if (!res.ok) {
+    if (existsSync2(dir)) rmSync(dir, { recursive: true, force: true });
     const fallback = sh(
       "git",
       ["clone", "--depth", "1", ...opts.branch ? ["--branch", opts.branch] : [], ref.cloneUrl, dir],
@@ -595,7 +615,7 @@ ${(res.stderr || fallback.stderr).trim()}`
 }
 
 // src/walk.ts
-import { readdirSync as readdirSync2, statSync as statSync2, readFileSync as readFileSync2 } from "fs";
+import { readdirSync as readdirSync2, lstatSync, readFileSync as readFileSync2 } from "fs";
 import { join as join3, relative, sep, extname } from "path";
 var IGNORE_DIRS = /* @__PURE__ */ new Set([
   ".git",
@@ -712,7 +732,7 @@ function walk(root, opts = {}) {
       const abs = join3(dir, name);
       let st;
       try {
-        st = statSync2(abs);
+        st = lstatSync(abs);
       } catch {
         continue;
       }
@@ -763,11 +783,17 @@ function toItems(raw, kind) {
     };
   });
 }
+function apiBase(host) {
+  return /(^|\.)github\.com$/i.test(host) ? "https://api.github.com" : `https://${host}/api/v3`;
+}
+function ghUsable(host) {
+  return have("gh") && /(^|\.)github\.com$/i.test(host);
+}
 var canonCache = /* @__PURE__ */ new Map();
 async function canonicalRepo(ref) {
   const fallback = { owner: ref.owner, repo: ref.repo };
   if (!/github/i.test(ref.host)) return fallback;
-  const key = `${ref.owner}/${ref.repo}`;
+  const key = `${ref.host}/${ref.owner}/${ref.repo}`;
   const cached = canonCache.get(key);
   if (cached) return cached;
   let resolved = fallback;
@@ -775,11 +801,11 @@ async function canonicalRepo(ref) {
     const i = full.indexOf("/");
     return i > 0 ? { owner: full.slice(0, i), repo: full.slice(i + 1) } : fallback;
   };
-  if (have("gh")) {
+  if (ghUsable(ref.host)) {
     const r = sh("gh", ["api", `repos/${ref.owner}/${ref.repo}`, "--jq", ".full_name"]);
     if (r.ok && r.stdout.includes("/")) resolved = parse(r.stdout.trim());
   } else {
-    const r = await httpGet(`https://api.github.com/repos/${ref.owner}/${ref.repo}`, { accept: "application/vnd.github+json" });
+    const r = await httpGet(`${apiBase(ref.host)}/repos/${ref.owner}/${ref.repo}`, { accept: "application/vnd.github+json" });
     if (r.ok) {
       try {
         const full = JSON.parse(r.body)?.full_name;
@@ -793,7 +819,7 @@ async function canonicalRepo(ref) {
 }
 async function query(ref, terms, kind, perSource) {
   const q = `repo:${ref.owner}/${ref.repo} type:${kind} ${terms.join(" ")}`.trim();
-  if (have("gh")) {
+  if (ghUsable(ref.host)) {
     const res = sh("gh", [
       "api",
       "-X",
@@ -815,7 +841,7 @@ async function query(ref, terms, kind, perSource) {
       }
     }
   }
-  const url = `https://api.github.com/search/issues?q=${encodeURIComponent(q)}&per_page=${perSource}&sort=updated&order=desc`;
+  const url = `${apiBase(ref.host)}/search/issues?q=${encodeURIComponent(q)}&per_page=${perSource}&sort=updated&order=desc`;
   const r = await httpGet(url, { accept: "application/vnd.github+json" });
   if (!r.ok) {
     const hint = r.status === 422 ? `query rejected (422) for repo:${ref.owner}/${ref.repo} \u2014 the repo may be moved/renamed/private, or the query had no valid terms` : `status ${r.status}; run \`gh auth login\` for higher-rate access`;
@@ -886,9 +912,13 @@ var gitlab = {
     if (!ref.owner || !ref.repo) {
       return { items: [], notes: ["No project path resolved; cannot query GitLab issues/MRs."] };
     }
+    const kw = rankedKeywords(question).slice(0, 4);
+    if (kw.length === 0) {
+      return { items: [], notes: [`No keywords to search GitLab ${kind === "issue" ? "issues" : "merge requests"}.`] };
+    }
     const proj = encodeURIComponent(`${ref.owner}/${ref.repo}`);
     const path = kind === "issue" ? "issues" : "merge_requests";
-    const search = encodeURIComponent(rankedKeywords(question).slice(0, 4).join(" "));
+    const search = encodeURIComponent(kw.join(" "));
     const url = `https://${ref.host}/api/v4/projects/${proj}/${path}?search=${search}&per_page=${perSource}&order_by=updated_at&sort=desc`;
     const r = await httpGet(url, { accept: "application/json" });
     if (!r.ok) {
@@ -958,7 +988,9 @@ function languageHistogram(files) {
 }
 async function ossAngle(ctx) {
   const notes = [];
-  let seeds = ctx.brief.ossSeeds.filter((s) => REPO_URL_RE.test(s) || /^[\w.-]+\/[\w.-]+$/.test(s));
+  let seeds = ctx.brief.ossSeeds.filter(
+    (s) => REPO_URL_RE.test(s) || /^([a-z0-9.-]+\.[a-z]{2,}\/)?[\w.-]+(\/[\w.-]+)+$/i.test(s)
+  );
   if (seeds.length === 0) {
     const q2 = `${ctx.query || ctx.brief.idea} open source github`;
     const d = await discover(q2, ctx.webEngine, ctx.perSource);
@@ -1114,7 +1146,8 @@ function cosine(a, b) {
     nb += b[i] * b[i];
   }
   if (na === 0 || nb === 0) return 0;
-  return dot / (Math.sqrt(na) * Math.sqrt(nb));
+  const r = dot / (Math.sqrt(na) * Math.sqrt(nb));
+  return Number.isFinite(r) ? r : 0;
 }
 async function reachable(base, path = "/") {
   const r = await httpGet(base + path, { timeoutMs: 2500 });
@@ -1142,17 +1175,24 @@ async function semanticRescore(results, query2) {
   const qv = await embed(query2);
   if (!qv) return unchanged(`could not embed the query (is the '${EMBED_MODEL}' model pulled?)`);
   const out = [];
+  let failures = 0;
   for (const r of results) {
     const items = [];
     for (const it of r.items) {
       const v = await embed(`${it.title}
 ${it.snippet}`);
-      const score = v ? Number(cosine(qv, v).toFixed(4)) : it.score;
-      items.push({ ...it, score, meta: { ...it.meta ?? {}, semantic: true } });
+      if (v) {
+        items.push({ ...it, score: Number(cosine(qv, v).toFixed(4)), meta: { ...it.meta ?? {}, semantic: true } });
+      } else {
+        failures++;
+        items.push({ ...it, score: -1, meta: { ...it.meta ?? {}, semantic: false } });
+      }
     }
     out.push({ ...r, items });
   }
-  return { available: true, results: out, notes: [`Semantic rescoring via Ollama + ${EMBED_MODEL} (local).`] };
+  const notes = [`Semantic rescoring via Ollama + ${EMBED_MODEL} (local).`];
+  if (failures) notes.push(`${failures} item(s) could not be embedded; ranked last.`);
+  return { available: true, results: out, notes };
 }
 function composeFile() {
   const here = dirname(fileURLToPath(import.meta.url));
@@ -1325,7 +1365,7 @@ async function runResearch(ctx, builtAt) {
 }
 
 // src/render.ts
-import { mkdirSync as mkdirSync4, writeFileSync as writeFileSync3, rmSync } from "fs";
+import { mkdirSync as mkdirSync4, writeFileSync as writeFileSync3, rmSync as rmSync2 } from "fs";
 import { join as join8, dirname as dirname2 } from "path";
 
 // src/srd.ts
@@ -1607,11 +1647,13 @@ function buildSRD(brief, evidence, opts) {
 }
 function concreteOutcome(title, notes) {
   const n = (notes ?? "").trim();
-  const m = /\b(never|always|so that|so it|must|guarantee[sd]?|without|in under [^.]+)\b[^.]*/i.exec(n);
-  if (m) {
-    const clause = m[0].trim().replace(/[,;]$/, "");
-    return `the action succeeds and ${lowerFirst(clause)}`;
+  const m = /\b(?:never|always|so that|so it|must|should|guarantee[sd]?|ensure[sd]?|without)\b\s+([^.;,]{4,})/i.exec(n);
+  if (m && m[1]) {
+    const clause = m[1].split(/[;,]/)[0].trim().replace(/\s+/g, " ");
+    if (clause.length > 3) return `the action succeeds and ${lowerFirst(clause)}`;
   }
+  const t = /\bin under [^.;,]+/i.exec(n);
+  if (t) return `the action completes ${t[0].trim().replace(/\s+/g, " ")}`;
   return `the result of "${title.toLowerCase()}" is persisted and visible to the user`;
 }
 function failurePath(title, integration) {
@@ -1706,7 +1748,7 @@ function noteFrom(ids, evById) {
 function firstSentence(s) {
   const clean = s.replace(/\s+/g, " ").trim();
   if (!clean) return "";
-  const m = /^(.{20,200}?[.!?])(\s|$)/.exec(clean);
+  const m = /^(.{1,200}?[.!?])(\s|$)/.exec(clean);
   return (m ? m[1] : clean.slice(0, 160)).trim();
 }
 function timeTokenFromGoals(goals) {
@@ -1743,6 +1785,9 @@ function evNum(id) {
 function cite(ids) {
   if (!ids || ids.length === 0) return "";
   return " " + ids.map((id) => `[${id}]`).join("");
+}
+function cell(s) {
+  return String(s).replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, " ").trim();
 }
 function slugTitle(s) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "decision";
@@ -1842,7 +1887,7 @@ function renderDataModel(srd) {
     out.push(``);
     if (e.attributes.length) {
       out.push(`| Attribute | Type |`, `|---|---|`);
-      for (const a of e.attributes) out.push(`| ${a.name} | ${a.type} |`);
+      for (const a of e.attributes) out.push(`| ${cell(a.name)} | ${cell(a.type)} |`);
     }
     out.push(``, `_Referenced by: ${e.referencedByFRs.length ? e.referencedByFRs.join(", ") : "\u2014"}_`, ``);
   }
@@ -1885,7 +1930,7 @@ function renderLandscape(srd) {
     out.push(`| Product | Note | Evidence |`, `|---|---|---|`);
     for (const c of srd.competitive.competitors) {
       const ev = c.evidence.length ? c.evidence.map((id) => `[${id}]`).join("") : "_ungrounded_";
-      out.push(`| ${c.name} | ${c.note} | ${ev} |`);
+      out.push(`| ${cell(c.name)} | ${cell(c.note)} | ${ev} |`);
     }
   } else {
     out.push(`_No competitors captured. Use the market research angle to discover them._`);
@@ -1894,9 +1939,9 @@ function renderLandscape(srd) {
   if (srd.competitive.oss.length) {
     out.push(`| Project | Note | Evidence |`, `|---|---|---|`);
     for (const o of srd.competitive.oss) {
-      const name = o.url ? `[${o.name}](${o.url})` : o.name;
+      const name = o.url ? `[${cell(o.name)}](${o.url})` : cell(o.name);
       const ev = o.evidence.length ? o.evidence.map((id) => `[${id}]`).join("") : "_ungrounded_";
-      out.push(`| ${name} | ${o.note} | ${ev} |`);
+      out.push(`| ${name} | ${cell(o.note)} | ${ev} |`);
     }
   } else {
     out.push(`_No OSS prior art captured. Use the oss research angle to mine comparable projects._`);
@@ -1966,7 +2011,7 @@ function renderSRD(brief, evidence, opts) {
   const srd = buildSRD(brief, evidence, { level: opts.level, generatedAt: opts.generatedAt });
   const files = [];
   const out = opts.out;
-  rmSync(join8(out, "architecture", "decisions"), { recursive: true, force: true });
+  rmSync2(join8(out, "architecture", "decisions"), { recursive: true, force: true });
   writeFile(out, "00-overview/VISION.md", renderVision(srd), files);
   writeFile(out, "00-overview/SCOPE.md", renderScope(srd), files);
   writeFile(out, "requirements/FUNCTIONAL.md", renderFunctional(srd), files);
@@ -1989,7 +2034,7 @@ function renderSRD(brief, evidence, opts) {
 }
 
 // src/check.ts
-import { existsSync as existsSync4, readFileSync as readFileSync3, readdirSync as readdirSync3, statSync as statSync3 } from "fs";
+import { existsSync as existsSync4, readFileSync as readFileSync3, readdirSync as readdirSync3, statSync as statSync2 } from "fs";
 import { join as join9, relative as relative2, sep as sep2 } from "path";
 var REQUIRED_NFR2 = {
   light: ["performance", "security", "reliability"],
@@ -2003,7 +2048,8 @@ var REQUIRED_FILES = [
   "TRACEABILITY.md",
   "SRD.json"
 ];
-var PLACEHOLDER_RE = /🧠|\bTODO\b|\bTBD\b|\bFIXME\b/;
+var DECISION_RE = /🧠/;
+var PLACEHOLDER_RE = /\bTODO\b|\bTBD\b|\bFIXME\b/;
 function mdFiles(runDir) {
   const out = [];
   const stack = [runDir];
@@ -2019,7 +2065,7 @@ function mdFiles(runDir) {
       const abs = join9(dir, name);
       let st;
       try {
-        st = statSync3(abs);
+        st = statSync2(abs);
       } catch {
         continue;
       }
@@ -2041,7 +2087,8 @@ function loadEvidence(runDir) {
   }
   try {
     const data = JSON.parse(readFileSync3(path, "utf8"));
-    return { evidence: Array.isArray(data) ? data : [] };
+    const evidence = Array.isArray(data) ? data.filter((e) => !!e && typeof e === "object" && typeof e.id === "string" && typeof e.source === "string") : [];
+    return { evidence };
   } catch (e) {
     return { evidence: [], note: `evidence.json unreadable: ${e.message}` };
   }
@@ -2055,6 +2102,13 @@ function computeCoverage(srd, evidence) {
   srd.architecture.adrs.forEach((a) => note(a.evidence));
   srd.competitive.competitors.forEach((c) => note(c.evidence));
   srd.competitive.oss.forEach((o) => note(o.evidence));
+  srd.buildPlan.forEach(
+    (m) => (m.risks ?? []).forEach((r) => {
+      const re = /\[(E\d+)\]/g;
+      let mm;
+      while (mm = re.exec(r)) referenced.add(mm[1]);
+    })
+  );
   const grounded = (arr) => arr.some((id) => ids.has(id));
   const frGrounded = srd.functional.filter((f) => grounded(f.rationaleEvidence)).length;
   const nfrGrounded = srd.nonFunctional.filter((n) => grounded(n.rationaleEvidence)).length;
@@ -2108,7 +2162,8 @@ function checkRun(runDir) {
   }
   for (const rel of mdFiles(runDir)) {
     const text = readFileSync3(join9(runDir, rel), "utf8");
-    if (PLACEHOLDER_RE.test(text)) errors.push(`Unresolved placeholder/decision (\u{1F9E0}/TODO/TBD) in ${rel}.`);
+    if (DECISION_RE.test(text)) errors.push(`Unresolved decision (\u{1F9E0}) in ${rel} \u2014 resolve it before the SRD is complete.`);
+    else if (PLACEHOLDER_RE.test(text)) warnings.push(`Possible leftover placeholder (TODO/TBD/FIXME) in ${rel} \u2014 confirm it is intentional.`);
   }
   if (srd.openQuestions.length) {
     errors.push(`${srd.openQuestions.length} open decision(s) unresolved in the brief \u2014 resolve them (into ADRs/requirements) before the SRD is complete.`);
@@ -2235,7 +2290,8 @@ var VALUE_FLAGS = /* @__PURE__ */ new Set([
   "docs-url",
   "level",
   "web-engine",
-  "per-source"
+  "per-source",
+  "source"
 ]);
 var BOOL_FLAGS = /* @__PURE__ */ new Set(["semantic", "merge", "json", "refresh"]);
 function fail(message) {
@@ -2323,7 +2379,7 @@ function csv(s) {
   return (s ?? "").split(",").map((x) => x.trim()).filter(Boolean);
 }
 function requireOut(p) {
-  const out = p.values.out ?? p.values.run;
+  const out = (p.values.out || p.values.run || "").trim();
   if (!out) fail("missing --out <run>");
   return resolve2(out);
 }
@@ -2418,8 +2474,9 @@ async function main() {
         if (p.values.url) {
           const urls = csv(p.values.url);
           const q = ctx.query || urls.join(" ");
-          const { items, notes } = await webFetchUrls(urls, q, ctx.perSource, "market");
-          results = [{ source: "market", items, notes }];
+          const source = oneOf("source", p.values.source ?? "market", ALL_SOURCE_KINDS);
+          const { items, notes } = await webFetchUrls(urls, q, ctx.perSource, source, true);
+          results = [{ source, items, notes }];
         } else {
           results = await marketAngle(ctx);
         }
@@ -2492,10 +2549,13 @@ function loadEvidence2(runDir) {
   if (!existsSync5(path)) return [];
   try {
     const data = JSON.parse(readFileSync4(path, "utf8"));
-    return Array.isArray(data) ? data : [];
+    return Array.isArray(data) ? data.filter(isEvidenceItem) : [];
   } catch {
     return [];
   }
+}
+function isEvidenceItem(e) {
+  return !!e && typeof e === "object" && typeof e.id === "string" && typeof e.source === "string";
 }
 function isInvokedDirectly() {
   const argv1 = process.argv[1];

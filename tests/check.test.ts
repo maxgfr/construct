@@ -105,4 +105,25 @@ describe("checkRun — advisory grounding (never fails the build)", () => {
     expect(r.ok).toBe(true);
     expect(r.structural.warnings.join(" ")).toMatch(/No evidence\/evidence\.json/);
   });
+
+  it("does not crash on a null element in evidence.json", () => {
+    const dir = renderRun();
+    writeFileSync(join(dir, "evidence", "evidence.json"), JSON.stringify([null, evidence[0]]));
+    expect(() => checkRun(dir)).not.toThrow();
+    expect(checkRun(dir).ok).toBe(true);
+  });
+});
+
+describe("checkRun — placeholder words vs decisions", () => {
+  it("does NOT hard-fail when a feature title legitimately contains TODO (advisory only)", () => {
+    const r = checkRun(renderRun({ briefOverride: { featureWishlist: [{ title: "Manage a shared TODO list", priority: "must" }] } }));
+    expect(r.ok).toBe(true); // TODO in a real title must not fail the build
+    expect(r.structural.warnings.join(" ")).toMatch(/TODO\/TBD\/FIXME/);
+  });
+
+  it("still hard-fails on an unresolved 🧠 decision", () => {
+    const r = checkRun(renderRun({ briefOverride: { openQuestions: ["Pick a license"] } }));
+    expect(r.ok).toBe(false);
+    expect(r.structural.errors.join(" ")).toMatch(/🧠/);
+  });
 });

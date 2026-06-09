@@ -25,4 +25,8 @@ describe("cosine", () => {
     expect(cosine([], [])).toBe(0);
     expect(cosine([1, 2], [1, 2, 3])).toBe(0);
   });
+  it("returns 0 (never NaN) for non-finite components", () => {
+    expect(cosine([NaN, 1], [1, 1])).toBe(0);
+    expect(cosine([Infinity, 0], [1, 1])).toBe(0);
+  });
 });

@@ -15,6 +15,12 @@ export function cite(ids: string[]): string {
   return " " + ids.map((id) => `[${id}]`).join("");
 }
 
+// Escape a value for safe inclusion in a Markdown table cell: a raw `|` ends the
+// cell (silent data loss) and a newline breaks the row.
+export function cell(s: string): string {
+  return String(s).replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, " ").trim();
+}
+
 export function slugTitle(s: string): string {
   return s
     .toLowerCase()
@@ -124,7 +130,7 @@ export function renderDataModel(srd: SRD): string {
     out.push(``);
     if (e.attributes.length) {
       out.push(`| Attribute | Type |`, `|---|---|`);
-      for (const a of e.attributes) out.push(`| ${a.name} | ${a.type} |`);
+      for (const a of e.attributes) out.push(`| ${cell(a.name)} | ${cell(a.type)} |`);
     }
     out.push(``, `_Referenced by: ${e.referencedByFRs.length ? e.referencedByFRs.join(", ") : "—"}_`, ``);
   }
@@ -170,7 +176,7 @@ export function renderLandscape(srd: SRD): string {
     out.push(`| Product | Note | Evidence |`, `|---|---|---|`);
     for (const c of srd.competitive.competitors) {
       const ev = c.evidence.length ? c.evidence.map((id) => `[${id}]`).join("") : "_ungrounded_";
-      out.push(`| ${c.name} | ${c.note} | ${ev} |`);
+      out.push(`| ${cell(c.name)} | ${cell(c.note)} | ${ev} |`);
     }
   } else {
     out.push(`_No competitors captured. Use the market research angle to discover them._`);
@@ -179,9 +185,9 @@ export function renderLandscape(srd: SRD): string {
   if (srd.competitive.oss.length) {
     out.push(`| Project | Note | Evidence |`, `|---|---|---|`);
     for (const o of srd.competitive.oss) {
-      const name = o.url ? `[${o.name}](${o.url})` : o.name;
+      const name = o.url ? `[${cell(o.name)}](${o.url})` : cell(o.name);
       const ev = o.evidence.length ? o.evidence.map((id) => `[${id}]`).join("") : "_ungrounded_";
-      out.push(`| ${name} | ${o.note} | ${ev} |`);
+      out.push(`| ${name} | ${cell(o.note)} | ${ev} |`);
     }
   } else {
     out.push(`_No OSS prior art captured. Use the oss research angle to mine comparable projects._`);

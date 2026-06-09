@@ -1,4 +1,4 @@
-import { existsSync, statSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, statSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { resolve, join, basename } from "node:path";
 import { tmpdir } from "node:os";
 import type { RepoRef } from "./types.js";
@@ -23,22 +23,26 @@ export function resolveRepo(raw: string): RepoRef {
   const trimmed = raw.trim();
 
   // Local directory takes precedence — lets you point construct at a checkout
-  // you already have, with no network.
-  const asPath = resolve(trimmed);
-  if (existsSync(asPath) && statSync(asPath).isDirectory()) {
-    return {
-      raw: trimmed,
-      host: "local",
-      isLocal: true,
-      slug: "local-" + slugify(basename(asPath) + "-" + asPath),
-    };
+  // you already have, with no network. Require a non-empty string so an empty
+  // seed never silently resolves to the current working directory.
+  if (trimmed) {
+    const asPath = resolve(trimmed);
+    if (existsSync(asPath) && statSync(asPath).isDirectory()) {
+      return {
+        raw: trimmed,
+        host: "local",
+        isLocal: true,
+        slug: "local-" + slugify(basename(asPath) + "-" + asPath),
+      };
+    }
   }
 
   let host: string;
   let path: string; // owner(/subgroups)/repo, no host, no .git
 
   const scp = /^git@([^:]+):(.+)$/.exec(trimmed); // git@github.com:owner/repo.git
-  const url = /^https?:\/\/([^/]+)\/(.+)$/.exec(trimmed); // https://host/owner/repo
+  // Any URL scheme (http(s)/ssh/git), case-insensitive, stripping userinfo+port.
+  const url = /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/]+@)?([^/:]+)(?::\d+)?\/(.+)$/i.exec(trimmed);
   const hostPath = /^([a-z0-9.-]+\.[a-z]{2,})\/(.+)$/i.exec(trimmed); // host/owner/repo
 
   if (scp) {
@@ -50,18 +54,24 @@ export function resolveRepo(raw: string): RepoRef {
   } else if (hostPath) {
     host = hostPath[1]!;
     path = hostPath[2]!;
-  } else {
+  } else if (/^[\w.-]+\/[\w.-]+$/.test(trimmed)) {
     // bare "owner/repo" shorthand → github
     host = "github.com";
     path = trimmed;
+  } else {
+    // Unrecognisable seed (free text, a bare relative path, empty). Return a
+    // non-cloneable generic ref with no synthesised URL so callers fall back to
+    // the raw text rather than minting a malformed github.com URL.
+    return { raw: trimmed, host: "generic", isLocal: false, slug: slugify(trimmed) || "seed" };
   }
 
+  host = host.toLowerCase();
   path = path.replace(/\.git$/, "").replace(/\/+$/, "");
   const segments = path.split("/").filter(Boolean);
   const repo = segments.length ? segments[segments.length - 1] : undefined;
   const owner = segments.length > 1 ? segments.slice(0, -1).join("/") : undefined;
 
-  const cloneUrl = /^https?:\/\//.test(trimmed) || scp ? trimmed : `https://${host}/${path}.git`;
+  const cloneUrl = /^https?:\/\//i.test(trimmed) || scp ? trimmed : `https://${host}/${path}.git`;
   const webUrl = `https://${host}/${path}`;
 
   return {
@@ -104,6 +114,9 @@ export function ensureClone(
 
   const res = sh("git", args, { timeoutMs: 300_000 });
   if (!res.ok) {
+    // The first attempt can leave a partial, non-empty dir behind; git clone
+    // refuses to write into it, so the retry would fail for the wrong reason.
+    if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
     // Retry without the partial-clone filter; some servers reject it.
     const fallback = sh(
       "git",

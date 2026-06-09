@@ -67,6 +67,17 @@ describe("renderSRD", () => {
     expect(scope2).not.toContain("🧠");
   });
 
+  it("escapes a '|' in a competitor name so the markdown table is not corrupted", () => {
+    const out = freshDir();
+    const b: Brief = { ...brief, competitors: ["Foo | Bar"] };
+    renderSRD(b, evidence, { level: "light", out, merge: false, generatedAt: "T" });
+    const land = readFileSync(join(out, "competitive/LANDSCAPE.md"), "utf8");
+    expect(land).toContain("Foo \\| Bar"); // pipe escaped, cell intact
+    // the competitor row must still have exactly 3 cells (4 pipes counting borders)
+    const row = land.split("\n").find((l) => l.includes("Foo"))!;
+    expect((row.match(/(?<!\\)\|/g) || []).length).toBe(4);
+  });
+
   it("clears stale id-derived ADR files on re-render", () => {
     const out = freshDir();
     renderSRD(brief, evidence, { level: "complex", out, merge: false, generatedAt: "T" });

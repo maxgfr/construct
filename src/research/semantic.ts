@@ -53,7 +53,10 @@ export function cosine(a: number[], b: number[]): number {
     nb += b[i]! * b[i]!;
   }
   if (na === 0 || nb === 0) return 0;
-  return dot / (Math.sqrt(na) * Math.sqrt(nb));
+  const r = dot / (Math.sqrt(na) * Math.sqrt(nb));
+  // A non-finite component (NaN/Infinity in an embedding) would poison the sort
+  // comparator — collapse it to the honest zero/lexical-fallback path.
+  return Number.isFinite(r) ? r : 0;
 }
 
 async function reachable(base: string, path = "/"): Promise<boolean> {
@@ -97,16 +100,25 @@ export async function semanticRescore(results: SourceResult[], query: string): P
   if (!qv) return unchanged(`could not embed the query (is the '${EMBED_MODEL}' model pulled?)`);
 
   const out: SourceResult[] = [];
+  let failures = 0;
   for (const r of results) {
     const items = [];
     for (const it of r.items) {
       const v = await embed(`${it.title}\n${it.snippet}`);
-      const score = v ? Number(cosine(qv, v).toFixed(4)) : it.score;
-      items.push({ ...it, score, meta: { ...(it.meta ?? {}), semantic: true } });
+      if (v) {
+        items.push({ ...it, score: Number(cosine(qv, v).toFixed(4)), meta: { ...(it.meta ?? {}), semantic: true } });
+      } else {
+        // Never leave a failed item on the lexical scale next to 0..1 cosines —
+        // it would outrank everything. Sink it with a sentinel score.
+        failures++;
+        items.push({ ...it, score: -1, meta: { ...(it.meta ?? {}), semantic: false } });
+      }
     }
     out.push({ ...r, items });
   }
-  return { available: true, results: out, notes: [`Semantic rescoring via Ollama + ${EMBED_MODEL} (local).`] };
+  const notes = [`Semantic rescoring via Ollama + ${EMBED_MODEL} (local).`];
+  if (failures) notes.push(`${failures} item(s) could not be embedded; ranked last.`);
+  return { available: true, results: out, notes };
 }
 
 // Locate docker-compose.yml relative to the bundle (scripts/construct.mjs sits

@@ -13,9 +13,13 @@ export const gitlab: Provider = {
     if (!ref.owner || !ref.repo) {
       return { items: [], notes: ["No project path resolved; cannot query GitLab issues/MRs."] };
     }
+    const kw = rankedKeywords(question).slice(0, 4);
+    if (kw.length === 0) {
+      return { items: [], notes: [`No keywords to search GitLab ${kind === "issue" ? "issues" : "merge requests"}.`] };
+    }
     const proj = encodeURIComponent(`${ref.owner}/${ref.repo}`);
     const path = kind === "issue" ? "issues" : "merge_requests";
-    const search = encodeURIComponent(rankedKeywords(question).slice(0, 4).join(" "));
+    const search = encodeURIComponent(kw.join(" "));
     const url =
       `https://${ref.host}/api/v4/projects/${proj}/${path}` +
       `?search=${search}&per_page=${perSource}&order_by=updated_at&sort=desc`;

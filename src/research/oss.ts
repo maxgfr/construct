@@ -29,7 +29,11 @@ export function languageHistogram(files: { ext: string }[]): [string, number][] 
 // issues/PRs via the host provider. Emits `oss` + `issue` + `pr` evidence.
 export async function ossAngle(ctx: ResearchContext): Promise<SourceResult[]> {
   const notes: string[] = [];
-  let seeds = ctx.brief.ossSeeds.filter((s) => REPO_URL_RE.test(s) || /^[\w.-]+\/[\w.-]+$/.test(s));
+  // Accept everything resolveRepo understands: full URLs, host/owner/repo,
+  // gitlab subgroups (a/b/c), and bare owner/repo shorthand.
+  let seeds = ctx.brief.ossSeeds.filter(
+    (s) => REPO_URL_RE.test(s) || /^([a-z0-9.-]+\.[a-z]{2,}\/)?[\w.-]+(\/[\w.-]+)+$/i.test(s),
+  );
 
   if (seeds.length === 0) {
     const q = `${ctx.query || ctx.brief.idea} open source github`;

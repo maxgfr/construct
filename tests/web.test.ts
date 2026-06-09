@@ -65,4 +65,16 @@ describe("webFetchUrls", () => {
     expect(items[0]!.source).toBe("market");
     expect(items[0]!.snippet).toMatch(/full-text search/i);
   });
+
+  it("fetches ALL user-named URLs when fetchAll is set (does not drop half)", async () => {
+    const fetched: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      fetched.push(String(url));
+      return res(`<p>content about search at ${url}</p>`);
+    }));
+    const urls = ["https://a.com", "https://b.com", "https://c.com", "https://d.com"];
+    const { items } = await webFetchUrls(urls, "search", 2, "docs", true);
+    expect(fetched.length).toBe(4); // all four, despite perSource=2
+    expect(items.every((i) => i.source === "docs")).toBe(true);
+  });
 });
