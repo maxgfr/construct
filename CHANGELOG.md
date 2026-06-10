@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [1.1.0](https://github.com/maxgfr/construct/compare/v1.0.2...v1.1.0) (2026-06-10)
+
+
+### Features
+
+* build phase — machine-readable BUILD-PLAN.json and `construct verify` ([acfc292](https://github.com/maxgfr/construct/commit/acfc2921119f839f76abd42ec04cf0f54078bf5c))
+* multi-agent orchestration playbook — research fan-out, red team, judge panel ([8e730ee](https://github.com/maxgfr/construct/commit/8e730eefc849ee876da1038167288aa6a116c583))
+* sharpen the SRD — analyze gaps, infer data model, opt-in grounding gate ([4dafe85](https://github.com/maxgfr/construct/commit/4dafe85e5155e0571fdff9774bddfa17f3470e21))
+
 ## [1.0.2](https://github.com/maxgfr/construct/compare/v1.0.1...v1.0.2) (2026-06-09)
 
 
