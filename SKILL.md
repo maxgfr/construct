@@ -71,12 +71,16 @@ loop to completion; only pause to ask the user a real decision.
    ```
    It names exactly what is thin — features, competitors, candidate tech and OSS
    seeds with no matchable evidence — and prints the drill command that fixes
-   each gap. Work the gaps: `construct web|oss|tech|so --out <run> --q "..."`
-   (or use your own WebSearch and ground a page with
-   `construct web --url <u> --out <run>`). Re-run `research` to fold new
-   findings into the dossier, then re-run `analyze`. Tell the user what you
-   found and **let them steer** — prioritise must-have features and load-bearing
-   decisions, stop when they say it's enough. See
+   each gap. **Fan out:** if you can spawn parallel subagents, dispatch one per
+   gap; each gets the brief one-liner, the gap, its drill command and its own
+   WebSearch, and returns a ≤5-line summary plus URLs worth grounding. Subagents
+   MUST NOT write into the run folder — drills print to stdout; only
+   `construct research` writes the dossier, and only YOU run it. Fold findings
+   in serially: `construct web --url <u,...> --out <run>` → re-run `research` →
+   re-run `analyze`. (No subagents? Work the gaps yourself, one drill at a
+   time.) Tell the user what you found and **let them steer** — prioritise
+   must-have features and load-bearing decisions, stop when they say it's
+   enough. See `references/orchestration.md` and
    `references/research-playbook.md`.
 
 4. **Render the SRD.** When the brief is solid and the dossier is rich:
@@ -92,7 +96,18 @@ loop to completion; only pause to ask the user a real decision.
    citations from the dossier to the requirements and decisions they rest on.
    See `references/srd-authoring.md` and `references/citation-format.md`.
 
-5. **Validate (two layers).**
+5. **Adversarial review — let fresh eyes break it.** Spawn one reviewer
+   subagent with NO context beyond the run folder path and
+   `references/adversarial-review.md` (no subagents? do the pass yourself,
+   strictly following that checklist as a hostile reader). It must try to
+   *break* the SRD — ambiguity, untestable criteria, missing failure paths,
+   citation-washing, contradictions — and return tagged findings. Fix every
+   `[blocker]`, use judgement on `[advisory]`, then re-run `check`. Loop while
+   new blockers appear (cap: 3 rounds, then surface what remains to the user).
+   For a genuinely contested, hard-to-reverse ADR at `complex` level, also run
+   the 3-judge panel from `references/orchestration.md`.
+
+6. **Validate (two layers).**
    - *Structural (hard):* `node scripts/construct.mjs check --out <run>`. It
      fails on any unresolved `🧠`, no functional requirements at all, an FR with
      no acceptance criteria, a dangling entity/interface/NFR reference, a missing
@@ -102,9 +117,10 @@ loop to completion; only pause to ask the user a real decision.
      bearing decisions); see `references/grounding-coverage.md`. By default it
      never fails the build, so use judgement. When the user wants grounding
      *enforced*, add the opt-in gate: `check --out <run> --min-grounding 70`.
-   Loop steps 3–5 until `check` passes structurally and the grounding is honest.
+   Loop steps 3–6 until `check` passes structurally, the reviewer finds no new
+   blockers, and the grounding is honest.
 
-6. **Present.** Give the user the SRD suite: the vision, the competitive
+7. **Present.** Give the user the SRD suite: the vision, the competitive
    landscape, the grounded requirements and the key decisions (with their `[E#]`
    evidence and links). Pin any unknowns explicitly rather than guessing.
 
@@ -143,6 +159,8 @@ See `references/semantic-setup.md`.
 
 - `references/interview-playbook.md` — how to elicit the brief, one question at a time.
 - `references/research-playbook.md` — picking angles and digging deeper to "good enough".
+- `references/orchestration.md` — subagent patterns: research fan-out, red team, judge panel (and the one-writer rule).
+- `references/adversarial-review.md` — the red-team checklist and its findings contract.
 - `references/srd-authoring.md` — resolving 🧠 callouts, writing testable requirements and ADRs.
 - `references/acceptance-criteria.md` — bad→good Given/When/Then rewrites and measurable NFR metric patterns.
 - `references/citation-format.md` — the `[E#]` grounding convention.
