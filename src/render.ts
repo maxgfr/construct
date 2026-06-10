@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { buildSRD, srdManifestPath } from "./srd.js";
+import { derivePlan, mergePlan, loadPlan, writePlan } from "./plan.js";
 import {
   renderVision,
   renderScope,
@@ -64,6 +65,10 @@ export function renderSRD(brief: Brief, evidence: EvidenceItem[], opts: RenderOp
   }
   writeFile(out, "competitive/LANDSCAPE.md", renderLandscape(srd), files);
   writeFile(out, "BUILD-PLAN.md", renderBuildPlan(srd), files);
+  // Machine-readable build plan. Merge preserves the building agent's progress
+  // (status, artifacts, tests, verify commands) across re-renders.
+  writePlan(out, mergePlan(loadPlan(out), derivePlan(srd)));
+  files.push("BUILD-PLAN.json");
   writeFile(out, "TRACEABILITY.md", renderTraceability(srd), files);
 
   // Machine-readable manifest (what `check` re-reads).

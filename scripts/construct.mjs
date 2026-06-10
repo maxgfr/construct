@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { resolve as resolve2, join as join11 } from "path";
-import { existsSync as existsSync6, readFileSync as readFileSync5 } from "fs";
+import { resolve as resolve3, join as join13 } from "path";
+import { existsSync as existsSync8, readFileSync as readFileSync7 } from "fs";
 import { pathToFileURL, fileURLToPath as fileURLToPath2 } from "url";
 import { realpathSync } from "fs";
 
@@ -22,6 +22,7 @@ var REQUIRED_NFR = {
   light: ["performance", "security", "reliability"],
   complex: ["performance", "security", "reliability", "usability", "observability", "cost"]
 };
+var BUILD_PLAN_SCHEMA_VERSION = 1;
 
 // src/util.ts
 import { spawnSync } from "child_process";
@@ -1375,8 +1376,8 @@ async function runResearch(ctx, builtAt) {
 }
 
 // src/render.ts
-import { mkdirSync as mkdirSync4, writeFileSync as writeFileSync3, rmSync as rmSync2 } from "fs";
-import { join as join8, dirname as dirname2 } from "path";
+import { mkdirSync as mkdirSync4, writeFileSync as writeFileSync4, rmSync as rmSync2 } from "fs";
+import { join as join9, dirname as dirname2 } from "path";
 
 // src/srd.ts
 import { join as join7 } from "path";
@@ -1904,6 +1905,126 @@ function evNum(id) {
   return m ? Number(m[1]) : 1e9;
 }
 
+// src/plan.ts
+import { existsSync as existsSync4, readFileSync as readFileSync3, writeFileSync as writeFileSync3 } from "fs";
+import { join as join8 } from "path";
+function buildPlanPath(runDir) {
+  return join8(runDir, "BUILD-PLAN.json");
+}
+function milestoneLabel(title) {
+  return title.split("\u2014")[0].trim() || title.trim();
+}
+function pad32(n) {
+  return String(n).padStart(3, "0");
+}
+function derivePlan(srd) {
+  const frById = new Map(srd.functional.map((f) => [f.id, f]));
+  const ordered = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const m of srd.buildPlan) {
+    for (const frId of m.frIds) {
+      if (frById.has(frId) && !seen.has(frId)) {
+        ordered.push({ frId, milestone: milestoneLabel(m.title) });
+        seen.add(frId);
+      }
+    }
+  }
+  for (const f of srd.functional) {
+    if (!seen.has(f.id)) ordered.push({ frId: f.id, milestone: "M1" });
+  }
+  const tasks = [
+    {
+      id: "T-000",
+      title: "Project skeleton \u2014 repo layout, test harness, CI",
+      milestone: ordered[0]?.milestone ?? "M1",
+      frIds: [],
+      acceptance: [],
+      dependsOn: [],
+      artifacts: [],
+      tests: [],
+      verify: { commands: [] },
+      status: "todo"
+    }
+  ];
+  ordered.forEach(({ frId, milestone }, i) => {
+    const fr = frById.get(frId);
+    const dependsOn = ["T-000"];
+    if (fr.entities.length) {
+      for (let j = 0; j < i; j++) {
+        const prev = ordered[j];
+        if (prev.milestone === milestone) continue;
+        const prevFr = frById.get(prev.frId);
+        if (prevFr.entities.some((e) => fr.entities.includes(e))) {
+          dependsOn.push(`T-${pad32(j + 1)}`);
+          break;
+        }
+      }
+    }
+    tasks.push({
+      id: `T-${pad32(i + 1)}`,
+      title: `${fr.id} \u2014 ${fr.title}`,
+      milestone,
+      frIds: [fr.id],
+      acceptance: fr.acceptance.map((_, idx) => ({ frId: fr.id, index: idx })),
+      dependsOn,
+      artifacts: [],
+      tests: [],
+      verify: { commands: [] },
+      status: "todo"
+    });
+  });
+  return {
+    schemaVersion: BUILD_PLAN_SCHEMA_VERSION,
+    product: srd.product.name,
+    generatedAt: srd.generatedAt,
+    conventions: { frTagPattern: "FR-\\d{3}", testCommand: null, appDir: null },
+    tasks
+  };
+}
+var STATUSES = ["todo", "in-progress", "done"];
+function taskKey(t) {
+  return t.frIds.length ? `fr:${t.title.replace(/^FR-\d+\s*—\s*/, "").trim().toLowerCase()}` : `id:${t.id}`;
+}
+function mergePlan(prev, next) {
+  if (!prev) return next;
+  const prevByKey = new Map(prev.tasks.map((t) => [taskKey(t), t]));
+  const tasks = next.tasks.map((t) => {
+    const old = prevByKey.get(taskKey(t));
+    if (!old) return t;
+    return {
+      ...t,
+      artifacts: Array.isArray(old.artifacts) ? old.artifacts : t.artifacts,
+      tests: Array.isArray(old.tests) ? old.tests : t.tests,
+      verify: old.verify && Array.isArray(old.verify.commands) ? old.verify : t.verify,
+      status: STATUSES.includes(old.status) ? old.status : t.status
+    };
+  });
+  return {
+    ...next,
+    conventions: {
+      frTagPattern: next.conventions.frTagPattern,
+      testCommand: prev.conventions?.testCommand ?? null,
+      appDir: prev.conventions?.appDir ?? null
+    },
+    tasks
+  };
+}
+function loadPlan(runDir) {
+  const path = buildPlanPath(runDir);
+  if (!existsSync4(path)) return null;
+  try {
+    const data = JSON.parse(readFileSync3(path, "utf8"));
+    return data && typeof data === "object" && Array.isArray(data.tasks) ? data : null;
+  } catch {
+    return null;
+  }
+}
+function writePlan(runDir, plan) {
+  const path = buildPlanPath(runDir);
+  writeFileSync3(path, JSON.stringify(plan, null, 2) + "\n");
+  return path;
+}
+
 // src/templates.ts
 function cite(ids) {
   if (!ids || ids.length === 0) return "";
@@ -2127,16 +2248,16 @@ function renderMergeBundle(srd) {
 
 // src/render.ts
 function writeFile(out, rel, content, files) {
-  const abs = join8(out, rel);
+  const abs = join9(out, rel);
   mkdirSync4(dirname2(abs), { recursive: true });
-  writeFileSync3(abs, content.endsWith("\n") ? content : content + "\n");
+  writeFileSync4(abs, content.endsWith("\n") ? content : content + "\n");
   files.push(rel);
 }
 function renderSRD(brief, evidence, opts) {
   const srd = buildSRD(brief, evidence, { level: opts.level, generatedAt: opts.generatedAt });
   const files = [];
   const out = opts.out;
-  rmSync2(join8(out, "architecture", "decisions"), { recursive: true, force: true });
+  rmSync2(join9(out, "architecture", "decisions"), { recursive: true, force: true });
   writeFile(out, "00-overview/VISION.md", renderVision(srd), files);
   writeFile(out, "00-overview/SCOPE.md", renderScope(srd), files);
   writeFile(out, "requirements/FUNCTIONAL.md", renderFunctional(srd), files);
@@ -2149,20 +2270,22 @@ function renderSRD(brief, evidence, opts) {
   }
   writeFile(out, "competitive/LANDSCAPE.md", renderLandscape(srd), files);
   writeFile(out, "BUILD-PLAN.md", renderBuildPlan(srd), files);
+  writePlan(out, mergePlan(loadPlan(out), derivePlan(srd)));
+  files.push("BUILD-PLAN.json");
   writeFile(out, "TRACEABILITY.md", renderTraceability(srd), files);
-  writeFileSync3(srdManifestPath(out), JSON.stringify(srd, null, 2) + "\n");
+  writeFileSync4(srdManifestPath(out), JSON.stringify(srd, null, 2) + "\n");
   files.push("SRD.json");
   if (opts.merge) {
     writeFile(out, "SRD.md", renderMergeBundle(srd), files);
   } else {
-    rmSync2(join8(out, "SRD.md"), { force: true });
+    rmSync2(join9(out, "SRD.md"), { force: true });
   }
   return { dir: out, files, srd };
 }
 
 // src/check.ts
-import { existsSync as existsSync4, readFileSync as readFileSync3, readdirSync as readdirSync3, statSync as statSync2 } from "fs";
-import { join as join9, relative as relative2, sep as sep2 } from "path";
+import { existsSync as existsSync5, readFileSync as readFileSync4, readdirSync as readdirSync3, statSync as statSync2 } from "fs";
+import { join as join10, relative as relative2, sep as sep2 } from "path";
 var REQUIRED_FILES = [
   "00-overview/VISION.md",
   "00-overview/SCOPE.md",
@@ -2185,7 +2308,7 @@ function mdFiles(runDir) {
       continue;
     }
     for (const name of entries) {
-      const abs = join9(dir, name);
+      const abs = join10(dir, name);
       let st;
       try {
         st = statSync2(abs);
@@ -2204,12 +2327,12 @@ function mdFiles(runDir) {
   return out.sort();
 }
 function loadEvidence(runDir) {
-  const path = join9(runDir, "evidence", "evidence.json");
-  if (!existsSync4(path)) {
+  const path = join10(runDir, "evidence", "evidence.json");
+  if (!existsSync5(path)) {
     return { evidence: [], note: `No evidence/evidence.json \u2014 grounding coverage is 0 (run \`construct research\` to ground the SRD).` };
   }
   try {
-    const data = JSON.parse(readFileSync3(path, "utf8"));
+    const data = JSON.parse(readFileSync4(path, "utf8"));
     const evidence = Array.isArray(data) ? data.filter((e) => !!e && typeof e === "object" && typeof e.id === "string" && typeof e.source === "string") : [];
     return { evidence };
   } catch (e) {
@@ -2271,22 +2394,22 @@ function checkRun(runDir, opts = {}) {
     resolved: []
   };
   for (const f of REQUIRED_FILES) {
-    if (!existsSync4(join9(runDir, f))) errors.push(`Missing required file: ${f} (run \`construct render --out ${runDir}\`).`);
+    if (!existsSync5(join10(runDir, f))) errors.push(`Missing required file: ${f} (run \`construct render --out ${runDir}\`).`);
   }
   const manifest = srdManifestPath(runDir);
-  if (!existsSync4(manifest)) {
+  if (!existsSync5(manifest)) {
     errors.push(`No SRD.json in ${runDir} \u2014 render the SRD first.`);
     return { ok: false, structural: { ok: false, errors, warnings }, coverage: emptyCoverage };
   }
   let srd;
   try {
-    srd = JSON.parse(readFileSync3(manifest, "utf8"));
+    srd = JSON.parse(readFileSync4(manifest, "utf8"));
   } catch (e) {
     errors.push(`SRD.json is unreadable: ${e.message}`);
     return { ok: false, structural: { ok: false, errors, warnings }, coverage: emptyCoverage };
   }
   for (const rel of mdFiles(runDir)) {
-    const text = readFileSync3(join9(runDir, rel), "utf8");
+    const text = readFileSync4(join10(runDir, rel), "utf8");
     if (DECISION_RE.test(text)) errors.push(`Unresolved decision (\u{1F9E0}) in ${rel} \u2014 resolve it before the SRD is complete.`);
     else if (PLACEHOLDER_RE.test(text)) warnings.push(`Possible leftover placeholder (TODO/TBD/FIXME) in ${rel} \u2014 confirm it is intentional.`);
   }
@@ -2379,23 +2502,23 @@ function formatCheckReport(r, runDir) {
 }
 
 // src/analyze.ts
-import { existsSync as existsSync5, readFileSync as readFileSync4 } from "fs";
-import { join as join10 } from "path";
+import { existsSync as existsSync6, readFileSync as readFileSync5 } from "fs";
+import { join as join11 } from "path";
 function loadEvidence2(runDir) {
-  const path = join10(runDir, "evidence", "evidence.json");
-  if (!existsSync5(path)) return [];
+  const path = join11(runDir, "evidence", "evidence.json");
+  if (!existsSync6(path)) return [];
   try {
-    const data = JSON.parse(readFileSync4(path, "utf8"));
+    const data = JSON.parse(readFileSync5(path, "utf8"));
     return Array.isArray(data) ? data.filter((e) => !!e && typeof e === "object" && typeof e.id === "string" && typeof e.source === "string") : [];
   } catch {
     return [];
   }
 }
 function loadMetaNotes(runDir) {
-  const path = join10(runDir, "evidence", "meta.json");
-  if (!existsSync5(path)) return [];
+  const path = join11(runDir, "evidence", "meta.json");
+  if (!existsSync6(path)) return [];
   try {
-    const meta = JSON.parse(readFileSync4(path, "utf8"));
+    const meta = JSON.parse(readFileSync5(path, "utf8"));
     return Array.isArray(meta.notes) ? meta.notes.filter((n) => typeof n === "string") : [];
   } catch {
     return [];
@@ -2465,6 +2588,202 @@ function formatGapReport(r, runDir) {
   return lines.join("\n");
 }
 
+// src/verify.ts
+import { existsSync as existsSync7, readFileSync as readFileSync6 } from "fs";
+import { isAbsolute, join as join12, resolve as resolve2 } from "path";
+var TEST_FILE_RE = /\.(test|spec)\.[^./]+$|_test\.[^./]+$/i;
+var TEST_DIR_RE = /(^|\/)(tests?|__tests__|spec)\//i;
+function isTestFile(rel) {
+  return TEST_FILE_RE.test(rel) || TEST_DIR_RE.test(rel);
+}
+function detectCycle(plan) {
+  const byId = new Map(plan.tasks.map((t) => [t.id, t]));
+  const state = /* @__PURE__ */ new Map();
+  const visit = (id, path) => {
+    const s = state.get(id);
+    if (s === "done") return null;
+    if (s === "visiting") return [...path, id].join(" \u2192 ");
+    state.set(id, "visiting");
+    for (const dep of byId.get(id)?.dependsOn ?? []) {
+      if (!byId.has(dep)) continue;
+      const cyc = visit(dep, [...path, id]);
+      if (cyc) return cyc;
+    }
+    state.set(id, "done");
+    return null;
+  };
+  for (const t of plan.tasks) {
+    const cyc = visit(t.id, []);
+    if (cyc) return cyc;
+  }
+  return null;
+}
+function runCommand(command, cwd) {
+  const r = process.platform === "win32" ? sh("cmd", ["/c", command], { cwd, timeoutMs: 6e5 }) : sh("sh", ["-c", command], { cwd, timeoutMs: 6e5 });
+  return { command, ok: r.ok, exitCode: r.status };
+}
+function verifyRun(runDir, opts = {}) {
+  const errors = [];
+  const warnings = [];
+  const frTestCoverage = [];
+  const planPath = buildPlanPath(runDir);
+  if (!existsSync7(planPath)) {
+    errors.push(`No BUILD-PLAN.json in ${runDir} \u2014 render the SRD first (construct render).`);
+    return { ok: false, errors, warnings, frTestCoverage };
+  }
+  const plan = loadPlan(runDir);
+  if (!plan) {
+    errors.push(`BUILD-PLAN.json is unreadable or malformed.`);
+    return { ok: false, errors, warnings, frTestCoverage };
+  }
+  if (plan.schemaVersion !== BUILD_PLAN_SCHEMA_VERSION) {
+    errors.push(`BUILD-PLAN.json schemaVersion ${plan.schemaVersion} is not supported (expected ${BUILD_PLAN_SCHEMA_VERSION}).`);
+    return { ok: false, errors, warnings, frTestCoverage };
+  }
+  const manifest = srdManifestPath(runDir);
+  if (!existsSync7(manifest)) {
+    errors.push(`No SRD.json in ${runDir} \u2014 the plan cannot be verified against a missing SRD.`);
+    return { ok: false, errors, warnings, frTestCoverage };
+  }
+  let srd;
+  try {
+    srd = JSON.parse(readFileSync6(manifest, "utf8"));
+  } catch (e) {
+    errors.push(`SRD.json is unreadable: ${e.message}`);
+    return { ok: false, errors, warnings, frTestCoverage };
+  }
+  const ids = /* @__PURE__ */ new Set();
+  for (const t of plan.tasks) {
+    if (ids.has(t.id)) errors.push(`Duplicate task id ${t.id}.`);
+    ids.add(t.id);
+  }
+  const frById = new Map(srd.functional.map((f) => [f.id, f]));
+  for (const t of plan.tasks) {
+    for (const dep of t.dependsOn) {
+      if (!ids.has(dep)) errors.push(`${t.id} depends on unknown task "${dep}".`);
+    }
+    for (const frId of t.frIds) {
+      if (!frById.has(frId)) errors.push(`${t.id} references unknown requirement "${frId}".`);
+    }
+    for (const a of t.acceptance) {
+      const fr = frById.get(a.frId);
+      if (!fr) errors.push(`${t.id} acceptance ref points at unknown requirement "${a.frId}".`);
+      else if (!Number.isInteger(a.index) || a.index < 0 || a.index >= fr.acceptance.length) {
+        errors.push(`${t.id} acceptance ref ${a.frId}[${a.index}] is out of range (FR has ${fr.acceptance.length} criteria).`);
+      }
+    }
+  }
+  const plannedFrs = new Set(plan.tasks.flatMap((t) => t.frIds));
+  for (const f of srd.functional) {
+    if (!plannedFrs.has(f.id)) warnings.push(`${f.id} is in the SRD but no build task implements it \u2014 re-render to refresh the plan.`);
+  }
+  const cycle = detectCycle(plan);
+  if (cycle) errors.push(`Task dependency cycle: ${cycle}.`);
+  const rawApp = opts.appDir ?? plan.conventions.appDir ?? void 0;
+  const appDir = rawApp ? isAbsolute(rawApp) ? rawApp : resolve2(runDir, rawApp) : void 0;
+  const doneTasks = plan.tasks.filter((t) => t.status === "done");
+  if (!appDir) {
+    if (doneTasks.length) {
+      errors.push(`${doneTasks.length} task(s) are done but no app directory is declared \u2014 pass --app <dir> or set conventions.appDir.`);
+    } else {
+      warnings.push(`No app directory declared yet (conventions.appDir / --app) \u2014 file and test checks skipped.`);
+    }
+    const ok2 = errors.length === 0;
+    return { ok: ok2, errors, warnings, frTestCoverage };
+  }
+  if (!existsSync7(appDir)) {
+    errors.push(`App directory does not exist: ${appDir}.`);
+    return { ok: false, errors, warnings, frTestCoverage };
+  }
+  for (const t of doneTasks) {
+    for (const rel of [...t.artifacts, ...t.tests]) {
+      if (!existsSync7(join12(appDir, rel))) errors.push(`${t.id} is done but its declared file is missing: ${rel}.`);
+    }
+    if (t.frIds.length && t.tests.length === 0) {
+      warnings.push(`${t.id} is done but declares no tests \u2014 record the test files that exercise ${t.frIds.join(", ")}.`);
+    }
+  }
+  let tagRe = null;
+  try {
+    tagRe = new RegExp(plan.conventions.frTagPattern, "g");
+  } catch {
+    errors.push(`conventions.frTagPattern is not a valid regex: ${plan.conventions.frTagPattern}.`);
+  }
+  if (tagRe) {
+    const testFiles = walk(appDir).filter((f) => isTestFile(f.rel));
+    const refs = /* @__PURE__ */ new Map();
+    for (const f of testFiles) {
+      const text = readText(f.abs);
+      if (!text) continue;
+      tagRe.lastIndex = 0;
+      const found = /* @__PURE__ */ new Set();
+      let m;
+      while (m = tagRe.exec(text)) found.add(m[0]);
+      for (const id of found) {
+        if (!refs.has(id)) refs.set(id, []);
+        refs.get(id).push(f.rel);
+      }
+    }
+    const known = new Set(srd.functional.map((f) => f.id));
+    const stale = [...refs.keys()].filter((id) => !known.has(id)).sort();
+    if (stale.length) {
+      warnings.push(`Tests reference FR id(s) absent from the SRD (${stale.join(", ")}) \u2014 ids may have shifted on a re-render; retag the tests.`);
+    }
+    for (const fr of srd.functional) {
+      const files = (refs.get(fr.id) ?? []).sort();
+      frTestCoverage.push({ fr: fr.id, priority: fr.priority, testFiles: files });
+      const claimed = plan.tasks.some((t) => t.frIds.includes(fr.id) && t.status === "done");
+      if (files.length === 0 && claimed) {
+        const msg = `${fr.id} (${fr.priority}) is built but no test references it \u2014 name the FR id in a test (pattern: ${plan.conventions.frTagPattern}).`;
+        if (opts.strict && fr.priority === "must") errors.push(msg);
+        else warnings.push(msg);
+      }
+    }
+  }
+  let commandResults;
+  if (opts.runTests) {
+    commandResults = [];
+    if (plan.conventions.testCommand) {
+      const r = runCommand(plan.conventions.testCommand, appDir);
+      commandResults.push(r);
+      if (!r.ok) errors.push(`Test command failed (exit ${r.exitCode}): ${r.command}`);
+    } else {
+      warnings.push(`--run-tests requested but conventions.testCommand is not set.`);
+    }
+    for (const t of doneTasks) {
+      for (const cmd of t.verify.commands) {
+        const r = runCommand(cmd, appDir);
+        commandResults.push(r);
+        if (!r.ok) errors.push(`${t.id} verify command failed (exit ${r.exitCode}): ${cmd}`);
+      }
+    }
+  }
+  const ok = errors.length === 0;
+  return { ok, errors, warnings, frTestCoverage, commandResults };
+}
+function formatVerifyReport(r, runDir) {
+  const lines = [];
+  lines.push(`construct verify: ${runDir}`);
+  lines.push(``);
+  lines.push(`Plan & artifacts (hard):`);
+  for (const e of r.errors) lines.push(`  \u2717 ${e}`);
+  for (const w of r.warnings) lines.push(`  \u26A0 ${w}`);
+  lines.push(r.ok ? `  \u2713 build state is consistent with the plan and the SRD` : `  \u2717 build state does NOT match the plan/SRD`);
+  if (r.frTestCoverage.length) {
+    lines.push(``);
+    lines.push(`Requirement \u2192 test coverage:`);
+    for (const c of r.frTestCoverage) {
+      lines.push(`  ${c.testFiles.length ? "\u2713" : "\xB7"} ${c.fr} (${c.priority}): ${c.testFiles.length ? c.testFiles.join(", ") : "no test references it"}`);
+    }
+  }
+  if (r.commandResults) {
+    lines.push(``);
+    lines.push(`Commands (--run-tests):`);
+    for (const c of r.commandResults) lines.push(`  ${c.ok ? "\u2713" : "\u2717"} ${c.command} (exit ${c.exitCode})`);
+  }
+  return lines.join("\n");
+}
+
 // src/cli.ts
 var HELP = `construct v${VERSION}
 Turn a product idea into a grounded, buildable SRD suite. Interview \u2192 research
@@ -2478,6 +2797,7 @@ Usage:
   construct web|oss|tech|so --out <run> [--q "<focus>"] [--url <u,...>] [--seeds <u,...>]
   construct render   --out <run> [--level light|complex] [--merge]
   construct check    --out <run> [--min-grounding <0-100>] [--json]
+  construct verify   --out <run> [--app <dir>] [--run-tests] [--strict] [--json]
   construct status   --out <run>
   construct semantic up|down|status
 
@@ -2489,6 +2809,8 @@ Commands:
   tech       Drill tech docs + StackOverflow.   so    Drill StackOverflow only.
   render     Render the SRD tree + SRD.json from brief.json + the dossier.
   check      Hard structural gate + advisory grounding-coverage report.
+  verify     Check a built app against BUILD-PLAN.json + the SRD (static by
+             default; --run-tests executes the declared test commands).
   status     Show what exists in a run (brief / evidence / SRD / check).
   semantic   Manage the optional local Docker stack (Qdrant + Ollama + SearXNG).
 
@@ -2502,6 +2824,9 @@ Options:
   --docs-url <url>     A technology docs page to ground against
   --level <l>          light | complex                           (default: light)
   --min-grounding <n>  For 'check': fail unless \u2265 n% of claims are grounded (opt-in)
+  --app <dir>          For 'verify': the built app directory (default: conventions.appDir)
+  --run-tests          For 'verify': also execute testCommand + per-task verify commands
+  --strict             For 'verify': a built must-have FR with no referencing test FAILS
   --web-engine <e>     auto | searxng | ddg | claude             (default: auto)
   --per-source <n>     Max evidence items kept per source        (default: 6)
   --merge              Also emit a single-file SRD.md bundle
@@ -2517,7 +2842,7 @@ Workflow:
   construct render --out ./my-idea --level complex # writes the SRD tree
   construct check --out ./my-idea                 # structural gate + coverage report
 `;
-var COMMANDS = /* @__PURE__ */ new Set(["init", "research", "analyze", "web", "oss", "tech", "so", "render", "check", "status", "semantic"]);
+var COMMANDS = /* @__PURE__ */ new Set(["init", "research", "analyze", "web", "oss", "tech", "so", "render", "check", "verify", "status", "semantic"]);
 var VALUE_FLAGS = /* @__PURE__ */ new Set([
   "idea",
   "out",
@@ -2532,9 +2857,10 @@ var VALUE_FLAGS = /* @__PURE__ */ new Set([
   "web-engine",
   "per-source",
   "source",
-  "min-grounding"
+  "min-grounding",
+  "app"
 ]);
-var BOOL_FLAGS = /* @__PURE__ */ new Set(["semantic", "merge", "json", "refresh"]);
+var BOOL_FLAGS = /* @__PURE__ */ new Set(["semantic", "merge", "json", "refresh", "run-tests", "strict"]);
 function fail(message) {
   process.stderr.write(`construct: ${message}
 `);
@@ -2622,7 +2948,7 @@ function csv(s) {
 function requireOut(p) {
   const out = (p.values.out || p.values.run || "").trim();
   if (!out) fail("missing --out <run>");
-  return resolve2(out);
+  return resolve3(out);
 }
 function buildResearchContext(p, runDir, angles) {
   const brief = loadBrief(runDir);
@@ -2665,7 +2991,7 @@ async function main() {
     case "init": {
       const idea = p.values.idea;
       if (!idea) fail('missing --idea "<one-liner>"');
-      const out = p.values.out ? resolve2(p.values.out) : resolve2(slugify(idea) || "construct-run");
+      const out = p.values.out ? resolve3(p.values.out) : resolve3(slugify(idea) || "construct-run");
       const brief = initBrief(idea, (/* @__PURE__ */ new Date()).toISOString());
       const path = saveBrief(out, brief);
       process.stderr.write(
@@ -2749,7 +3075,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
         [
           `construct: rendered the ${level} SRD for "${brief.idea}"`,
           `  files:    ${r.files.length} (${r.srd.functional.length} FR \xB7 ${r.srd.nonFunctional.length} NFR \xB7 ${r.srd.architecture.adrs.length} ADR)`,
-          `  manifest: ${join11(out, "SRD.json")}`,
+          `  manifest: ${join13(out, "SRD.json")}`,
           `  next:     construct check --out ${out}`
         ].join("\n") + "\n"
       );
@@ -2783,16 +3109,34 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
       if (!res.ok) process.exit(1);
       return;
     }
+    case "verify": {
+      const out = requireOut(p);
+      const res = verifyRun(out, {
+        appDir: p.values.app ? resolve3(p.values.app) : void 0,
+        runTests: p.bools.has("run-tests"),
+        strict: p.bools.has("strict")
+      });
+      if (p.bools.has("json")) {
+        process.stdout.write(JSON.stringify(res, null, 2) + "\n");
+      } else {
+        process.stdout.write(formatVerifyReport(res, out) + "\n");
+      }
+      if (!res.ok) process.exit(1);
+      return;
+    }
     case "status": {
       const out = requireOut(p);
-      const has = (rel) => existsSync6(join11(out, rel)) ? "\u2713" : "\xB7";
+      const has = (rel) => existsSync8(join13(out, rel)) ? "\u2713" : "\xB7";
+      const plan = loadPlan(out);
+      const planLine = plan ? `  \u2713 BUILD-PLAN.json (build: ${plan.tasks.filter((t) => t.status === "done").length}/${plan.tasks.length} tasks done)` : `  \xB7 BUILD-PLAN.json (build plan)`;
       process.stdout.write(
         [
           `construct status: ${out}`,
           `  ${has("brief.json")} brief.json`,
           `  ${has("evidence/evidence.json")} evidence/evidence.json (research)`,
           `  ${has("SRD.json")} SRD.json (render)`,
-          `  ${has("requirements/FUNCTIONAL.md")} requirements/FUNCTIONAL.md`
+          `  ${has("requirements/FUNCTIONAL.md")} requirements/FUNCTIONAL.md`,
+          planLine
         ].join("\n") + "\n"
       );
       return;
@@ -2807,10 +3151,10 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
   }
 }
 function loadEvidence3(runDir) {
-  const path = join11(runDir, "evidence", "evidence.json");
-  if (!existsSync6(path)) return [];
+  const path = join13(runDir, "evidence", "evidence.json");
+  if (!existsSync8(path)) return [];
   try {
-    const data = JSON.parse(readFileSync5(path, "utf8"));
+    const data = JSON.parse(readFileSync7(path, "utf8"));
     return Array.isArray(data) ? data.filter(isEvidenceItem) : [];
   } catch {
     return [];

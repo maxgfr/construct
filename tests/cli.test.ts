@@ -59,6 +59,14 @@ describe("parseArgs", () => {
     expect(p.bools.has("json")).toBe(true);
   });
 
+  it("parses verify with --app and its boolean flags", () => {
+    const p = parseArgs(["verify", "--out", "run", "--app", "./app", "--run-tests", "--strict"]);
+    expect(p.command).toBe("verify");
+    expect(p.values.app).toBe("./app");
+    expect(p.bools.has("run-tests")).toBe(true);
+    expect(p.bools.has("strict")).toBe(true);
+  });
+
   it("exits on an unknown command", () => {
     expect(trapExit(() => parseArgs(["frobnicate"])).code).toBe(1);
   });

@@ -16,6 +16,8 @@ import { assignIds, renderEvidenceMarkdown } from "./research/dossier.js";
 import { renderSRD } from "./render.js";
 import { checkRun, formatCheckReport } from "./check.js";
 import { analyzeRun, formatGapReport } from "./analyze.js";
+import { verifyRun, formatVerifyReport } from "./verify.js";
+import { loadPlan } from "./plan.js";
 import { semanticControl } from "./research/semantic.js";
 
 const HELP = `construct v${VERSION}
@@ -30,6 +32,7 @@ Usage:
   construct web|oss|tech|so --out <run> [--q "<focus>"] [--url <u,...>] [--seeds <u,...>]
   construct render   --out <run> [--level light|complex] [--merge]
   construct check    --out <run> [--min-grounding <0-100>] [--json]
+  construct verify   --out <run> [--app <dir>] [--run-tests] [--strict] [--json]
   construct status   --out <run>
   construct semantic up|down|status
 
@@ -41,6 +44,8 @@ Commands:
   tech       Drill tech docs + StackOverflow.   so    Drill StackOverflow only.
   render     Render the SRD tree + SRD.json from brief.json + the dossier.
   check      Hard structural gate + advisory grounding-coverage report.
+  verify     Check a built app against BUILD-PLAN.json + the SRD (static by
+             default; --run-tests executes the declared test commands).
   status     Show what exists in a run (brief / evidence / SRD / check).
   semantic   Manage the optional local Docker stack (Qdrant + Ollama + SearXNG).
 
@@ -54,6 +59,9 @@ Options:
   --docs-url <url>     A technology docs page to ground against
   --level <l>          light | complex                           (default: light)
   --min-grounding <n>  For 'check': fail unless ≥ n% of claims are grounded (opt-in)
+  --app <dir>          For 'verify': the built app directory (default: conventions.appDir)
+  --run-tests          For 'verify': also execute testCommand + per-task verify commands
+  --strict             For 'verify': a built must-have FR with no referencing test FAILS
   --web-engine <e>     auto | searxng | ddg | claude             (default: auto)
   --per-source <n>     Max evidence items kept per source        (default: 6)
   --merge              Also emit a single-file SRD.md bundle
@@ -70,11 +78,11 @@ Workflow:
   construct check --out ./my-idea                 # structural gate + coverage report
 `;
 
-const COMMANDS = new Set(["init", "research", "analyze", "web", "oss", "tech", "so", "render", "check", "status", "semantic"]);
+const COMMANDS = new Set(["init", "research", "analyze", "web", "oss", "tech", "so", "render", "check", "verify", "status", "semantic"]);
 const VALUE_FLAGS = new Set([
-  "idea", "out", "run", "angles", "q", "question", "url", "seeds", "docs-url", "level", "web-engine", "per-source", "source", "min-grounding",
+  "idea", "out", "run", "angles", "q", "question", "url", "seeds", "docs-url", "level", "web-engine", "per-source", "source", "min-grounding", "app",
 ]);
-const BOOL_FLAGS = new Set(["semantic", "merge", "json", "refresh"]);
+const BOOL_FLAGS = new Set(["semantic", "merge", "json", "refresh", "run-tests", "strict"]);
 
 function fail(message: string): never {
   process.stderr.write(`construct: ${message}\n`);
@@ -350,9 +358,29 @@ async function main(): Promise<void> {
       return;
     }
 
+    case "verify": {
+      const out = requireOut(p);
+      const res = verifyRun(out, {
+        appDir: p.values.app ? resolve(p.values.app) : undefined,
+        runTests: p.bools.has("run-tests"),
+        strict: p.bools.has("strict"),
+      });
+      if (p.bools.has("json")) {
+        process.stdout.write(JSON.stringify(res, null, 2) + "\n");
+      } else {
+        process.stdout.write(formatVerifyReport(res, out) + "\n");
+      }
+      if (!res.ok) process.exit(1);
+      return;
+    }
+
     case "status": {
       const out = requireOut(p);
       const has = (rel: string) => (existsSync(join(out, rel)) ? "✓" : "·");
+      const plan = loadPlan(out);
+      const planLine = plan
+        ? `  ✓ BUILD-PLAN.json (build: ${plan.tasks.filter((t) => t.status === "done").length}/${plan.tasks.length} tasks done)`
+        : `  · BUILD-PLAN.json (build plan)`;
       process.stdout.write(
         [
           `construct status: ${out}`,
@@ -360,6 +388,7 @@ async function main(): Promise<void> {
           `  ${has("evidence/evidence.json")} evidence/evidence.json (research)`,
           `  ${has("SRD.json")} SRD.json (render)`,
           `  ${has("requirements/FUNCTIONAL.md")} requirements/FUNCTIONAL.md`,
+          planLine,
         ].join("\n") + "\n",
       );
       return;

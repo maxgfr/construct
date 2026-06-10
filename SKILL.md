@@ -1,6 +1,6 @@
 ---
 name: construct
-description: "Use when the user wants to turn a product idea into a serious, buildable requirements document (an SRD/PRD) — e.g. 'write an SRD for my app idea', 'spec out this product', 'turn my idea into requirements', 'design the requirements for X'. construct interviews the user about the product, then GROUNDS every major decision in real research — competitors and market signal (keyless web: SearXNG → DuckDuckGo → your WebSearch), comparable open-source projects and their issues/PRs (GitHub/GitLab), candidate-technology official docs and StackOverflow pitfalls, and an optional local semantic pass (Qdrant + Ollama) — writing an evidence dossier the SRD cites. It then renders a complete SRD suite (vision, scope, numbered functional requirements with Given/When/Then acceptance criteria, non-functional requirements, system context, data model, interfaces, ADRs, competitive landscape, build plan, traceability) and validates it: a HARD structural completeness gate plus an ADVISORY grounding-coverage report. Triggers: SRD, PRD, software requirements document, spec a product, requirements from an idea, greenfield product spec, idea to requirements."
+description: "Use when the user wants to turn a product idea into a serious, buildable requirements document (an SRD/PRD) — and optionally build the app from it. E.g. 'write an SRD for my app idea', 'spec out this product', 'turn my idea into requirements', 'design the requirements for X', 'build the app from the SRD', 'implement the spec'. construct interviews the user about the product, then GROUNDS every major decision in real research — competitors and market signal (keyless web: SearXNG → DuckDuckGo → your WebSearch), comparable open-source projects and their issues/PRs (GitHub/GitLab), candidate-technology official docs and StackOverflow pitfalls, and an optional local semantic pass (Qdrant + Ollama) — writing an evidence dossier the SRD cites. It then renders a complete SRD suite (vision, scope, numbered functional requirements with Given/When/Then acceptance criteria, non-functional requirements, system context, inferred data model and interfaces, ADRs, competitive landscape, build plan, traceability) and validates it: a HARD structural completeness gate plus an ADVISORY grounding-coverage report (opt-in --min-grounding threshold). For building, it emits a machine-readable BUILD-PLAN.json task DAG; the agent implements task-by-task with TDD while `construct verify` referees the app against the SRD (artifacts exist, every requirement is test-covered, suites pass). Triggers: SRD, PRD, software requirements document, spec a product, requirements from an idea, greenfield product spec, idea to requirements, build from spec, implement the SRD."
 license: MIT
 metadata:
   version: 1.0.2
@@ -41,6 +41,11 @@ No `npm install`, no API keys. Run `--help` for the full surface. Key commands:
   gate (exit ≠ 0 on an incomplete SRD) plus the ADVISORY grounding-coverage
   report. `--min-grounding N` opts into a second gate that fails below N%
   grounded claims.
+- `verify --out <run> [--app <dir>] [--run-tests] [--strict] [--json]` — the
+  build referee: BUILD-PLAN.json well-formed and acyclic, every task ref
+  resolves into SRD.json, done tasks' files exist, every requirement is
+  referenced by a test. `--run-tests` also executes the declared test
+  commands; `--strict` fails a built must-have with no referencing test.
 - `status --out <run>` — what exists in the run so far.
 - `semantic up|down|status` — optional local Docker stack (Qdrant + Ollama +
   SearXNG).
@@ -124,6 +129,26 @@ loop to completion; only pause to ask the user a real decision.
    landscape, the grounded requirements and the key decisions (with their `[E#]`
    evidence and links). Pin any unknowns explicitly rather than guessing.
 
+8. **Build (when the user wants the app, not just the SRD).** The render also
+   emitted `BUILD-PLAN.json` — a machine-readable task DAG (T-000 skeleton +
+   one task per FR, must → should → could, entity-aware dependencies) whose
+   `acceptance` entries POINT into `SRD.json`. **You write all app code; the
+   engine referees.** Follow `references/build-playbook.md`:
+   - Do `T-000` (scaffold, test harness, CI); set `conventions.appDir` and
+     `conventions.testCommand` in `BUILD-PLAN.json`.
+   - Per task, in topological order: read the acceptance criteria from
+     `SRD.json`; TDD them — **every test names its FR id** (e.g.
+     `describe("FR-001 …")`; that's what `verify` greps); record `artifacts` +
+     `tests`; set `status: "done"`; run
+     `node scripts/construct.mjs verify --out <run>` and fix any error before
+     the next task.
+   - Per milestone: `verify --out <run> --run-tests --strict`, then a
+     milestone adversarial review — fresh eyes hunting for an acceptance
+     criterion no test actually exercises (see the playbook;
+     `references/verify.md` explains what verify can and cannot prove).
+   - If an FR proves wrong while building, amend the brief, re-render
+     (progress merges by feature title), retag shifted FR ids, re-`check`.
+
 ## What it produces (the SRD tree, under `--out`)
 
 ```
@@ -133,7 +158,8 @@ requirements/  FUNCTIONAL.md (FR-NNN · priority · Given/When/Then · [E#])
 architecture/  SYSTEM-CONTEXT.md · DATA-MODEL.md · INTERFACES.md
                decisions/NNNN-*.md  (ADRs)
 competitive/   LANDSCAPE.md (competitors + OSS prior art)
-BUILD-PLAN.md · TRACEABILITY.md (FR ↔ NFR ↔ ADR ↔ entity ↔ interface)
+BUILD-PLAN.md · BUILD-PLAN.json (task DAG for the build phase)
+TRACEABILITY.md (FR ↔ NFR ↔ ADR ↔ entity ↔ interface)
 evidence/      EVIDENCE.md · evidence.json · meta.json   ·   brief.json · SRD.json
 ```
 
@@ -165,6 +191,8 @@ See `references/semantic-setup.md`.
 - `references/acceptance-criteria.md` — bad→good Given/When/Then rewrites and measurable NFR metric patterns.
 - `references/citation-format.md` — the `[E#]` grounding convention.
 - `references/grounding-coverage.md` — what the advisory coverage report means and how to raise it.
+- `references/build-playbook.md` — the build loop: task TDD, FR-tag convention, milestone gates, the milestone review.
+- `references/verify.md` — what each `verify` check proves and what still needs eyes.
 - `references/provider-apis.md` — how OSS issues/PRs are fetched per host, keyless.
 - `references/web-discovery.md` — the layered keyless web search.
 - `references/semantic-setup.md` — the optional local Docker stack.

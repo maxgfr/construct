@@ -289,6 +289,72 @@ export interface CheckResult {
 }
 
 // ---------------------------------------------------------------------------
+// Build plan — BUILD-PLAN.json, the machine-readable bridge from SRD to app.
+// The engine derives the task DAG from the SRD (and re-derives it on every
+// render); the building AGENT owns progress fields (artifacts, tests, verify
+// commands, status), which mergePlan preserves across re-renders. The engine
+// never generates app code — it plans and verifies.
+// ---------------------------------------------------------------------------
+
+export const BUILD_PLAN_SCHEMA_VERSION = 1;
+
+// A pointer into SRD.json — functional[frId].acceptance[index]. Refs, never
+// copies: the SRD stays the single source of truth for what "done" means.
+export interface AcceptanceRef {
+  frId: string;
+  index: number;
+}
+
+export type TaskStatus = "todo" | "in-progress" | "done";
+
+export interface BuildTask {
+  // Engine-derived (regenerated every render):
+  id: string; // T-000 …
+  title: string;
+  milestone: string; // M1 | M2 | M3
+  frIds: string[];
+  acceptance: AcceptanceRef[];
+  dependsOn: string[];
+  // Agent-owned (preserved across re-renders, keyed by the task's frIds):
+  artifacts: string[]; // app-relative paths implementing the task
+  tests: string[]; // app-relative test files exercising the task
+  verify: { commands: string[] }; // per-task commands `verify --run-tests` executes
+  status: TaskStatus;
+}
+
+export interface BuildPlanDoc {
+  schemaVersion: number;
+  product: string;
+  generatedAt: string;
+  conventions: {
+    // Test names/content must reference the FR id they exercise — this is what
+    // `construct verify` greps for. Engine-derived default: FR-\d{3}.
+    frTagPattern: string;
+    // Agent-owned: the app's test command and the app directory (relative to
+    // the run folder or absolute).
+    testCommand: string | null;
+    appDir: string | null;
+  };
+  tasks: BuildTask[];
+}
+
+// `construct verify` — does the built app match the plan and the SRD?
+export interface FrTestCoverage {
+  fr: string;
+  priority: Priority;
+  testFiles: string[]; // test files whose content references the FR id
+}
+
+export interface VerifyResult {
+  ok: boolean;
+  errors: string[];
+  warnings: string[];
+  frTestCoverage: FrTestCoverage[];
+  // Present only with --run-tests.
+  commandResults?: { command: string; ok: boolean; exitCode: number | null }[];
+}
+
+// ---------------------------------------------------------------------------
 // Gap analysis — `construct analyze`, the post-research "what's thin?" signal.
 // Pure prediction: it reuses the same matcher render will use, so a gap here is
 // a claim that WILL render ungrounded. Informational only, never gates.
