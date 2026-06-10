@@ -30,12 +30,17 @@ No `npm install`, no API keys. Run `--help` for the full surface. Key commands:
 - `research --out <run> [--angles market,oss,tech,semantic] [--q "<focus>"] [--semantic]`
   — gather evidence across angles into `<run>/evidence/` (an `EVIDENCE.md` +
   `evidence.json` dossier with `[E#]` ids). Default angles: `market,oss,tech`.
+- `analyze --out <run> [--json]` — the "what's thin?" report: names every
+  feature/competitor/tech/seed that will render UNGROUNDED as-is, and prints the
+  drill command that fixes each gap. Informational, never gates.
 - `web|oss|tech|so --out <run> [--q "<focus>"] [--url ...] [--seeds ...]` — drill
   ONE angle to stdout (no dossier). Use these to dig deeper on a thin thread.
 - `render --out <run> [--level light|complex] [--merge]` — render the SRD tree +
   `SRD.json` from `brief.json` + the dossier.
-- `check --out <run>` — the HARD structural gate (exit ≠ 0 on an incomplete SRD)
-  plus the ADVISORY grounding-coverage report.
+- `check --out <run> [--min-grounding <0-100>] [--json]` — the HARD structural
+  gate (exit ≠ 0 on an incomplete SRD) plus the ADVISORY grounding-coverage
+  report. `--min-grounding N` opts into a second gate that fails below N%
+  grounded claims.
 - `status --out <run>` — what exists in the run so far.
 - `semantic up|down|status` — optional local Docker stack (Qdrant + Ollama +
   SearXNG).
@@ -60,20 +65,30 @@ loop to completion; only pause to ask the user a real decision.
    their issues/PRs for real pitfalls), and pulls candidate-tech docs +
    StackOverflow. Read `<run>/evidence/EVIDENCE.md`.
 
-3. **Dig deeper — until it's good enough.** Where a thread is thin, drill it:
-   `construct web|oss|tech|so --out <run> --q "<narrower question>"` (or use your
-   own WebSearch and ground a page with `construct web --url <u> --out <run>`).
-   Re-run `research` to fold new findings in. Tell the user what you found and
-   **let them steer** — keep digging on what matters, stop when they say it's
-   enough. See `references/research-playbook.md`.
+3. **Dig deeper — until `analyze` is clean or the user stops you.** Run:
+   ```
+   node scripts/construct.mjs analyze --out <run>
+   ```
+   It names exactly what is thin — features, competitors, candidate tech and OSS
+   seeds with no matchable evidence — and prints the drill command that fixes
+   each gap. Work the gaps: `construct web|oss|tech|so --out <run> --q "..."`
+   (or use your own WebSearch and ground a page with
+   `construct web --url <u> --out <run>`). Re-run `research` to fold new
+   findings into the dossier, then re-run `analyze`. Tell the user what you
+   found and **let them steer** — prioritise must-have features and load-bearing
+   decisions, stop when they say it's enough. See
+   `references/research-playbook.md`.
 
 4. **Render the SRD.** When the brief is solid and the dossier is rich:
    ```
    node scripts/construct.mjs render --out <run> --level complex
    ```
-   This writes the SRD tree (see below). Then **enrich it**: resolve every
-   `🧠 Decide:` callout, sharpen the generic acceptance criteria into real
-   Given/When/Then, flesh out the data model and interfaces, and add `[E#]`
+   This writes the SRD tree (see below). The data model and interfaces come
+   pre-seeded by inference from the brief — **verify them, don't trust them**.
+   Then **enrich it**: resolve every `🧠 Decide:` callout, sharpen the templated
+   acceptance criteria and NFR metrics into testable, bounded statements
+   (follow `references/acceptance-criteria.md` — `check` warns while any remain
+   templated), correct/extend the data model and interfaces, and add `[E#]`
    citations from the dossier to the requirements and decisions they rest on.
    See `references/srd-authoring.md` and `references/citation-format.md`.
 
@@ -84,8 +99,9 @@ loop to completion; only pause to ask the user a real decision.
      required NFR category, or a malformed ADR. Fix until it passes.
    - *Grounding (advisory):* the same command prints coverage — what fraction of
      requirements/decisions cite evidence. Raise it where it matters (the load-
-     bearing decisions); see `references/grounding-coverage.md`. It never fails
-     the build, so use judgement.
+     bearing decisions); see `references/grounding-coverage.md`. By default it
+     never fails the build, so use judgement. When the user wants grounding
+     *enforced*, add the opt-in gate: `check --out <run> --min-grounding 70`.
    Loop steps 3–5 until `check` passes structurally and the grounding is honest.
 
 6. **Present.** Give the user the SRD suite: the vision, the competitive
@@ -128,6 +144,7 @@ See `references/semantic-setup.md`.
 - `references/interview-playbook.md` — how to elicit the brief, one question at a time.
 - `references/research-playbook.md` — picking angles and digging deeper to "good enough".
 - `references/srd-authoring.md` — resolving 🧠 callouts, writing testable requirements and ADRs.
+- `references/acceptance-criteria.md` — bad→good Given/When/Then rewrites and measurable NFR metric patterns.
 - `references/citation-format.md` — the `[E#]` grounding convention.
 - `references/grounding-coverage.md` — what the advisory coverage report means and how to raise it.
 - `references/provider-apis.md` — how OSS issues/PRs are fetched per host, keyless.

@@ -125,6 +125,7 @@ export function renderDataModel(srd: SRD): string {
     out.push(`_No entities defined yet. Enrich during authoring: list entities, their attributes, and which functional requirements reference each._`, ``);
     return out.join("\n");
   }
+  out.push(`_Seeded by inference from the brief — verify each entity and extend attributes during authoring._`, ``);
   for (const e of entities) {
     out.push(`## ${e.name}`);
     out.push(``);
@@ -144,6 +145,7 @@ export function renderInterfaces(srd: SRD): string {
     out.push(`_No interfaces defined yet. Enrich during authoring: list the API/event/UI/CLI surfaces and the functional requirements each serves._`, ``);
     return out.join("\n");
   }
+  out.push(`_Seeded by inference from the brief — verify each surface and define its contract during authoring._`, ``);
   for (const i of ifaces) {
     out.push(`## ${i.name} _(${i.kind})_`, ``, i.summary, ``, `_Related: ${i.relatedFRs.length ? i.relatedFRs.join(", ") : "—"}_`, ``);
   }

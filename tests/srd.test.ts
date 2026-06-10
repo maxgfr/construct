@@ -123,6 +123,48 @@ describe("buildSRD", () => {
     expect(note).toBe("It is fast.");
   });
 
+  it("infers core entities from feature titles and closes FR.entities symmetrically", () => {
+    const srd = buildSRD(brief, evidence, { level: "complex", generatedAt: "T" });
+    const article = srd.architecture.dataModel.find((e) => e.name === "Article");
+    expect(article).toBeDefined();
+    expect(article!.referencedByFRs).toContain("FR-001");
+    expect(article!.attributes.map((a) => a.name)).toEqual(["id", "createdAt"]);
+    // symmetric closure: every FR.entities name exists in the data model
+    const names = new Set(srd.architecture.dataModel.map((e) => e.name));
+    for (const fr of srd.functional) for (const e of fr.entities) expect(names.has(e)).toBe(true);
+    // brand/tech names never become entities
+    expect(names.has("Pocket")).toBe(false);
+    expect(names.has("Instapaper")).toBe(false);
+  });
+
+  it("infers an interface per external boundary plus the primary UI surface", () => {
+    const srd = buildSRD(brief, evidence, { level: "complex", generatedAt: "T" });
+    const ifaces = srd.architecture.interfaces;
+    const web = ifaces.find((i) => i.name === "Web App");
+    expect(web).toBeDefined();
+    expect(web!.kind).toBe("ui");
+    expect(web!.relatedFRs).toEqual(srd.functional.map((f) => f.id));
+    // "browser extension" in FR-001 is a detected boundary
+    const ext = ifaces.find((i) => i.name === "Browser Extension");
+    expect(ext).toBeDefined();
+    expect(ext!.relatedFRs).toContain("FR-001");
+    // symmetric closure: every FR.interfaces name exists
+    const names = new Set(ifaces.map((i) => i.name));
+    for (const fr of srd.functional) for (const i of fr.interfaces) expect(names.has(i)).toBe(true);
+  });
+
+  it("derives a testable Then from a numeric bound in the notes", () => {
+    const b: Brief = { ...brief, featureWishlist: [{ title: "Bulk import", priority: "must", notes: "Handles exports of up to 10000 articles without timing out." }] };
+    const then = buildSRD(b, evidence, { level: "light", generatedAt: "T" }).functional[0]!.acceptance[0]!.then;
+    expect(then).toMatch(/up to 10000 articles/);
+  });
+
+  it("specialises the cost metric from the budget constraint", () => {
+    const srd = buildSRD(brief, evidence, { level: "complex", generatedAt: "T" });
+    const cost = srd.nonFunctional.find((n) => n.category === "cost")!;
+    expect(cost.metric).toMatch(/side-project, near-zero infra budget/);
+  });
+
   it("specialises NFR metrics from the brief (compliance + time goals)", () => {
     const srd = buildSRD(brief, evidence, { level: "complex", generatedAt: "T" });
     const security = srd.nonFunctional.find((n) => n.category === "security")!;

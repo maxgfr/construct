@@ -140,6 +140,13 @@ export const SRD_SCHEMA_VERSION = 1;
 export type Level = "light" | "complex";
 export type Priority = "must" | "should" | "could";
 
+// Required NFR categories per level. buildSRD seeds them; the hard `check`
+// enforces they are present. Single definition so the two can never drift.
+export const REQUIRED_NFR: Record<Level, string[]> = {
+  light: ["performance", "security", "reliability"],
+  complex: ["performance", "security", "reliability", "usability", "observability", "cost"],
+};
+
 export interface AcceptanceCriterion {
   given: string;
   when: string;
@@ -264,13 +271,36 @@ export interface SRD {
 // ---------------------------------------------------------------------------
 
 export interface CheckResult {
-  ok: boolean; // reflects ONLY the hard structural gate
+  // True when the hard structural gate passes AND the opt-in grounding gate (if
+  // requested via --min-grounding) passes: structural.ok && (grounding?.ok ?? true).
+  // Without the flag this is exactly the structural verdict, as before.
+  ok: boolean;
   // Hard structural / buildability gate.
   structural: {
     ok: boolean;
     errors: string[];
     warnings: string[];
   };
-  // Advisory grounding coverage — informational, never flips `ok`.
+  // Advisory grounding coverage — informational, never flips `ok` by itself.
   coverage: CoverageReport & { citations: string[]; resolved: string[] };
+  // Present ONLY when the caller opted into a grounding threshold
+  // (`check --min-grounding N`). The advisory default is unchanged without it.
+  grounding?: { threshold: number; actualPct: number; ok: boolean };
+}
+
+// ---------------------------------------------------------------------------
+// Gap analysis — `construct analyze`, the post-research "what's thin?" signal.
+// Pure prediction: it reuses the same matcher render will use, so a gap here is
+// a claim that WILL render ungrounded. Informational only, never gates.
+// ---------------------------------------------------------------------------
+
+export interface GapReport {
+  evidenceCount: number;
+  bySource: Record<string, number>;
+  notes: string[]; // angle failures etc., surfaced from the dossier meta
+  ungroundedFeatures: { title: string; priority: string }[];
+  unmatchedCompetitors: string[];
+  unmatchedTech: string[];
+  unminedSeeds: string[];
+  suggestions: string[]; // concrete drill commands, one per gap
 }

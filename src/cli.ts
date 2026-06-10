@@ -15,6 +15,7 @@ import { webFetchUrls } from "./research/web.js";
 import { assignIds, renderEvidenceMarkdown } from "./research/dossier.js";
 import { renderSRD } from "./render.js";
 import { checkRun, formatCheckReport } from "./check.js";
+import { analyzeRun, formatGapReport } from "./analyze.js";
 import { semanticControl } from "./research/semantic.js";
 
 const HELP = `construct v${VERSION}
@@ -25,15 +26,17 @@ check. Grounding is advisory; structural completeness is enforced.
 Usage:
   construct init     --idea "<one-liner>" [--out <dir>]
   construct research --out <run> [--angles market,oss,tech,semantic] [--q "<focus>"] [--semantic]
+  construct analyze  --out <run> [--json]
   construct web|oss|tech|so --out <run> [--q "<focus>"] [--url <u,...>] [--seeds <u,...>]
   construct render   --out <run> [--level light|complex] [--merge]
-  construct check    --out <run>
+  construct check    --out <run> [--min-grounding <0-100>] [--json]
   construct status   --out <run>
   construct semantic up|down|status
 
 Commands:
   init       Scaffold a run folder + brief.json (fill it via the interview).
   research   Gather evidence across angles into <run>/evidence (a dossier).
+  analyze    Report what is thin (gaps that will render ungrounded) + drill commands.
   web        Drill the market/web angle.       oss   Drill OSS prior-art mining.
   tech       Drill tech docs + StackOverflow.   so    Drill StackOverflow only.
   render     Render the SRD tree + SRD.json from brief.json + the dossier.
@@ -50,6 +53,7 @@ Options:
   --seeds <u,...>      OSS repo URLs to mine (overrides brief.ossSeeds)
   --docs-url <url>     A technology docs page to ground against
   --level <l>          light | complex                           (default: light)
+  --min-grounding <n>  For 'check': fail unless ≥ n% of claims are grounded (opt-in)
   --web-engine <e>     auto | searxng | ddg | claude             (default: auto)
   --per-source <n>     Max evidence items kept per source        (default: 6)
   --merge              Also emit a single-file SRD.md bundle
@@ -66,9 +70,9 @@ Workflow:
   construct check --out ./my-idea                 # structural gate + coverage report
 `;
 
-const COMMANDS = new Set(["init", "research", "web", "oss", "tech", "so", "render", "check", "status", "semantic"]);
+const COMMANDS = new Set(["init", "research", "analyze", "web", "oss", "tech", "so", "render", "check", "status", "semantic"]);
 const VALUE_FLAGS = new Set([
-  "idea", "out", "run", "angles", "q", "question", "url", "seeds", "docs-url", "level", "web-engine", "per-source", "source",
+  "idea", "out", "run", "angles", "q", "question", "url", "seeds", "docs-url", "level", "web-engine", "per-source", "source", "min-grounding",
 ]);
 const BOOL_FLAGS = new Set(["semantic", "merge", "json", "refresh"]);
 
@@ -316,10 +320,32 @@ async function main(): Promise<void> {
       return;
     }
 
+    case "analyze": {
+      const out = requireOut(p);
+      const r = analyzeRun(out);
+      if (p.bools.has("json")) {
+        process.stdout.write(JSON.stringify(r, null, 2) + "\n");
+      } else {
+        process.stdout.write(formatGapReport(r, out) + "\n");
+      }
+      return; // informational — never gates
+    }
+
     case "check": {
       const out = requireOut(p);
-      const res = checkRun(out);
-      process.stdout.write(formatCheckReport(res, out) + "\n");
+      let minGrounding: number | undefined;
+      if (p.values["min-grounding"] !== undefined) {
+        minGrounding = Number(p.values["min-grounding"]);
+        if (!Number.isFinite(minGrounding) || minGrounding < 0 || minGrounding > 100) {
+          fail("invalid --min-grounding (expected a number between 0 and 100)");
+        }
+      }
+      const res = checkRun(out, { minGrounding });
+      if (p.bools.has("json")) {
+        process.stdout.write(JSON.stringify(res, null, 2) + "\n");
+      } else {
+        process.stdout.write(formatCheckReport(res, out) + "\n");
+      }
       if (!res.ok) process.exit(1);
       return;
     }

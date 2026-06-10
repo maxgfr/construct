@@ -98,6 +98,17 @@ describe("renderSRD", () => {
     expect(existsSync(join(out, "SRD.md"))).toBe(false);
   });
 
+  it("seeds DATA-MODEL.md and INTERFACES.md from inference (not blank)", () => {
+    const out = freshDir();
+    renderSRD(brief, evidence, { level: "complex", out, merge: false, generatedAt: "T" });
+    const dm = readFileSync(join(out, "architecture/DATA-MODEL.md"), "utf8");
+    expect(dm).toMatch(/## Article/);
+    expect(dm).toMatch(/Seeded by inference/);
+    const ifc = readFileSync(join(out, "architecture/INTERFACES.md"), "utf8");
+    expect(ifc).toMatch(/## Web App/);
+    expect(ifc).toMatch(/Seeded by inference/);
+  });
+
   it("is byte-deterministic for the same inputs and generatedAt", () => {
     const a = freshDir();
     const b = freshDir();

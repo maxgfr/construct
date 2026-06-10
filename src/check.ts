@@ -1,12 +1,8 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { srdManifestPath } from "./srd.js";
-import type { CheckResult, SRD, EvidenceItem, CoverageReport, Level } from "./types.js";
-
-const REQUIRED_NFR: Record<Level, string[]> = {
-  light: ["performance", "security", "reliability"],
-  complex: ["performance", "security", "reliability", "usability", "observability", "cost"],
-};
+import { REQUIRED_NFR } from "./types.js";
+import type { CheckResult, SRD, EvidenceItem, CoverageReport } from "./types.js";
 
 const REQUIRED_FILES = [
   "00-overview/VISION.md",
@@ -119,9 +115,16 @@ function computeCoverage(srd: SRD, evidence: EvidenceItem[]): CoverageReport & {
   };
 }
 
-// The dual gate. `ok` reflects ONLY the hard structural/buildability gate; the
-// grounding coverage is advisory and never flips `ok`.
-export function checkRun(runDir: string): CheckResult {
+// Renderer-templated phrasings the agent is expected to sharpen during
+// authoring. ONLY the renderer emits these exact strings (same reasoning as the
+// 🧠-only rule), so flagging them carries zero false positives. Advisory.
+const TEMPLATED_THEN_RE = /is persisted and visible to the user$/;
+const TEMPLATED_METRIC_RE = /^A measurable target for "/;
+
+// The dual gate. `ok` reflects the hard structural/buildability gate, AND the
+// opt-in grounding threshold when the caller passes `minGrounding` (the
+// advisory coverage report itself never flips `ok`).
+export function checkRun(runDir: string, opts: { minGrounding?: number } = {}): CheckResult {
   const errors: string[] = [];
   const warnings: string[] = [];
 
@@ -205,6 +208,17 @@ export function checkRun(runDir: string): CheckResult {
     }
   }
 
+  // Advisory: criteria/metrics still carrying the renderer's own template
+  // phrasing — complete but not yet sharpened into something testable.
+  const templatedThen = srd.functional.reduce((n, fr) => n + fr.acceptance.filter((a) => TEMPLATED_THEN_RE.test(a.then)).length, 0);
+  if (templatedThen) {
+    warnings.push(`${templatedThen} acceptance criteria are still renderer-templated — sharpen them into observable, bounded outcomes (see references/acceptance-criteria.md).`);
+  }
+  const templatedMetrics = srd.nonFunctional.filter((n) => n.metric && TEMPLATED_METRIC_RE.test(n.metric)).length;
+  if (templatedMetrics) {
+    warnings.push(`${templatedMetrics} NFR metric(s) are still generic placeholders — set measurable targets (see references/acceptance-criteria.md).`);
+  }
+
   // Advisory grounding coverage.
   const { evidence, note } = loadEvidence(runDir);
   if (note) warnings.push(note);
@@ -213,8 +227,20 @@ export function checkRun(runDir: string): CheckResult {
     warnings.push(`Grounding: ${coverage.dangling.length} citation(s) do not resolve to evidence.json: ${coverage.dangling.join(", ")}.`);
   }
 
-  const ok = errors.length === 0;
-  return { ok, structural: { ok, errors, warnings }, coverage };
+  const structuralOk = errors.length === 0;
+
+  // Opt-in grounding gate: a single percentage over every groundable claim.
+  // Off by default — the advisory semantics above are untouched without the flag.
+  let grounding: CheckResult["grounding"];
+  if (opts.minGrounding !== undefined) {
+    const total = coverage.frTotal + coverage.nfrTotal + coverage.adrTotal;
+    const grounded = coverage.frGrounded + coverage.nfrGrounded + coverage.adrGrounded;
+    const actualPct = total === 0 ? 0 : Math.round((grounded / total) * 100);
+    grounding = { threshold: opts.minGrounding, actualPct, ok: actualPct >= opts.minGrounding };
+  }
+
+  const ok = structuralOk && (grounding?.ok ?? true);
+  return { ok, structural: { ok: structuralOk, errors, warnings }, coverage, grounding };
 }
 
 function pct(part: number, total: number): string {
@@ -232,10 +258,17 @@ export function formatCheckReport(r: CheckResult, runDir: string): string {
   lines.push(r.structural.ok ? `  ✓ SRD is structurally complete` : `  ✗ SRD is NOT structurally complete`);
   lines.push(``);
   const c = r.coverage;
-  lines.push(`Grounding coverage (advisory — does not fail the build):`);
+  const advisory = r.grounding ? "advisory detail" : "advisory — does not fail the build";
+  lines.push(`Grounding coverage (${advisory}):`);
   lines.push(`  functional:     ${c.frGrounded}/${c.frTotal} grounded (${pct(c.frGrounded, c.frTotal)})`);
   lines.push(`  non-functional: ${c.nfrGrounded}/${c.nfrTotal} grounded (${pct(c.nfrGrounded, c.nfrTotal)})`);
   lines.push(`  decisions:      ${c.adrGrounded}/${c.adrTotal} grounded (${pct(c.adrGrounded, c.adrTotal)})`);
   lines.push(`  citations: ${c.citations.length} · resolved: ${c.resolved.length} · dangling: ${c.dangling.length} · uncited evidence: ${c.uncited.length}`);
+  if (r.grounding) {
+    const g = r.grounding;
+    lines.push(``);
+    lines.push(`Grounding gate (opt-in --min-grounding ${g.threshold}):`);
+    lines.push(g.ok ? `  ✓ PASS — ${g.actualPct}% of groundable claims are grounded (threshold ${g.threshold}%)` : `  ✗ FAIL — ${g.actualPct}% of groundable claims are grounded, below the ${g.threshold}% threshold`);
+  }
   return lines.join("\n");
 }

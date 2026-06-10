@@ -45,6 +45,20 @@ describe("parseArgs", () => {
     expect(p.positional).toEqual(["up"]);
   });
 
+  it("parses check with --min-grounding and --json", () => {
+    const p = parseArgs(["check", "--out", "run", "--min-grounding", "70", "--json"]);
+    expect(p.command).toBe("check");
+    expect(p.values["min-grounding"]).toBe("70");
+    expect(p.bools.has("json")).toBe(true);
+  });
+
+  it("parses the analyze command", () => {
+    const p = parseArgs(["analyze", "--out=run", "--json"]);
+    expect(p.command).toBe("analyze");
+    expect(p.values.out).toBe("run");
+    expect(p.bools.has("json")).toBe(true);
+  });
+
   it("exits on an unknown command", () => {
     expect(trapExit(() => parseArgs(["frobnicate"])).code).toBe(1);
   });

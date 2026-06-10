@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { keywords } from "./util.js";
 import { resolveRepo } from "./clone.js";
-import { SRD_SCHEMA_VERSION } from "./types.js";
+import { SRD_SCHEMA_VERSION, REQUIRED_NFR } from "./types.js";
 import type {
   Brief,
   EvidenceItem,
@@ -11,6 +11,8 @@ import type {
   FR,
   NFR,
   ADR,
+  Entity,
+  Interface,
   CompetitorRow,
   OssRow,
   Milestone,
@@ -33,8 +35,8 @@ function pad4(n: number): string {
 // feature validates building it). A *non-functional* requirement is a technical
 // quality — marketing pages must not ground it (otherwise a competitor FAQ
 // "grounds" a performance NFR via incidental word overlap).
-const GROUND_REQUIREMENT = ["market", "oss", "docs", "so", "issue", "pr"];
-const GROUND_QUALITY = ["oss", "docs", "so", "issue", "pr"];
+export const GROUND_REQUIREMENT = ["market", "oss", "docs", "so", "issue", "pr"];
+export const GROUND_QUALITY = ["oss", "docs", "so", "issue", "pr"];
 
 // Deterministic keyword-overlap match: return up to `n` evidence ids whose
 // title+snippet share the most *distinctive* keywords with `text`. Matching is
@@ -72,12 +74,6 @@ export function matchEvidence(text: string, evidence: EvidenceItem[], n: number,
   }
   return out;
 }
-
-// Required NFR categories per level. The hard `check` enforces these are present.
-const REQUIRED_NFR: Record<Level, string[]> = {
-  light: ["performance", "security", "reliability"],
-  complex: ["performance", "security", "reliability", "usability", "observability", "cost"],
-};
 
 // Keyword signals that link a functional requirement to a non-core NFR category,
 // so the traceability matrix carries real per-FR signal (privacy/a11y stop being
@@ -160,6 +156,146 @@ function priorityOf(p: Priority | undefined): Priority {
   return p === "must" || p === "should" || p === "could" ? p : "should";
 }
 
+// ---------------------------------------------------------------------------
+// Entity / interface inference. Deterministic heuristics over feature titles so
+// DATA-MODEL.md and INTERFACES.md start seeded instead of blank; the rendered
+// docs carry an explicit "inferred — verify" marker and the agent corrects
+// during authoring. Attributes stay minimal and honest (never invented).
+// ---------------------------------------------------------------------------
+
+// Leading verbs commonly opening a feature title ("Save an article…"). Stripped
+// so the direct object surfaces; also filtered out as entity candidates.
+const FEATURE_VERBS = new Set([
+  "create", "add", "manage", "book", "view", "send", "track", "sync", "edit",
+  "delete", "list", "share", "export", "import", "search", "save", "read",
+  "tag", "organize", "organise", "schedule", "upload", "download", "browse",
+  "filter", "sort", "archive", "publish", "invite", "assign", "stream",
+]);
+// Words that name actions or qualities, not data — never entities.
+const NON_ENTITY_WORDS = new Set(["search", "login", "signup", "support", "setup", "offline", "online", "mobile", "desktop", "full", "text", "user", "users"]);
+
+function singularize(w: string): string {
+  if (/ies$/.test(w)) return w.slice(0, -3) + "y";
+  if (/(?:ches|shes|xes|zes|ses)$/.test(w)) return w.slice(0, -2);
+  if (/s$/.test(w) && !/(?:ss|us|is)$/.test(w)) return w.slice(0, -1);
+  return w;
+}
+
+function titleCase(w: string): string {
+  return w ? w[0]!.toUpperCase() + w.slice(1) : w;
+}
+
+// Candidate entity tokens of one feature title: singularized keywords minus
+// verbs, action words, past/present participles, and brand/tech names from the
+// brief (a competitor is prior art, not a data entity).
+function entityTokens(title: string, exclude: Set<string>): { tokens: string[]; verbLed: boolean } {
+  const words = keywords(title).map((w) => w.toLowerCase());
+  const verbLed = words.length > 0 && FEATURE_VERBS.has(words[0]!);
+  const rest = verbLed ? words.slice(1) : words;
+  const tokens = rest
+    .filter((w) => w.length >= 3 && !FEATURE_VERBS.has(w) && !NON_ENTITY_WORDS.has(w) && !/(?:ed|ing)$/.test(w))
+    .map(singularize)
+    .filter((w) => !exclude.has(w));
+  return { tokens, verbLed };
+}
+
+// Infer core entities: a token is an entity when it recurs across features
+// (shared nouns are the data the product is about) or is the direct object of a
+// verb-led must-have. Mutates fr.entities symmetrically so the reference
+// closure and the traceability matrix carry real signal.
+function inferEntities(brief: Brief, functional: FR[]): Entity[] {
+  const exclude = new Set(
+    [...brief.competitors, ...brief.candidateTech, brief.product.name ?? ""]
+      .flatMap((s) => keywords(s).map((w) => singularize(w.toLowerCase()))),
+  );
+  const perFr = functional.map((fr) => ({ fr, ...entityTokens(fr.title, exclude) }));
+
+  const freq = new Map<string, number>();
+  for (const p of perFr) for (const t of new Set(p.tokens)) freq.set(t, (freq.get(t) ?? 0) + 1);
+
+  const chosen = new Set<string>();
+  for (const [t, n] of freq) if (n >= 2) chosen.add(t);
+  for (const p of perFr) {
+    if (p.verbLed && p.fr.priority === "must" && p.tokens[0]) chosen.add(p.tokens[0]);
+  }
+
+  const names = [...chosen]
+    .sort((a, b) => freq.get(b)! - freq.get(a)! || a.localeCompare(b))
+    .slice(0, 8);
+
+  const entities: Entity[] = names.map((n) => {
+    const name = titleCase(n);
+    const refs = perFr.filter((p) => p.tokens.includes(n)).map((p) => p.fr.id);
+    return {
+      name,
+      attributes: [
+        { name: "id", type: "identifier" },
+        { name: "createdAt", type: "timestamp" },
+      ],
+      referencedByFRs: refs,
+    };
+  });
+  for (const fr of functional) {
+    fr.entities = entities.filter((e) => e.referencedByFRs.includes(fr.id)).map((e) => e.name);
+  }
+  return entities;
+}
+
+// External boundaries named in the brief — shared by the system-context prose
+// and interface inference so the two never disagree.
+interface BoundaryDef {
+  re: RegExp;
+  label: string; // prose label for SYSTEM-CONTEXT.md
+  name: string; // interface name for INTERFACES.md
+  kind: Interface["kind"];
+}
+const BOUNDARY_DEFS: BoundaryDef[] = [
+  { re: /calendar|caldav|ical|ics/i, label: "calendar systems (CalDAV/iCal)", name: "Calendar Integration", kind: "api" },
+  { re: /google/i, label: "Google APIs", name: "Google API Integration", kind: "api" },
+  { re: /email|smtp/i, label: "an email/SMTP provider", name: "Email Delivery", kind: "api" },
+  { re: /sms|twilio/i, label: "an SMS provider", name: "SMS Delivery", kind: "api" },
+  { re: /widget|iframe|embed/i, label: "external host sites (embed/iframe)", name: "Embeddable Widget", kind: "ui" },
+  { re: /payment|stripe|billing/i, label: "a payments provider", name: "Payments Integration", kind: "api" },
+  { re: /webhook/i, label: "outbound webhooks", name: "Outbound Webhooks", kind: "event" },
+  { re: /browser extension|chrome extension|firefox add-?on/i, label: "a browser extension", name: "Browser Extension", kind: "ui" },
+];
+
+function boundaryHaystack(brief: Brief): string {
+  return `${brief.idea} ${brief.candidateTech.join(" ")} ${brief.featureWishlist.map((f) => `${f.title} ${f.notes ?? ""}`).join(" ")}`;
+}
+
+function detectBoundaries(brief: Brief): BoundaryDef[] {
+  const haystack = boundaryHaystack(brief);
+  return BOUNDARY_DEFS.filter((b) => b.re.test(haystack));
+}
+
+// Infer interfaces: one per detected external boundary, plus the primary UI
+// surface when the brief names its users. Mutates fr.interfaces symmetrically.
+function inferInterfaces(brief: Brief, functional: FR[]): Interface[] {
+  const out: Interface[] = [];
+  for (const b of detectBoundaries(brief)) {
+    const related = functional.filter((fr) => b.re.test(`${fr.title} ${fr.description}`)).map((fr) => fr.id);
+    out.push({
+      name: b.name,
+      kind: b.kind,
+      summary: `Boundary with ${b.label}. Define the contract (operations, data, failure modes) during authoring.`,
+      relatedFRs: related,
+    });
+  }
+  if (brief.product.users?.length) {
+    out.push({
+      name: "Web App",
+      kind: "ui",
+      summary: `The primary user-facing surface through which ${brief.product.users.join(", ")} use the product.`,
+      relatedFRs: functional.map((f) => f.id),
+    });
+  }
+  for (const fr of functional) {
+    fr.interfaces = out.filter((i) => i.relatedFRs.includes(fr.id)).map((i) => i.name);
+  }
+  return out;
+}
+
 // Build the in-memory SRD model from a brief + the evidence dossier. Pure and
 // deterministic. The caller stamps generatedAt.
 export function buildSRD(brief: Brief, evidence: EvidenceItem[], opts: { level: Level; generatedAt: string }): SRD {
@@ -178,7 +314,7 @@ export function buildSRD(brief: Brief, evidence: EvidenceItem[], opts: { level: 
   }
   const nonFunctional: NFR[] = categories.map((cat, i) => {
     const t = nfrFor(cat);
-    const metric = specialiseMetric(cat, t.metric, { compliance, selfHost, timeGoal });
+    const metric = specialiseMetric(cat, t.metric, { compliance, selfHost, timeGoal, budget: brief.constraints.budget });
     const statement = specialiseStatement(cat, t.statement, { compliance, selfHost });
     return {
       id: `NFR-${pad3(i + 1)}`,
@@ -275,6 +411,12 @@ export function buildSRD(brief: Brief, evidence: EvidenceItem[], opts: { level: 
     };
   });
 
+  // --- Data model + interfaces: inferred seeds (agent verifies during
+  // authoring). Sets FR.entities / FR.interfaces symmetrically so the reference
+  // closure and the traceability matrix are real from the first render.
+  const dataModel = inferEntities(brief, functional);
+  const interfaces = inferInterfaces(brief, functional);
+
   // --- Competitive landscape (notes derived from the matched evidence). -----
   const evById = new Map(evidence.map((e) => [e.id, e]));
   const competitors: CompetitorRow[] = brief.competitors.map((name) => {
@@ -345,7 +487,7 @@ export function buildSRD(brief: Brief, evidence: EvidenceItem[], opts: { level: 
     },
     functional,
     nonFunctional,
-    architecture: { context: contextProse(productName, brief), dataModel: [], interfaces: [], adrs },
+    architecture: { context: contextProse(productName, brief), dataModel, interfaces, adrs },
     competitive: { competitors, oss },
     buildPlan,
     traceability,
@@ -361,13 +503,18 @@ function concreteOutcome(title: string, notes?: string): string {
   // Capture the predicate AFTER the trigger word (not including it, so we don't
   // splice a double-modal like "succeeds and must …"), up to the first
   // sub-clause boundary (so a mid-string ';' can't leak through).
+  // A numeric bound in the notes ("within 2 seconds", "at least 99.9%", "up to
+  // 10k items") is the most testable outcome available. Prefer the trigger-word
+  // clause only when it carries the bound itself (or no bound exists at all).
+  const q = /\b(?:within|at least|at most|no more than|up to|under)\s+\d[^.;,]{0,60}/i.exec(n);
   const m = /\b(?:never|always|so that|so it|must|should|guarantee[sd]?|ensure[sd]?|without)\b\s+([^.;,]{4,})/i.exec(n);
   if (m && m[1]) {
     const clause = m[1].split(/[;,]/)[0]!.trim().replace(/\s+/g, " ");
-    if (clause.length > 3) return `the action succeeds and ${lowerFirst(clause)}`;
+    if (clause.length > 3 && (/\d/.test(clause) || !q)) return `the action succeeds and ${lowerFirst(clause)}`;
   }
   const t = /\bin under [^.;,]+/i.exec(n);
   if (t) return `the action completes ${t[0].trim().replace(/\s+/g, " ")}`;
+  if (q) return `the outcome honours the stated bound: ${q[0].trim().replace(/\s+/g, " ").toLowerCase()}`;
   return `the result of "${title.toLowerCase()}" is persisted and visible to the user`;
 }
 
@@ -387,13 +534,16 @@ function failurePath(title: string, integration: boolean): { given: string; when
   };
 }
 
-function specialiseMetric(cat: string, base: string, ctx: { compliance: string[]; selfHost: boolean; timeGoal?: string }): string {
+function specialiseMetric(cat: string, base: string, ctx: { compliance: string[]; selfHost: boolean; timeGoal?: string; budget?: string }): string {
   const c = cat.toLowerCase();
   if ((c === "performance" || c === "usability") && ctx.timeGoal) {
     return `${base} Honour the product goal: ${ctx.timeGoal}.`;
   }
   if ((c === "privacy" || c === "security") && ctx.compliance.length) {
     return `${base} Comply with: ${ctx.compliance.join(", ")}.`;
+  }
+  if (c === "cost" && ctx.budget) {
+    return `${base} Stay within the stated budget: ${ctx.budget}.`;
   }
   return base;
 }
@@ -444,18 +594,7 @@ function deriveAssumptions(brief: Brief): string[] {
 // forward-reference.
 function contextProse(name: string, brief: Brief): string {
   const actors = brief.product.users?.length ? brief.product.users : ["users"];
-  const haystack = `${brief.idea} ${brief.candidateTech.join(" ")} ${brief.featureWishlist.map((f) => `${f.title} ${f.notes ?? ""}`).join(" ")}`;
-  const boundaries: string[] = [];
-  const add = (re: RegExp, label: string) => {
-    if (re.test(haystack) && !boundaries.includes(label)) boundaries.push(label);
-  };
-  add(/calendar|caldav|ical|ics/i, "calendar systems (CalDAV/iCal)");
-  add(/google/i, "Google APIs");
-  add(/email|smtp/i, "an email/SMTP provider");
-  add(/sms|twilio/i, "an SMS provider");
-  add(/widget|iframe|embed/i, "external host sites (embed/iframe)");
-  add(/payment|stripe|billing/i, "a payments provider");
-  add(/webhook/i, "outbound webhooks");
+  const boundaries = detectBoundaries(brief).map((b) => b.label);
   const stack = brief.candidateTech.length ? ` Built on ${brief.candidateTech.join(", ")}.` : "";
   const ext = boundaries.length ? ` It integrates with: ${boundaries.join("; ")}.` : "";
   return `"${name}" serves ${actors.join(", ")}.${stack}${ext} Each integration boundary is owned by an ADR and detailed in INTERFACES.md during authoring.`;

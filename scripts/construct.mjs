@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { resolve as resolve2, join as join10 } from "path";
-import { existsSync as existsSync5, readFileSync as readFileSync4 } from "fs";
+import { resolve as resolve2, join as join11 } from "path";
+import { existsSync as existsSync6, readFileSync as readFileSync5 } from "fs";
 import { pathToFileURL, fileURLToPath as fileURLToPath2 } from "url";
 import { realpathSync } from "fs";
 
@@ -18,6 +18,10 @@ var ALL_SOURCE_KINDS = [
 ];
 var BRIEF_SCHEMA_VERSION = 1;
 var SRD_SCHEMA_VERSION = 1;
+var REQUIRED_NFR = {
+  light: ["performance", "security", "reliability"],
+  complex: ["performance", "security", "reliability", "usability", "observability", "cost"]
+};
 
 // src/util.ts
 import { spawnSync } from "child_process";
@@ -1408,10 +1412,6 @@ function matchEvidence(text, evidence, n, onlySources) {
   }
   return out;
 }
-var REQUIRED_NFR = {
-  light: ["performance", "security", "reliability"],
-  complex: ["performance", "security", "reliability", "usability", "observability", "cost"]
-};
 var NFR_SIGNALS = {
   privacy: /privac|gdpr|personal data|consent|self[- ]?host|own (your|the) data|no account/i,
   accessibility: /accessib|a11y|screen reader|wcag|keyboard/i,
@@ -1481,6 +1481,127 @@ function nfrFor(category) {
 function priorityOf(p) {
   return p === "must" || p === "should" || p === "could" ? p : "should";
 }
+var FEATURE_VERBS = /* @__PURE__ */ new Set([
+  "create",
+  "add",
+  "manage",
+  "book",
+  "view",
+  "send",
+  "track",
+  "sync",
+  "edit",
+  "delete",
+  "list",
+  "share",
+  "export",
+  "import",
+  "search",
+  "save",
+  "read",
+  "tag",
+  "organize",
+  "organise",
+  "schedule",
+  "upload",
+  "download",
+  "browse",
+  "filter",
+  "sort",
+  "archive",
+  "publish",
+  "invite",
+  "assign",
+  "stream"
+]);
+var NON_ENTITY_WORDS = /* @__PURE__ */ new Set(["search", "login", "signup", "support", "setup", "offline", "online", "mobile", "desktop", "full", "text", "user", "users"]);
+function singularize(w) {
+  if (/ies$/.test(w)) return w.slice(0, -3) + "y";
+  if (/(?:ches|shes|xes|zes|ses)$/.test(w)) return w.slice(0, -2);
+  if (/s$/.test(w) && !/(?:ss|us|is)$/.test(w)) return w.slice(0, -1);
+  return w;
+}
+function titleCase(w) {
+  return w ? w[0].toUpperCase() + w.slice(1) : w;
+}
+function entityTokens(title, exclude) {
+  const words = keywords(title).map((w) => w.toLowerCase());
+  const verbLed = words.length > 0 && FEATURE_VERBS.has(words[0]);
+  const rest = verbLed ? words.slice(1) : words;
+  const tokens = rest.filter((w) => w.length >= 3 && !FEATURE_VERBS.has(w) && !NON_ENTITY_WORDS.has(w) && !/(?:ed|ing)$/.test(w)).map(singularize).filter((w) => !exclude.has(w));
+  return { tokens, verbLed };
+}
+function inferEntities(brief, functional) {
+  const exclude = new Set(
+    [...brief.competitors, ...brief.candidateTech, brief.product.name ?? ""].flatMap((s) => keywords(s).map((w) => singularize(w.toLowerCase())))
+  );
+  const perFr = functional.map((fr) => ({ fr, ...entityTokens(fr.title, exclude) }));
+  const freq = /* @__PURE__ */ new Map();
+  for (const p of perFr) for (const t of new Set(p.tokens)) freq.set(t, (freq.get(t) ?? 0) + 1);
+  const chosen = /* @__PURE__ */ new Set();
+  for (const [t, n] of freq) if (n >= 2) chosen.add(t);
+  for (const p of perFr) {
+    if (p.verbLed && p.fr.priority === "must" && p.tokens[0]) chosen.add(p.tokens[0]);
+  }
+  const names = [...chosen].sort((a, b) => freq.get(b) - freq.get(a) || a.localeCompare(b)).slice(0, 8);
+  const entities = names.map((n) => {
+    const name = titleCase(n);
+    const refs = perFr.filter((p) => p.tokens.includes(n)).map((p) => p.fr.id);
+    return {
+      name,
+      attributes: [
+        { name: "id", type: "identifier" },
+        { name: "createdAt", type: "timestamp" }
+      ],
+      referencedByFRs: refs
+    };
+  });
+  for (const fr of functional) {
+    fr.entities = entities.filter((e) => e.referencedByFRs.includes(fr.id)).map((e) => e.name);
+  }
+  return entities;
+}
+var BOUNDARY_DEFS = [
+  { re: /calendar|caldav|ical|ics/i, label: "calendar systems (CalDAV/iCal)", name: "Calendar Integration", kind: "api" },
+  { re: /google/i, label: "Google APIs", name: "Google API Integration", kind: "api" },
+  { re: /email|smtp/i, label: "an email/SMTP provider", name: "Email Delivery", kind: "api" },
+  { re: /sms|twilio/i, label: "an SMS provider", name: "SMS Delivery", kind: "api" },
+  { re: /widget|iframe|embed/i, label: "external host sites (embed/iframe)", name: "Embeddable Widget", kind: "ui" },
+  { re: /payment|stripe|billing/i, label: "a payments provider", name: "Payments Integration", kind: "api" },
+  { re: /webhook/i, label: "outbound webhooks", name: "Outbound Webhooks", kind: "event" },
+  { re: /browser extension|chrome extension|firefox add-?on/i, label: "a browser extension", name: "Browser Extension", kind: "ui" }
+];
+function boundaryHaystack(brief) {
+  return `${brief.idea} ${brief.candidateTech.join(" ")} ${brief.featureWishlist.map((f) => `${f.title} ${f.notes ?? ""}`).join(" ")}`;
+}
+function detectBoundaries(brief) {
+  const haystack = boundaryHaystack(brief);
+  return BOUNDARY_DEFS.filter((b) => b.re.test(haystack));
+}
+function inferInterfaces(brief, functional) {
+  const out = [];
+  for (const b of detectBoundaries(brief)) {
+    const related = functional.filter((fr) => b.re.test(`${fr.title} ${fr.description}`)).map((fr) => fr.id);
+    out.push({
+      name: b.name,
+      kind: b.kind,
+      summary: `Boundary with ${b.label}. Define the contract (operations, data, failure modes) during authoring.`,
+      relatedFRs: related
+    });
+  }
+  if (brief.product.users?.length) {
+    out.push({
+      name: "Web App",
+      kind: "ui",
+      summary: `The primary user-facing surface through which ${brief.product.users.join(", ")} use the product.`,
+      relatedFRs: functional.map((f) => f.id)
+    });
+  }
+  for (const fr of functional) {
+    fr.interfaces = out.filter((i) => i.relatedFRs.includes(fr.id)).map((i) => i.name);
+  }
+  return out;
+}
 function buildSRD(brief, evidence, opts) {
   const level = opts.level;
   const productName = brief.product.name || titleFromIdea(brief.idea);
@@ -1495,7 +1616,7 @@ function buildSRD(brief, evidence, opts) {
   }
   const nonFunctional = categories.map((cat, i) => {
     const t = nfrFor(cat);
-    const metric = specialiseMetric(cat, t.metric, { compliance, selfHost, timeGoal });
+    const metric = specialiseMetric(cat, t.metric, { compliance, selfHost, timeGoal, budget: brief.constraints.budget });
     const statement = specialiseStatement(cat, t.statement, { compliance, selfHost });
     return {
       id: `NFR-${pad3(i + 1)}`,
@@ -1581,6 +1702,8 @@ function buildSRD(brief, evidence, opts) {
       unresolved: false
     };
   });
+  const dataModel = inferEntities(brief, functional);
+  const interfaces = inferInterfaces(brief, functional);
   const evById = new Map(evidence.map((e) => [e.id, e]));
   const competitors = brief.competitors.map((name) => {
     const ev = matchEvidence(name, evidence, 2, ["market"]);
@@ -1643,7 +1766,7 @@ function buildSRD(brief, evidence, opts) {
     },
     functional,
     nonFunctional,
-    architecture: { context: contextProse(productName, brief), dataModel: [], interfaces: [], adrs },
+    architecture: { context: contextProse(productName, brief), dataModel, interfaces, adrs },
     competitive: { competitors, oss },
     buildPlan,
     traceability,
@@ -1653,13 +1776,15 @@ function buildSRD(brief, evidence, opts) {
 }
 function concreteOutcome(title, notes) {
   const n = (notes ?? "").trim();
+  const q = /\b(?:within|at least|at most|no more than|up to|under)\s+\d[^.;,]{0,60}/i.exec(n);
   const m = /\b(?:never|always|so that|so it|must|should|guarantee[sd]?|ensure[sd]?|without)\b\s+([^.;,]{4,})/i.exec(n);
   if (m && m[1]) {
     const clause = m[1].split(/[;,]/)[0].trim().replace(/\s+/g, " ");
-    if (clause.length > 3) return `the action succeeds and ${lowerFirst(clause)}`;
+    if (clause.length > 3 && (/\d/.test(clause) || !q)) return `the action succeeds and ${lowerFirst(clause)}`;
   }
   const t = /\bin under [^.;,]+/i.exec(n);
   if (t) return `the action completes ${t[0].trim().replace(/\s+/g, " ")}`;
+  if (q) return `the outcome honours the stated bound: ${q[0].trim().replace(/\s+/g, " ").toLowerCase()}`;
   return `the result of "${title.toLowerCase()}" is persisted and visible to the user`;
 }
 function failurePath(title, integration) {
@@ -1683,6 +1808,9 @@ function specialiseMetric(cat, base, ctx) {
   }
   if ((c === "privacy" || c === "security") && ctx.compliance.length) {
     return `${base} Comply with: ${ctx.compliance.join(", ")}.`;
+  }
+  if (c === "cost" && ctx.budget) {
+    return `${base} Stay within the stated budget: ${ctx.budget}.`;
   }
   return base;
 }
@@ -1727,18 +1855,7 @@ function deriveAssumptions(brief) {
 }
 function contextProse(name, brief) {
   const actors = brief.product.users?.length ? brief.product.users : ["users"];
-  const haystack = `${brief.idea} ${brief.candidateTech.join(" ")} ${brief.featureWishlist.map((f) => `${f.title} ${f.notes ?? ""}`).join(" ")}`;
-  const boundaries = [];
-  const add = (re, label) => {
-    if (re.test(haystack) && !boundaries.includes(label)) boundaries.push(label);
-  };
-  add(/calendar|caldav|ical|ics/i, "calendar systems (CalDAV/iCal)");
-  add(/google/i, "Google APIs");
-  add(/email|smtp/i, "an email/SMTP provider");
-  add(/sms|twilio/i, "an SMS provider");
-  add(/widget|iframe|embed/i, "external host sites (embed/iframe)");
-  add(/payment|stripe|billing/i, "a payments provider");
-  add(/webhook/i, "outbound webhooks");
+  const boundaries = detectBoundaries(brief).map((b) => b.label);
   const stack = brief.candidateTech.length ? ` Built on ${brief.candidateTech.join(", ")}.` : "";
   const ext = boundaries.length ? ` It integrates with: ${boundaries.join("; ")}.` : "";
   return `"${name}" serves ${actors.join(", ")}.${stack}${ext} Each integration boundary is owned by an ADR and detailed in INTERFACES.md during authoring.`;
@@ -1888,6 +2005,7 @@ function renderDataModel(srd) {
     out.push(`_No entities defined yet. Enrich during authoring: list entities, their attributes, and which functional requirements reference each._`, ``);
     return out.join("\n");
   }
+  out.push(`_Seeded by inference from the brief \u2014 verify each entity and extend attributes during authoring._`, ``);
   for (const e of entities) {
     out.push(`## ${e.name}`);
     out.push(``);
@@ -1906,6 +2024,7 @@ function renderInterfaces(srd) {
     out.push(`_No interfaces defined yet. Enrich during authoring: list the API/event/UI/CLI surfaces and the functional requirements each serves._`, ``);
     return out.join("\n");
   }
+  out.push(`_Seeded by inference from the brief \u2014 verify each surface and define its contract during authoring._`, ``);
   for (const i of ifaces) {
     out.push(`## ${i.name} _(${i.kind})_`, ``, i.summary, ``, `_Related: ${i.relatedFRs.length ? i.relatedFRs.join(", ") : "\u2014"}_`, ``);
   }
@@ -2044,10 +2163,6 @@ function renderSRD(brief, evidence, opts) {
 // src/check.ts
 import { existsSync as existsSync4, readFileSync as readFileSync3, readdirSync as readdirSync3, statSync as statSync2 } from "fs";
 import { join as join9, relative as relative2, sep as sep2 } from "path";
-var REQUIRED_NFR2 = {
-  light: ["performance", "security", "reliability"],
-  complex: ["performance", "security", "reliability", "usability", "observability", "cost"]
-};
 var REQUIRED_FILES = [
   "00-overview/VISION.md",
   "00-overview/SCOPE.md",
@@ -2138,7 +2253,9 @@ function computeCoverage(srd, evidence) {
     resolved
   };
 }
-function checkRun(runDir) {
+var TEMPLATED_THEN_RE = /is persisted and visible to the user$/;
+var TEMPLATED_METRIC_RE = /^A measurable target for "/;
+function checkRun(runDir, opts = {}) {
   const errors = [];
   const warnings = [];
   const emptyCoverage = {
@@ -2196,7 +2313,7 @@ function checkRun(runDir) {
     warnings.push("Data model is empty \u2014 a complex SRD should name its core entities.");
   }
   const presentCats = new Set(srd.nonFunctional.map((n) => n.category.toLowerCase()));
-  for (const cat of REQUIRED_NFR2[srd.level]) {
+  for (const cat of REQUIRED_NFR[srd.level]) {
     if (!presentCats.has(cat)) errors.push(`Missing required NFR category for level "${srd.level}": ${cat}.`);
   }
   for (const a of srd.architecture.adrs) {
@@ -2207,14 +2324,30 @@ function checkRun(runDir) {
       errors.push(`ADR ${a.id} has invalid status "${a.status}".`);
     }
   }
+  const templatedThen = srd.functional.reduce((n, fr) => n + fr.acceptance.filter((a) => TEMPLATED_THEN_RE.test(a.then)).length, 0);
+  if (templatedThen) {
+    warnings.push(`${templatedThen} acceptance criteria are still renderer-templated \u2014 sharpen them into observable, bounded outcomes (see references/acceptance-criteria.md).`);
+  }
+  const templatedMetrics = srd.nonFunctional.filter((n) => n.metric && TEMPLATED_METRIC_RE.test(n.metric)).length;
+  if (templatedMetrics) {
+    warnings.push(`${templatedMetrics} NFR metric(s) are still generic placeholders \u2014 set measurable targets (see references/acceptance-criteria.md).`);
+  }
   const { evidence, note } = loadEvidence(runDir);
   if (note) warnings.push(note);
   const coverage = computeCoverage(srd, evidence);
   if (coverage.dangling.length) {
     warnings.push(`Grounding: ${coverage.dangling.length} citation(s) do not resolve to evidence.json: ${coverage.dangling.join(", ")}.`);
   }
-  const ok = errors.length === 0;
-  return { ok, structural: { ok, errors, warnings }, coverage };
+  const structuralOk = errors.length === 0;
+  let grounding;
+  if (opts.minGrounding !== void 0) {
+    const total = coverage.frTotal + coverage.nfrTotal + coverage.adrTotal;
+    const grounded = coverage.frGrounded + coverage.nfrGrounded + coverage.adrGrounded;
+    const actualPct = total === 0 ? 0 : Math.round(grounded / total * 100);
+    grounding = { threshold: opts.minGrounding, actualPct, ok: actualPct >= opts.minGrounding };
+  }
+  const ok = structuralOk && (grounding?.ok ?? true);
+  return { ok, structural: { ok: structuralOk, errors, warnings }, coverage, grounding };
 }
 function pct(part, total) {
   if (total === 0) return "n/a";
@@ -2230,11 +2363,105 @@ function formatCheckReport(r, runDir) {
   lines.push(r.structural.ok ? `  \u2713 SRD is structurally complete` : `  \u2717 SRD is NOT structurally complete`);
   lines.push(``);
   const c = r.coverage;
-  lines.push(`Grounding coverage (advisory \u2014 does not fail the build):`);
+  const advisory = r.grounding ? "advisory detail" : "advisory \u2014 does not fail the build";
+  lines.push(`Grounding coverage (${advisory}):`);
   lines.push(`  functional:     ${c.frGrounded}/${c.frTotal} grounded (${pct(c.frGrounded, c.frTotal)})`);
   lines.push(`  non-functional: ${c.nfrGrounded}/${c.nfrTotal} grounded (${pct(c.nfrGrounded, c.nfrTotal)})`);
   lines.push(`  decisions:      ${c.adrGrounded}/${c.adrTotal} grounded (${pct(c.adrGrounded, c.adrTotal)})`);
   lines.push(`  citations: ${c.citations.length} \xB7 resolved: ${c.resolved.length} \xB7 dangling: ${c.dangling.length} \xB7 uncited evidence: ${c.uncited.length}`);
+  if (r.grounding) {
+    const g = r.grounding;
+    lines.push(``);
+    lines.push(`Grounding gate (opt-in --min-grounding ${g.threshold}):`);
+    lines.push(g.ok ? `  \u2713 PASS \u2014 ${g.actualPct}% of groundable claims are grounded (threshold ${g.threshold}%)` : `  \u2717 FAIL \u2014 ${g.actualPct}% of groundable claims are grounded, below the ${g.threshold}% threshold`);
+  }
+  return lines.join("\n");
+}
+
+// src/analyze.ts
+import { existsSync as existsSync5, readFileSync as readFileSync4 } from "fs";
+import { join as join10 } from "path";
+function loadEvidence2(runDir) {
+  const path = join10(runDir, "evidence", "evidence.json");
+  if (!existsSync5(path)) return [];
+  try {
+    const data = JSON.parse(readFileSync4(path, "utf8"));
+    return Array.isArray(data) ? data.filter((e) => !!e && typeof e === "object" && typeof e.id === "string" && typeof e.source === "string") : [];
+  } catch {
+    return [];
+  }
+}
+function loadMetaNotes(runDir) {
+  const path = join10(runDir, "evidence", "meta.json");
+  if (!existsSync5(path)) return [];
+  try {
+    const meta = JSON.parse(readFileSync4(path, "utf8"));
+    return Array.isArray(meta.notes) ? meta.notes.filter((n) => typeof n === "string") : [];
+  } catch {
+    return [];
+  }
+}
+function featureText(f) {
+  return `${f.title} ${f.notes ?? ""}`;
+}
+function analyzeRun(runDir) {
+  const brief = loadBrief(runDir);
+  const evidence = loadEvidence2(runDir);
+  const notes = loadMetaNotes(runDir);
+  const drill = (cmd, q) => `construct ${cmd} --out ${runDir} --q "${q.replace(/"/g, "'")}"`;
+  const bySource = {};
+  for (const e of evidence) bySource[e.source] = (bySource[e.source] ?? 0) + 1;
+  if (evidence.length === 0) {
+    notes.push("No evidence dossier \u2014 run `construct research` first; everything below will render ungrounded.");
+  }
+  const suggestions = [];
+  const ungroundedFeatures = brief.featureWishlist.filter((f) => matchEvidence(featureText(f), evidence, 1, GROUND_REQUIREMENT).length === 0).map((f) => ({ title: f.title, priority: f.priority ?? "should" }));
+  for (const f of ungroundedFeatures) suggestions.push(drill("web", f.title));
+  const unmatchedCompetitors = brief.competitors.filter((name) => matchEvidence(name, evidence, 1, ["market"]).length === 0);
+  for (const name of unmatchedCompetitors) suggestions.push(drill("web", name));
+  const unmatchedTech = brief.candidateTech.filter((t) => matchEvidence(t, evidence, 1, ["docs", "so"]).length === 0);
+  for (const t of unmatchedTech) suggestions.push(drill("tech", t));
+  const unminedSeeds = brief.ossSeeds.filter((seed) => {
+    let q = seed;
+    try {
+      const ref = resolveRepo(seed);
+      if (ref.owner && ref.repo) q = `${ref.owner} ${ref.repo}`;
+    } catch {
+    }
+    return matchEvidence(q, evidence, 1, ["oss", "issue", "pr"]).length === 0;
+  });
+  for (const seed of unminedSeeds) suggestions.push(`construct oss --out ${runDir} --seeds ${seed}`);
+  return {
+    evidenceCount: evidence.length,
+    bySource,
+    notes,
+    ungroundedFeatures,
+    unmatchedCompetitors,
+    unmatchedTech,
+    unminedSeeds,
+    suggestions
+  };
+}
+function formatGapReport(r, runDir) {
+  const lines = [];
+  lines.push(`construct analyze: ${runDir}`);
+  lines.push(``);
+  const sources = Object.entries(r.bySource).sort(([a], [b]) => a.localeCompare(b)).map(([s, n]) => `${s}: ${n}`);
+  lines.push(`Evidence: ${r.evidenceCount} item(s)${sources.length ? ` (${sources.join(" \xB7 ")})` : ""}`);
+  for (const n of r.notes) lines.push(`  \u26A0 ${n}`);
+  lines.push(``);
+  lines.push(`Gaps (each will render ungrounded as-is):`);
+  const gapCount = r.ungroundedFeatures.length + r.unmatchedCompetitors.length + r.unmatchedTech.length + r.unminedSeeds.length;
+  for (const f of r.ungroundedFeatures) lines.push(`  \u2717 feature (${f.priority}): "${f.title}" has no matchable evidence`);
+  for (const c of r.unmatchedCompetitors) lines.push(`  \u2717 competitor: "${c}" never surfaced in market evidence`);
+  for (const t of r.unmatchedTech) lines.push(`  \u2717 tech: "${t}" has no docs/StackOverflow grounding`);
+  for (const s of r.unminedSeeds) lines.push(`  \u2717 oss seed: ${s} yielded no mined evidence`);
+  if (gapCount === 0) lines.push(`  \u2713 every feature, competitor, tech choice and OSS seed has matchable evidence`);
+  if (r.suggestions.length) {
+    lines.push(``);
+    lines.push(`Suggested drills (then re-run \`construct research\` to fold findings in):`);
+    for (const s of r.suggestions) lines.push(`  $ ${s}`);
+  }
   return lines.join("\n");
 }
 
@@ -2247,15 +2474,17 @@ check. Grounding is advisory; structural completeness is enforced.
 Usage:
   construct init     --idea "<one-liner>" [--out <dir>]
   construct research --out <run> [--angles market,oss,tech,semantic] [--q "<focus>"] [--semantic]
+  construct analyze  --out <run> [--json]
   construct web|oss|tech|so --out <run> [--q "<focus>"] [--url <u,...>] [--seeds <u,...>]
   construct render   --out <run> [--level light|complex] [--merge]
-  construct check    --out <run>
+  construct check    --out <run> [--min-grounding <0-100>] [--json]
   construct status   --out <run>
   construct semantic up|down|status
 
 Commands:
   init       Scaffold a run folder + brief.json (fill it via the interview).
   research   Gather evidence across angles into <run>/evidence (a dossier).
+  analyze    Report what is thin (gaps that will render ungrounded) + drill commands.
   web        Drill the market/web angle.       oss   Drill OSS prior-art mining.
   tech       Drill tech docs + StackOverflow.   so    Drill StackOverflow only.
   render     Render the SRD tree + SRD.json from brief.json + the dossier.
@@ -2272,6 +2501,7 @@ Options:
   --seeds <u,...>      OSS repo URLs to mine (overrides brief.ossSeeds)
   --docs-url <url>     A technology docs page to ground against
   --level <l>          light | complex                           (default: light)
+  --min-grounding <n>  For 'check': fail unless \u2265 n% of claims are grounded (opt-in)
   --web-engine <e>     auto | searxng | ddg | claude             (default: auto)
   --per-source <n>     Max evidence items kept per source        (default: 6)
   --merge              Also emit a single-file SRD.md bundle
@@ -2287,7 +2517,7 @@ Workflow:
   construct render --out ./my-idea --level complex # writes the SRD tree
   construct check --out ./my-idea                 # structural gate + coverage report
 `;
-var COMMANDS = /* @__PURE__ */ new Set(["init", "research", "web", "oss", "tech", "so", "render", "check", "status", "semantic"]);
+var COMMANDS = /* @__PURE__ */ new Set(["init", "research", "analyze", "web", "oss", "tech", "so", "render", "check", "status", "semantic"]);
 var VALUE_FLAGS = /* @__PURE__ */ new Set([
   "idea",
   "out",
@@ -2301,7 +2531,8 @@ var VALUE_FLAGS = /* @__PURE__ */ new Set([
   "level",
   "web-engine",
   "per-source",
-  "source"
+  "source",
+  "min-grounding"
 ]);
 var BOOL_FLAGS = /* @__PURE__ */ new Set(["semantic", "merge", "json", "refresh"]);
 function fail(message) {
@@ -2507,7 +2738,7 @@ async function main() {
       if (!v.ok) fail(`brief is incomplete:
 ${v.errors.map((e) => "  - " + e).join("\n")}`);
       const level = oneOf("level", p.values.level ?? "light", ["light", "complex"]);
-      const evidence = loadEvidence2(out);
+      const evidence = loadEvidence3(out);
       const r = renderSRD(brief, evidence, {
         level,
         out,
@@ -2518,22 +2749,43 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
         [
           `construct: rendered the ${level} SRD for "${brief.idea}"`,
           `  files:    ${r.files.length} (${r.srd.functional.length} FR \xB7 ${r.srd.nonFunctional.length} NFR \xB7 ${r.srd.architecture.adrs.length} ADR)`,
-          `  manifest: ${join10(out, "SRD.json")}`,
+          `  manifest: ${join11(out, "SRD.json")}`,
           `  next:     construct check --out ${out}`
         ].join("\n") + "\n"
       );
       return;
     }
+    case "analyze": {
+      const out = requireOut(p);
+      const r = analyzeRun(out);
+      if (p.bools.has("json")) {
+        process.stdout.write(JSON.stringify(r, null, 2) + "\n");
+      } else {
+        process.stdout.write(formatGapReport(r, out) + "\n");
+      }
+      return;
+    }
     case "check": {
       const out = requireOut(p);
-      const res = checkRun(out);
-      process.stdout.write(formatCheckReport(res, out) + "\n");
+      let minGrounding;
+      if (p.values["min-grounding"] !== void 0) {
+        minGrounding = Number(p.values["min-grounding"]);
+        if (!Number.isFinite(minGrounding) || minGrounding < 0 || minGrounding > 100) {
+          fail("invalid --min-grounding (expected a number between 0 and 100)");
+        }
+      }
+      const res = checkRun(out, { minGrounding });
+      if (p.bools.has("json")) {
+        process.stdout.write(JSON.stringify(res, null, 2) + "\n");
+      } else {
+        process.stdout.write(formatCheckReport(res, out) + "\n");
+      }
       if (!res.ok) process.exit(1);
       return;
     }
     case "status": {
       const out = requireOut(p);
-      const has = (rel) => existsSync5(join10(out, rel)) ? "\u2713" : "\xB7";
+      const has = (rel) => existsSync6(join11(out, rel)) ? "\u2713" : "\xB7";
       process.stdout.write(
         [
           `construct status: ${out}`,
@@ -2554,11 +2806,11 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
     }
   }
 }
-function loadEvidence2(runDir) {
-  const path = join10(runDir, "evidence", "evidence.json");
-  if (!existsSync5(path)) return [];
+function loadEvidence3(runDir) {
+  const path = join11(runDir, "evidence", "evidence.json");
+  if (!existsSync6(path)) return [];
   try {
-    const data = JSON.parse(readFileSync4(path, "utf8"));
+    const data = JSON.parse(readFileSync5(path, "utf8"));
     return Array.isArray(data) ? data.filter(isEvidenceItem) : [];
   } catch {
     return [];

@@ -120,6 +120,61 @@ describe("checkRun — advisory grounding (never fails the build)", () => {
   });
 });
 
+describe("checkRun — opt-in grounding threshold (--min-grounding)", () => {
+  it("never gates without the option, regardless of coverage", () => {
+    const dir = renderRun();
+    mutateSRD(dir, (s) => {
+      s.functional.forEach((f) => (f.rationaleEvidence = []));
+      s.nonFunctional.forEach((n) => (n.rationaleEvidence = []));
+      s.architecture.adrs.forEach((a) => (a.evidence = []));
+    });
+    const r = checkRun(dir);
+    expect(r.ok).toBe(true);
+    expect(r.grounding).toBeUndefined();
+  });
+
+  it("fails below the threshold and passes above it, without touching structural.ok", () => {
+    const dir = renderRun();
+    const strict = checkRun(dir, { minGrounding: 100 });
+    expect(strict.grounding!.threshold).toBe(100);
+    expect(strict.grounding!.ok).toBe(false); // fixture is only partially grounded
+    expect(strict.ok).toBe(false);
+    expect(strict.structural.ok).toBe(true); // structural semantics unchanged
+
+    const lax = checkRun(dir, { minGrounding: 10 });
+    expect(lax.grounding!.ok).toBe(true);
+    expect(lax.ok).toBe(true);
+  });
+
+  it("reports the actual percentage over all groundable claims", () => {
+    const r = checkRun(renderRun(), { minGrounding: 50 });
+    const c = r.coverage;
+    const expected = Math.round(((c.frGrounded + c.nfrGrounded + c.adrGrounded) / (c.frTotal + c.nfrTotal + c.adrTotal)) * 100);
+    expect(r.grounding!.actualPct).toBe(expected);
+  });
+});
+
+describe("checkRun — renderer-templated criteria nudges", () => {
+  it("warns when acceptance criteria still carry the renderer's template", () => {
+    // The fixture's "Tag and organize saved articles" has no notes, so its
+    // positive-path Then stays templated.
+    const r = checkRun(renderRun());
+    expect(r.ok).toBe(true); // advisory only
+    expect(r.structural.warnings.join(" ")).toMatch(/renderer-templated/);
+  });
+
+  it("stays silent once every criterion is sharpened", () => {
+    const dir = renderRun();
+    mutateSRD(dir, (s) =>
+      s.functional.forEach((f) =>
+        f.acceptance.forEach((a) => (a.then = "the article appears in the reading list within 2 seconds")),
+      ),
+    );
+    const r = checkRun(dir);
+    expect(r.structural.warnings.join(" ")).not.toMatch(/renderer-templated/);
+  });
+});
+
 describe("checkRun — placeholder words vs decisions", () => {
   it("does NOT hard-fail when a feature title legitimately contains TODO (advisory only)", () => {
     const r = checkRun(renderRun({ briefOverride: { featureWishlist: [{ title: "Manage a shared TODO list", priority: "must" }] } }));
