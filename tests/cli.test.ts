@@ -39,6 +39,12 @@ describe("parseArgs", () => {
     expect(p.bools.has("semantic")).toBe(true);
   });
 
+  it("parses tech with comma-listed --docs-url", () => {
+    const p = parseArgs(["tech", "--out", "run", "--docs-url", "https://a.example/docs,https://b.example/docs"]);
+    expect(p.command).toBe("tech");
+    expect(p.values["docs-url"]).toBe("https://a.example/docs,https://b.example/docs");
+  });
+
   it("collects the positional action for semantic", () => {
     const p = parseArgs(["semantic", "up"]);
     expect(p.command).toBe("semantic");

@@ -1107,6 +1107,11 @@ async function techAngle(ctx) {
       `Only the first ${techs.length} of ${allTechs.length} candidate technologies were grounded; skipped: ${allTechs.slice(techs.length).join(", ")}. Drill them with \`construct tech --out <run> --q "<tech>"\`.`
     );
   }
+  if (ctx.docsUrls?.length) {
+    const direct = await webFetchUrls(ctx.docsUrls, ideaKw, ctx.perSource, "docs", true);
+    docItems.push(...direct.items);
+    docNotes.push(`Grounded ${ctx.docsUrls.length} docs URL(s) passed via --docs-url.`, ...direct.notes);
+  }
   for (const tech of techs) {
     const q = `${tech} official documentation`;
     const { urls, via, notes } = await discover(q, ctx.webEngine, ctx.perSource);
@@ -1116,7 +1121,7 @@ async function techAngle(ctx) {
     docItems.push(...fetched.items);
     docNotes.push(...fetched.notes);
   }
-  if (techs.length === 0) docNotes.push("No candidate technologies in the brief \u2014 nothing to ground feasibility against.");
+  if (techs.length === 0 && !ctx.docsUrls?.length) docNotes.push("No candidate technologies in the brief \u2014 nothing to ground feasibility against.");
   const topKw = rankedKeywords(ideaKw)[0] ?? "";
   const soItems = [];
   const soNotes = [];
@@ -2821,7 +2826,7 @@ Options:
   --q, --question <s>  Focus the research/drill on a sub-question
   --url <u,...>        For 'web': specific page(s) to fetch + ground
   --seeds <u,...>      OSS repo URLs to mine (overrides brief.ossSeeds)
-  --docs-url <url>     A technology docs page to ground against
+  --docs-url <u,...>   For 'tech'/'research': docs page(s) to fetch + ground directly
   --level <l>          light | complex                           (default: light)
   --min-grounding <n>  For 'check': fail unless \u2265 n% of claims are grounded (opt-in)
   --app <dir>          For 'verify': the built app directory (default: conventions.appDir)
@@ -2964,7 +2969,8 @@ function buildResearchContext(p, runDir, angles) {
     webEngine,
     semantic: p.bools.has("semantic"),
     perSource,
-    refresh: p.bools.has("refresh")
+    refresh: p.bools.has("refresh"),
+    docsUrls: p.values["docs-url"] ? csv(p.values["docs-url"]) : void 0
   };
 }
 function printDrill(p, results, idea, angles) {

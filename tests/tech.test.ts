@@ -15,11 +15,16 @@ function fail() {
   return { ok: false, status: 0, headers: { get: () => null }, arrayBuffer: async () => new ArrayBuffer(0), text: async () => "" };
 }
 
-function ctx(candidateTech: string[]): ResearchContext {
+function ctx(candidateTech: string[], docsUrls?: string[]): ResearchContext {
   return {
     brief: { schemaVersion: 1, idea: "fast booking app", product: {}, goals: [], nonGoals: [], constraints: {}, candidateTech, competitors: [], ossSeeds: [], featureWishlist: [], nfrPriorities: [], openQuestions: [], createdAt: "" },
-    runDir: "/tmp/x", angles: ["tech"], query: "", webEngine: "auto", semantic: false, perSource: 6, refresh: false,
+    runDir: "/tmp/x", angles: ["tech"], query: "", webEngine: "auto", semantic: false, perSource: 6, refresh: false, docsUrls,
   };
+}
+
+function htmlRes(body: string) {
+  const html = `<html><body>${body}</body></html>`;
+  return { ok: true, status: 200, headers: { get: () => "text/html" }, arrayBuffer: async () => new TextEncoder().encode(html).buffer, text: async () => html };
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -42,6 +47,42 @@ describe("techAngle StackOverflow", () => {
     expect(so!.source).toBe("so");
     expect(so!.items.length).toBe(3); // distinct question ids, deduped by ref
     expect(docs!.source).toBe("docs");
+  });
+
+  it("grounds --docs-url pages directly as docs evidence, skipping discovery", async () => {
+    const fetched: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        fetched.push(String(url));
+        if (String(url).startsWith("https://docs.example/")) return htmlRes("booking app guide ".repeat(40));
+        return fail();
+      }),
+    );
+    const [docs] = await techAngle(ctx([], ["https://docs.example/x"]));
+    expect(fetched).toContain("https://docs.example/x");
+    expect(docs!.items.length).toBeGreaterThan(0);
+    expect(docs!.items.every((i) => i.url === "https://docs.example/x")).toBe(true);
+    const notes = docs!.notes.join(" ");
+    expect(notes).toMatch(/Grounded 1 docs URL\(s\) passed via --docs-url/);
+    expect(notes).not.toMatch(/nothing to ground feasibility against/);
+  });
+
+  it("fetches every comma-listed --docs-url page (never budget-trimmed)", async () => {
+    const fetched: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        fetched.push(String(url));
+        return htmlRes("fast booking app docs page ".repeat(40));
+      }),
+    );
+    const [docs] = await techAngle(ctx([], ["https://docs.example/a", "https://docs.example/b"]));
+    expect(fetched).toContain("https://docs.example/a");
+    expect(fetched).toContain("https://docs.example/b");
+    const urls = new Set(docs!.items.map((i) => i.url));
+    expect(urls.has("https://docs.example/a")).toBe(true);
+    expect(urls.has("https://docs.example/b")).toBe(true);
   });
 
   it("notes honestly when candidateTech is capped beyond the first three", async () => {

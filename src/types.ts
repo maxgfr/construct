@@ -79,6 +79,7 @@ export interface ResearchContext {
   semantic: boolean;
   perSource: number;
   refresh: boolean;
+  docsUrls?: string[]; // --docs-url: docs pages to ground directly (tech angle)
 }
 
 export interface DossierMeta {

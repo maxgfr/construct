@@ -22,6 +22,13 @@ export async function techAngle(ctx: ResearchContext): Promise<SourceResult[]> {
       `Only the first ${techs.length} of ${allTechs.length} candidate technologies were grounded; skipped: ${allTechs.slice(techs.length).join(", ")}. Drill them with \`construct tech --out <run> --q "<tech>"\`.`,
     );
   }
+  // User-named docs pages (--docs-url) skip web discovery entirely: fetch ALL
+  // of them (never budget-trimmed, same contract as `web --url`).
+  if (ctx.docsUrls?.length) {
+    const direct = await webFetchUrls(ctx.docsUrls, ideaKw, ctx.perSource, "docs", true);
+    docItems.push(...direct.items);
+    docNotes.push(`Grounded ${ctx.docsUrls.length} docs URL(s) passed via --docs-url.`, ...direct.notes);
+  }
   for (const tech of techs) {
     const q = `${tech} official documentation`;
     const { urls, via, notes } = await discover(q, ctx.webEngine, ctx.perSource);
@@ -31,7 +38,7 @@ export async function techAngle(ctx: ResearchContext): Promise<SourceResult[]> {
     docItems.push(...fetched.items);
     docNotes.push(...fetched.notes);
   }
-  if (techs.length === 0) docNotes.push("No candidate technologies in the brief — nothing to ground feasibility against.");
+  if (techs.length === 0 && !ctx.docsUrls?.length) docNotes.push("No candidate technologies in the brief — nothing to ground feasibility against.");
 
   // --- so: pitfalls of each candidate technology, one focused query per tech.
   // (A single combined "<all techs> <whole idea>" query over-constrains to zero.)

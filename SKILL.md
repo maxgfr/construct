@@ -33,8 +33,9 @@ No `npm install`, no API keys. Run `--help` for the full surface. Key commands:
 - `analyze --out <run> [--json]` — the "what's thin?" report: names every
   feature/competitor/tech/seed that will render UNGROUNDED as-is, and prints the
   drill command that fixes each gap. Informational, never gates.
-- `web|oss|tech|so --out <run> [--q "<focus>"] [--url ...] [--seeds ...]` — drill
-  ONE angle to stdout (no dossier). Use these to dig deeper on a thin thread.
+- `web|oss|tech|so --out <run> [--q "<focus>"] [--url ...] [--seeds ...]
+  [--docs-url <u,...>]` — drill ONE angle to stdout (no dossier). Use these to
+  dig deeper on a thin thread; `--docs-url` grounds known docs pages directly.
 - `render --out <run> [--level light|complex] [--merge]` — render the SRD tree +
   `SRD.json` from `brief.json` + the dossier.
 - `check --out <run> [--min-grounding <0-100>] [--json]` — the HARD structural

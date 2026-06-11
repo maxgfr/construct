@@ -31,9 +31,13 @@ stack is up.
    - `construct web  --out <run> --q "<competitor> pricing model"`
    - `construct oss  --out <run> --seeds https://github.com/o/r`
    - `construct tech --out <run> --q "<tech> <hard requirement>"`
+   - `construct tech --out <run> --docs-url <u,...>` — you already know the
+     docs page(s); fetch and ground them directly, no discovery, never trimmed.
    - `construct so   --out <run> --q "<tech> <known failure mode>"`
    Or use your own **WebSearch**, then ground the page:
    `construct web --out <run> --url <url>`.
+   All drills honour `--per-source <n>` (default 6); raise it to dig deeper on
+   one thread, lower it to keep a bloated dossier focused.
 4. **Fold it in.** Re-run `research` (or keep drilling) so new findings land in
    the dossier with fresh `[E#]` ids.
 5. **Report and let the user steer.** Summarise what you found and what's still

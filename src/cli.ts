@@ -56,7 +56,7 @@ Options:
   --q, --question <s>  Focus the research/drill on a sub-question
   --url <u,...>        For 'web': specific page(s) to fetch + ground
   --seeds <u,...>      OSS repo URLs to mine (overrides brief.ossSeeds)
-  --docs-url <url>     A technology docs page to ground against
+  --docs-url <u,...>   For 'tech'/'research': docs page(s) to fetch + ground directly
   --level <l>          light | complex                           (default: light)
   --min-grounding <n>  For 'check': fail unless ≥ n% of claims are grounded (opt-in)
   --app <dir>          For 'verify': the built app directory (default: conventions.appDir)
@@ -205,6 +205,7 @@ function buildResearchContext(p: Parsed, runDir: string, angles: Angle[]): Resea
     semantic: p.bools.has("semantic"),
     perSource,
     refresh: p.bools.has("refresh"),
+    docsUrls: p.values["docs-url"] ? csv(p.values["docs-url"]) : undefined,
   };
 }
 
