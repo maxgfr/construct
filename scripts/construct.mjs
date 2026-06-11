@@ -1033,9 +1033,44 @@ function providerFor(host) {
 
 // src/research/oss.ts
 var REPO_URL_RE = /^https?:\/\/(github|gitlab)\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+/i;
+var NON_REPO_OWNERS = /* @__PURE__ */ new Set([
+  "topics",
+  "search",
+  "collections",
+  "trending",
+  "explore",
+  "marketplace",
+  "sponsors",
+  "features",
+  "about",
+  "pricing",
+  "login",
+  "join",
+  "signup",
+  "settings",
+  "notifications",
+  "issues",
+  "pulls",
+  "orgs",
+  "apps",
+  "blog",
+  "site",
+  "enterprise",
+  "customer-stories",
+  "security",
+  "readme",
+  "events",
+  "dashboard",
+  "groups",
+  "users",
+  "help",
+  "projects",
+  "-"
+]);
 function canonicalRepoUrl(url) {
-  const m = /^(https?:\/\/(?:github|gitlab)\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)/i.exec(url);
-  return m ? m[1].replace(/\.git$/, "") : void 0;
+  const m = /^(https?:\/\/(?:github|gitlab)\.com\/([A-Za-z0-9._-]+)\/[A-Za-z0-9._-]+)/i.exec(url);
+  if (!m || NON_REPO_OWNERS.has(m[2].toLowerCase())) return void 0;
+  return m[1].replace(/\.git$/, "");
 }
 function languageHistogram(files) {
   const counts = /* @__PURE__ */ new Map();

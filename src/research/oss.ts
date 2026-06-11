@@ -7,10 +7,50 @@ import type { ResearchContext, SourceResult, RawItem } from "../types.js";
 
 const REPO_URL_RE = /^https?:\/\/(github|gitlab)\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+/i;
 
+// Top-level GitHub/GitLab namespaces that are site sections, not repo owners.
+// Web discovery routinely surfaces them (github.com/topics/x, /collections/y);
+// treating one as a repo means a doomed clone plus rejected issue/PR queries.
+const NON_REPO_OWNERS = new Set([
+  "topics",
+  "search",
+  "collections",
+  "trending",
+  "explore",
+  "marketplace",
+  "sponsors",
+  "features",
+  "about",
+  "pricing",
+  "login",
+  "join",
+  "signup",
+  "settings",
+  "notifications",
+  "issues",
+  "pulls",
+  "orgs",
+  "apps",
+  "blog",
+  "site",
+  "enterprise",
+  "customer-stories",
+  "security",
+  "readme",
+  "events",
+  "dashboard",
+  "groups",
+  "users",
+  "help",
+  "projects",
+  "-",
+]);
+
 // Canonicalise a repo URL down to host/owner/repo (drop deep paths, .git, etc.).
+// Returns undefined for URLs whose "owner" is a reserved site section.
 export function canonicalRepoUrl(url: string): string | undefined {
-  const m = /^(https?:\/\/(?:github|gitlab)\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)/i.exec(url);
-  return m ? m[1]!.replace(/\.git$/, "") : undefined;
+  const m = /^(https?:\/\/(?:github|gitlab)\.com\/([A-Za-z0-9._-]+)\/[A-Za-z0-9._-]+)/i.exec(url);
+  if (!m || NON_REPO_OWNERS.has(m[2]!.toLowerCase())) return undefined;
+  return m[1]!.replace(/\.git$/, "");
 }
 
 export function languageHistogram(files: { ext: string }[]): [string, number][] {

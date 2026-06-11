@@ -82,6 +82,14 @@ describe("helpers", () => {
     expect(canonicalRepoUrl("https://github.com/o/r.git")).toBe("https://github.com/o/r");
     expect(canonicalRepoUrl("https://example.com/x")).toBeUndefined();
   });
+  it("canonicalRepoUrl rejects site sections that are not repos", () => {
+    expect(canonicalRepoUrl("https://github.com/topics/bookmark-manager")).toBeUndefined();
+    expect(canonicalRepoUrl("https://github.com/collections/productivity-tools")).toBeUndefined();
+    expect(canonicalRepoUrl("https://github.com/search?q=bookmarks")).toBeUndefined();
+    expect(canonicalRepoUrl("https://gitlab.com/explore/projects")).toBeUndefined();
+    // …but a real owner that merely resembles one still resolves.
+    expect(canonicalRepoUrl("https://github.com/topicsorter/app")).toBe("https://github.com/topicsorter/app");
+  });
   it("languageHistogram counts by extension, most first", () => {
     const h = languageHistogram([{ ext: ".ts" }, { ext: ".ts" }, { ext: ".md" }]);
     expect(h[0]).toEqual(["ts", 2]);
