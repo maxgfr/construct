@@ -12,7 +12,7 @@ name: construct
 services:
   # Vector database — Apache-2.0, self-hosted, no key.
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.18.2
     container_name: construct-qdrant
     ports:
       - "6333:6333"
@@ -20,12 +20,19 @@ services:
       - construct_qdrant:/qdrant/storage
     restart: unless-stopped
     profiles: ["semantic", "all"]
+    healthcheck:
+      # The image ships no curl/wget — probe the REST port over bash's /dev/tcp.
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
   # Local embedding server — no key, no data leaves the machine. Pull the model
   # once: `docker compose exec ollama ollama pull nomic-embed-text`
   # (`construct semantic up` does this for you).
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.30.7
     container_name: construct-ollama
     ports:
       - "11434:11434"
@@ -33,11 +40,17 @@ services:
       - construct_ollama:/root/.ollama
     restart: unless-stopped
     profiles: ["semantic", "all"]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
   # Self-hosted metasearch for keyless web discovery. JSON output is enabled in
   # docker/searxng/settings.yml so the engine can be queried programmatically.
   searxng:
-    image: searxng/searxng:latest
+    image: searxng/searxng:2026.6.11-a1490676e
     container_name: construct-searxng
     ports:
       - "8888:8080"
@@ -47,6 +60,13 @@ services:
       - ./docker/searxng:/etc/searxng:rw
     restart: unless-stopped
     profiles: ["search", "all"]
+    healthcheck:
+      # busybox wget is in the image; /healthz answers on the container port.
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
 volumes:
   construct_qdrant:
