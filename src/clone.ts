@@ -115,9 +115,19 @@ export function ensureClone(
 
   const res = sh("git", args, { timeoutMs: GIT_CLONE_TIMEOUT_MS });
   if (!res.ok) {
+    // No git at all is not a retryable clone failure — name the real problem.
+    if (res.missing) {
+      throw new Error(`git is not installed or not on PATH — cannot clone ${ref.cloneUrl}`);
+    }
     // The first attempt can leave a partial, non-empty dir behind; git clone
     // refuses to write into it, so the retry would fail for the wrong reason.
-    if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
+    if (existsSync(dir)) {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch (e) {
+        throw new Error(`could not remove the partial clone at ${dir} before retrying: ${(e as Error).message} — delete it manually and re-run`);
+      }
+    }
     // Retry without the partial-clone filter; some servers reject it.
     const fallback = sh(
       "git",
@@ -125,8 +135,14 @@ export function ensureClone(
       { timeoutMs: GIT_CLONE_TIMEOUT_MS },
     );
     if (!fallback.ok) {
+      // Both attempts can fail for different reasons — report each one labeled,
+      // instead of whichever stderr happened to be non-empty.
       throw new Error(
-        `git clone failed for ${ref.cloneUrl}\n${(res.stderr || fallback.stderr).trim()}`,
+        [
+          `git clone failed for ${ref.cloneUrl}`,
+          `  attempt 1 (--filter=blob:none): ${res.stderr.trim() || `exit ${res.status}`}`,
+          `  attempt 2 (no filter):          ${fallback.stderr.trim() || `exit ${fallback.status}`}`,
+        ].join("\n"),
       );
     }
   }

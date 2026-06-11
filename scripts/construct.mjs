@@ -666,7 +666,16 @@ function ensureClone(ref, opts = {}) {
   args.push(ref.cloneUrl, dir);
   const res = sh("git", args, { timeoutMs: GIT_CLONE_TIMEOUT_MS });
   if (!res.ok) {
-    if (existsSync2(dir)) rmSync(dir, { recursive: true, force: true });
+    if (res.missing) {
+      throw new Error(`git is not installed or not on PATH \u2014 cannot clone ${ref.cloneUrl}`);
+    }
+    if (existsSync2(dir)) {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch (e) {
+        throw new Error(`could not remove the partial clone at ${dir} before retrying: ${e.message} \u2014 delete it manually and re-run`);
+      }
+    }
     const fallback = sh(
       "git",
       ["clone", "--depth", "1", ...opts.branch ? ["--branch", opts.branch] : [], ref.cloneUrl, dir],
@@ -674,8 +683,11 @@ function ensureClone(ref, opts = {}) {
     );
     if (!fallback.ok) {
       throw new Error(
-        `git clone failed for ${ref.cloneUrl}
-${(res.stderr || fallback.stderr).trim()}`
+        [
+          `git clone failed for ${ref.cloneUrl}`,
+          `  attempt 1 (--filter=blob:none): ${res.stderr.trim() || `exit ${res.status}`}`,
+          `  attempt 2 (no filter):          ${fallback.stderr.trim() || `exit ${fallback.status}`}`
+        ].join("\n")
       );
     }
   }
