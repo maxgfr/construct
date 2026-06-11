@@ -1,6 +1,6 @@
 import type { EvidenceItem } from "../types.js";
 import { keywords as extractKeywords } from "../util.js";
-import { HTTP_GET_TIMEOUT_MS, HTTP_JSON_TIMEOUT_MS } from "../config.js";
+import { HTTP_GET_TIMEOUT_MS, HTTP_JSON_TIMEOUT_MS, RETRY_AFTER_CAP_MS, RETRY_BASE_DELAY_MS, RETRY_JITTER_MS } from "../config.js";
 
 type RawItem = Omit<EvidenceItem, "id">;
 
@@ -16,14 +16,55 @@ export interface HttpResult {
   body: string;
   contentType: string;
   error?: string;
+  retryAfter?: string; // raw Retry-After header, when the server sent one
+}
+
+// A failure worth one more try: the network hiccuped (status 0), the server
+// errored (5xx), or we were rate-limited (429). Other 4xx are deterministic —
+// retrying a 403/404 just hammers the host.
+function transient(status: number): boolean {
+  return status === 0 || status === 429 || status >= 500;
 }
 
 // Minimal HTTP GET on top of Node's built-in fetch (Node ≥18) — no
 // dependencies. Times out, sends a UA, and caps the body so a huge page can't
 // blow up memory. `headers` overrides/extends the defaults (e.g. a browser UA).
+// Transient failures (network error, 5xx, 429) are retried `retries` times with
+// exponential backoff + jitter, honouring a parseable Retry-After on 429.
+// `sleep` is injectable so tests don't wait. (fetchAndExtract layers its own
+// one-shot browser-UA fallback on 403/429 — only the 429 path stacks with this,
+// which is acceptable: a rate-limited host gets the backoff it asked for.)
 export async function httpGet(
   url: string,
-  opts: { timeoutMs?: number; accept?: string; maxBytes?: number; headers?: Record<string, string> } = {},
+  opts: {
+    timeoutMs?: number;
+    accept?: string;
+    maxBytes?: number;
+    headers?: Record<string, string>;
+    retries?: number;
+    sleep?: (ms: number) => Promise<void>;
+  } = {},
+): Promise<HttpResult> {
+  const retries = opts.retries ?? 1;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  let last: HttpResult = { ok: false, status: 0, body: "", contentType: "", error: "unreached" };
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    last = await httpGetOnce(url, opts);
+    if (last.ok || !transient(last.status)) return last;
+    if (attempt === retries) break;
+    const retryAfterS = Number(last.retryAfter);
+    const delay =
+      last.status === 429 && Number.isFinite(retryAfterS) && retryAfterS > 0
+        ? Math.min(retryAfterS * 1000, RETRY_AFTER_CAP_MS)
+        : RETRY_BASE_DELAY_MS * 2 ** attempt + Math.random() * RETRY_JITTER_MS;
+    await sleep(delay);
+  }
+  return last;
+}
+
+async function httpGetOnce(
+  url: string,
+  opts: { timeoutMs?: number; accept?: string; maxBytes?: number; headers?: Record<string, string> },
 ): Promise<HttpResult> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? HTTP_GET_TIMEOUT_MS);
@@ -40,6 +81,7 @@ export async function httpGet(
       status: res.status,
       body: buf.subarray(0, max).toString("utf8"),
       contentType: res.headers.get("content-type") ?? "",
+      retryAfter: res.headers.get("retry-after") ?? undefined,
     };
   } catch (e) {
     return { ok: false, status: 0, body: "", contentType: "", error: (e as Error).message };

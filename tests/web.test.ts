@@ -25,7 +25,7 @@ describe("discover (three-tier keyless web search)", () => {
       "fetch",
       vi.fn(async (url: string) => {
         if (String(url).includes("8888")) return res(JSON.stringify({ results: [{ url: "https://s1.com" }, { url: "https://s2.com" }] }), { contentType: "application/json" });
-        return res("", { ok: false, status: 0 });
+        return res("", { ok: false, status: 404 });
       }),
     );
     const d = await discover("read later app", "auto", 5);
@@ -39,7 +39,7 @@ describe("discover (three-tier keyless web search)", () => {
       vi.fn(async (url: string) => {
         if (String(url).includes("8888")) return res("", { ok: false, status: 0 }); // SearXNG down
         if (String(url).includes("duckduckgo")) return res(ddgHtml(["https://real-one.com/page", "https://real-two.com"]));
-        return res("", { ok: false, status: 0 });
+        return res("", { ok: false, status: 404 });
       }),
     );
     const d = await discover("read later app", "auto", 5);
@@ -49,7 +49,7 @@ describe("discover (three-tier keyless web search)", () => {
   });
 
   it("emits a WebSearch hint when no keyless engine returns results", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => res("", { ok: false, status: 0 })));
+    vi.stubGlobal("fetch", vi.fn(async () => res("", { ok: false, status: 404 })));
     const d = await discover("x", "auto", 5);
     expect(d.urls).toEqual([]);
     expect(d.notes.join(" ")).toMatch(/built-in WebSearch/i);

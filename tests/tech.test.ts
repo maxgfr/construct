@@ -12,7 +12,8 @@ function soRes(questionId: number) {
   return { ok: true, status: 200, headers: { get: () => "application/json" }, arrayBuffer: async () => new TextEncoder().encode(body).buffer, text: async () => body };
 }
 function fail() {
-  return { ok: false, status: 0, headers: { get: () => null }, arrayBuffer: async () => new ArrayBuffer(0), text: async () => "" };
+  // 404, not 0: a transient status would exercise httpGet retries (covered in fetch.test.ts) and slow the suite.
+  return { ok: false, status: 404, headers: { get: () => null }, arrayBuffer: async () => new ArrayBuffer(0), text: async () => "" };
 }
 
 function ctx(candidateTech: string[], docsUrls?: string[]): ResearchContext {

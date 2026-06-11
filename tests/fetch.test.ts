@@ -1,17 +1,85 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { excerptsFromText, fetchAndExtract, htmlToText } from "../src/research/fetch.js";
+import { excerptsFromText, fetchAndExtract, htmlToText, httpGet } from "../src/research/fetch.js";
 
-function res(body: string, opts: { ok?: boolean; status?: number; contentType?: string } = {}) {
+function res(body: string, opts: { ok?: boolean; status?: number; contentType?: string; retryAfter?: string } = {}) {
   return {
     ok: opts.ok ?? true,
     status: opts.status ?? 200,
-    headers: { get: (h: string) => (h.toLowerCase() === "content-type" ? opts.contentType ?? "text/html" : null) },
+    headers: {
+      get: (h: string) => {
+        if (h.toLowerCase() === "content-type") return opts.contentType ?? "text/html";
+        if (h.toLowerCase() === "retry-after") return opts.retryAfter ?? null;
+        return null;
+      },
+    },
     arrayBuffer: async () => new TextEncoder().encode(body).buffer,
     text: async () => body,
   };
 }
 
 afterEach(() => vi.unstubAllGlobals());
+
+describe("httpGet retry policy", () => {
+  // Injected sleep: records the requested delays, never actually waits.
+  function recorder() {
+    const delays: number[] = [];
+    return { delays, sleep: async (ms: number) => void delays.push(ms) };
+  }
+
+  it("retries a 5xx once with backoff and recovers", async () => {
+    const { delays, sleep } = recorder();
+    let calls = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => (++calls === 1 ? res("", { ok: false, status: 503 }) : res("fine"))));
+    const r = await httpGet("https://flaky.example", { sleep });
+    expect(calls).toBe(2);
+    expect(r.ok).toBe(true);
+    expect(delays.length).toBe(1);
+    expect(delays[0]!).toBeGreaterThanOrEqual(300); // base backoff + jitter
+  });
+
+  it("honours a parseable Retry-After on 429", async () => {
+    const { delays, sleep } = recorder();
+    let calls = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => (++calls === 1 ? res("", { ok: false, status: 429, retryAfter: "1" }) : res("fine"))));
+    const r = await httpGet("https://limited.example", { sleep });
+    expect(r.ok).toBe(true);
+    expect(delays).toEqual([1000]);
+  });
+
+  it("never retries a deterministic 4xx", async () => {
+    const { delays, sleep } = recorder();
+    let calls = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => (calls++, res("", { ok: false, status: 404 }))));
+    const r = await httpGet("https://gone.example", { sleep });
+    expect(calls).toBe(1);
+    expect(r.status).toBe(404);
+    expect(delays).toEqual([]);
+  });
+
+  it("recovers from a thrown network error", async () => {
+    const { sleep } = recorder();
+    let calls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        if (++calls === 1) throw new Error("ECONNRESET");
+        return res("fine");
+      }),
+    );
+    const r = await httpGet("https://reset.example", { sleep });
+    expect(calls).toBe(2);
+    expect(r.ok).toBe(true);
+  });
+
+  it("makes a single attempt with retries: 0", async () => {
+    const { sleep } = recorder();
+    let calls = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => (calls++, res("", { ok: false, status: 503 }))));
+    const r = await httpGet("https://down.example", { retries: 0, sleep });
+    expect(calls).toBe(1);
+    expect(r.ok).toBe(false);
+  });
+});
 
 describe("excerptsFromText", () => {
   it("disambiguates a second excerpt of one page by its line range", () => {

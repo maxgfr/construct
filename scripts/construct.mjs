@@ -32,6 +32,9 @@ var HTTP_GET_TIMEOUT_MS = 2e4;
 var HTTP_JSON_TIMEOUT_MS = 3e4;
 var SEARXNG_TIMEOUT_MS = 8e3;
 var DDG_TIMEOUT_MS = 12e3;
+var RETRY_BASE_DELAY_MS = 300;
+var RETRY_JITTER_MS = 150;
+var RETRY_AFTER_CAP_MS = 1e4;
 var SH_DEFAULT_TIMEOUT_MS = 12e4;
 var GIT_CLONE_TIMEOUT_MS = 3e5;
 var GIT_FETCH_TIMEOUT_MS = 18e4;
@@ -306,7 +309,24 @@ import { join as join6 } from "path";
 // src/research/fetch.ts
 var UA = "construct/0.x (+https://github.com/maxgfr/construct)";
 var BROWSER_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+function transient(status) {
+  return status === 0 || status === 429 || status >= 500;
+}
 async function httpGet(url, opts = {}) {
+  const retries = opts.retries ?? 1;
+  const sleep = opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+  let last = { ok: false, status: 0, body: "", contentType: "", error: "unreached" };
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    last = await httpGetOnce(url, opts);
+    if (last.ok || !transient(last.status)) return last;
+    if (attempt === retries) break;
+    const retryAfterS = Number(last.retryAfter);
+    const delay = last.status === 429 && Number.isFinite(retryAfterS) && retryAfterS > 0 ? Math.min(retryAfterS * 1e3, RETRY_AFTER_CAP_MS) : RETRY_BASE_DELAY_MS * 2 ** attempt + Math.random() * RETRY_JITTER_MS;
+    await sleep(delay);
+  }
+  return last;
+}
+async function httpGetOnce(url, opts) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? HTTP_GET_TIMEOUT_MS);
   try {
@@ -321,7 +341,8 @@ async function httpGet(url, opts = {}) {
       ok: res.ok,
       status: res.status,
       body: buf.subarray(0, max).toString("utf8"),
-      contentType: res.headers.get("content-type") ?? ""
+      contentType: res.headers.get("content-type") ?? "",
+      retryAfter: res.headers.get("retry-after") ?? void 0
     };
   } catch (e) {
     return { ok: false, status: 0, body: "", contentType: "", error: e.message };
@@ -444,7 +465,7 @@ function excerptsFromText(text, url, title, source, question, perSource) {
 var SEARXNG_BASE = process.env.CONSTRUCT_SEARXNG || "http://localhost:8888";
 async function viaSearxng(query2, n) {
   const url = `${SEARXNG_BASE.replace(/\/$/, "")}/search?q=${encodeURIComponent(query2)}&format=json`;
-  const r = await httpGet(url, { accept: "application/json", timeoutMs: SEARXNG_TIMEOUT_MS });
+  const r = await httpGet(url, { accept: "application/json", timeoutMs: SEARXNG_TIMEOUT_MS, retries: 0 });
   if (!r.ok) return null;
   try {
     const data = JSON.parse(r.body);
