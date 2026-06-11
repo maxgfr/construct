@@ -5,7 +5,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { renderSRD } from "../src/render.js";
 import { loadPlan, writePlan } from "../src/plan.js";
-import { verifyRun, formatVerifyReport } from "../src/verify.js";
+import { verifyRun, formatVerifyReport, isTestFile } from "../src/verify.js";
 import type { Brief, BuildPlanDoc, EvidenceItem } from "../src/types.js";
 
 const FIX = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
@@ -35,6 +35,29 @@ function setup(): { run: string; app: string; mutate: (fn: (p: BuildPlanDoc) => 
   mutate((p) => (p.conventions.appDir = app));
   return { run, app, mutate };
 }
+
+describe("isTestFile — cross-language test conventions", () => {
+  it.each([
+    "src/save.test.ts",
+    "lib/save.spec.js",
+    "pkg/store_test.go",
+    "spec/article_spec.rb",
+    "app/test_models.py",
+    "src/main/FooTest.java",
+    "Project/FooTests.cs",
+    "test/save.py",
+    "tests/save.ts",
+    "specs/flow.js",
+    "e2e/checkout.ts",
+    "__tests__/save.tsx",
+  ])("recognises %s as a test file", (rel) => {
+    expect(isTestFile(rel)).toBe(true);
+  });
+
+  it.each(["src/latest.java", "docs/protest.md", "src/contest.ts", "src/manifest.go", "src/attestation.py"])("does not misclassify %s", (rel) => {
+    expect(isTestFile(rel)).toBe(false);
+  });
+});
 
 describe("verifyRun — static checks", () => {
   it("passes a fresh plan with nothing built yet", () => {

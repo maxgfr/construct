@@ -23,11 +23,16 @@ export interface VerifyOptions {
   strict?: boolean;
 }
 
-const TEST_FILE_RE = /\.(test|spec)\.[^./]+$|_test\.[^./]+$/i;
-const TEST_DIR_RE = /(^|\/)(tests?|__tests__|spec)\//i;
+// Dotted (.test.ts/.spec.js), suffixed (foo_test.go/foo_spec.rb) and
+// pytest-prefixed (test_foo.py) conventions.
+const TEST_FILE_RE = /\.(test|spec)\.[^./]+$|_(test|spec)\.[^./]+$|(^|\/)test_[^/]+\.[^./]+$/i;
+// JVM/C# suffix style (FooTest.java, FooTests.cs). Case-SENSITIVE on purpose:
+// `latest.java` must not match.
+const TEST_SUFFIX_RE = /(^|\/)[^/]*[A-Z]\w*Tests?\.(java|kt|kts|cs|scala|groovy)$/;
+const TEST_DIR_RE = /(^|\/)(tests?|__tests__|spec|specs|e2e)\//i;
 
-function isTestFile(rel: string): boolean {
-  return TEST_FILE_RE.test(rel) || TEST_DIR_RE.test(rel);
+export function isTestFile(rel: string): boolean {
+  return TEST_FILE_RE.test(rel) || TEST_SUFFIX_RE.test(rel) || TEST_DIR_RE.test(rel);
 }
 
 function detectCycle(plan: BuildPlanDoc): string | null {

@@ -2636,10 +2636,11 @@ function formatGapReport(r, runDir) {
 // src/verify.ts
 import { existsSync as existsSync7, readFileSync as readFileSync6 } from "fs";
 import { isAbsolute, join as join12, resolve as resolve2 } from "path";
-var TEST_FILE_RE = /\.(test|spec)\.[^./]+$|_test\.[^./]+$/i;
-var TEST_DIR_RE = /(^|\/)(tests?|__tests__|spec)\//i;
+var TEST_FILE_RE = /\.(test|spec)\.[^./]+$|_(test|spec)\.[^./]+$|(^|\/)test_[^/]+\.[^./]+$/i;
+var TEST_SUFFIX_RE = /(^|\/)[^/]*[A-Z]\w*Tests?\.(java|kt|kts|cs|scala|groovy)$/;
+var TEST_DIR_RE = /(^|\/)(tests?|__tests__|spec|specs|e2e)\//i;
 function isTestFile(rel) {
-  return TEST_FILE_RE.test(rel) || TEST_DIR_RE.test(rel);
+  return TEST_FILE_RE.test(rel) || TEST_SUFFIX_RE.test(rel) || TEST_DIR_RE.test(rel);
 }
 function detectCycle(plan) {
   const byId = new Map(plan.tasks.map((t) => [t.id, t]));
