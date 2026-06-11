@@ -52,3 +52,9 @@ close: every `FR.entities/interfaces/nfrs` must name something that exists.
 - `light` — lean: core NFRs, one ADR, one acceptance criterion per FR.
 - `complex` — full NFR set, a second ADR, a failure-path criterion per FR, the
   full 5-way traceability matrix. Use it for anything you intend to build.
+
+Choose `complex` whenever a build is even *possible* — it emits the failure
+paths, the full NFR set and the traceability the build phase leans on. Reserve
+`light` for a throwaway/exploration document. Switching levels later means a
+re-render that **renumbers FR/NFR ids**: any tests already tagged with FR ids
+must be retagged (`verify` flags the stale tags).

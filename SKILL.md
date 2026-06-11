@@ -93,6 +93,8 @@ loop to completion; only pause to ask the user a real decision.
    ```
    node scripts/construct.mjs render --out <run> --level complex
    ```
+   Pick `complex` whenever a build is even possible; switching levels later
+   renumbers FR ids (see `references/srd-authoring.md`).
    This writes the SRD tree (see below). The data model and interfaces come
    pre-seeded by inference from the brief — **verify them, don't trust them**.
    Then **enrich it**: resolve every `🧠 Decide:` callout, sharpen the templated

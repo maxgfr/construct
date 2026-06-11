@@ -10,6 +10,29 @@ Write the answers into `brief.json` (start it with
 `construct init --idea "<one-liner>" --out <run>`). The fields map directly to
 the SRD.
 
+## Scope gate — when NOT to run construct
+
+Check the fit before question 1; a wrong fit wastes the whole loop.
+
+- **Existing codebase (brownfield).** construct specs *greenfield* products.
+  To document or evolve an existing repo, point the user at a repo-grounded
+  tool instead (e.g. `reconstruct`). Run construct only for a genuinely new
+  product, even one that will live next to existing code.
+- **Several products in one ask.** Scope to ONE: name the split, recommend
+  which to spec first, park the rest. One run = one product.
+- **No articulable idea.** `init` needs a one-liner. If the user can't state
+  the problem in a sentence, help them get to one first — don't start a run
+  on "an AI thing".
+
+## Pruning the interview
+
+- Skip any question whose answer you can confidently infer from the idea or a
+  prior answer: state the inference ("I'll assume solo dev, no budget — veto
+  if wrong") and move on.
+- If one question stalls after ~3 attempts, propose a concrete default, record
+  the hesitation as an `openQuestions` entry, and move on — the 🧠 callout
+  forces the decision before the SRD can pass `check` anyway.
+
 ## What to elicit (roughly in order)
 
 1. **Problem** → `product.problem`. What hurts today, for whom? One sentence.
@@ -35,6 +58,5 @@ the SRD.
 
 - Prefer multiple-choice or "A or B?" phrasing; it's easier to answer.
 - Reflect back what you heard before moving on.
-- If the request spans several independent products, say so and scope to one.
 - It's fine to leave fields empty — `validateBrief` warns, and the renderer fills
   generic scaffold the agent and user refine later.

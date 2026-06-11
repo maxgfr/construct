@@ -44,6 +44,48 @@ stack is up.
    thin. Keep digging on what they care about; **stop when they say it's good
    enough** ("c'est bon"). Don't gold-plate threads that won't change a decision.
 
+## Stopping heuristic — what "good enough" means
+
+"Stop when the user says so" needs a default you can recommend. After each
+`analyze` round, propose stopping when all three hold:
+
+1. no `must` feature gap remains;
+2. every candidateTech has docs or StackOverflow grounding;
+3. each load-bearing ADR input (stack, datastore, build-vs-buy) has ≥1 primary
+   source.
+
+Cap yourself at **3 analyze→drill rounds** unless the user asks for more. A
+`could` feature gap is never worth a round on its own (mirrors the priority
+rule in `references/orchestration.md`). Surface what's still thin and let the
+user overrule in either direction.
+
+## When research returns nothing
+
+The engine degrades honestly — empty angles land as notes in `EVIDENCE.md`
+("SearXNG unreachable", "No comparable OSS projects found"), never as fake
+items. Recovery path, in order:
+
+1. Re-check the brief: vague `candidateTech`/`competitors` produce vague
+   queries. Sharpen them, re-run `research`.
+2. Search yourself (your own WebSearch), then ground the best pages:
+   `construct web --url <u,...> --out <run>` (or `construct tech
+   --docs-url <u,...>` for docs).
+3. Still nothing? Record an explicit assumption or `openQuestion` and move
+   on. A 0%-grounded SRD renders and passes the structural gate; the advisory
+   coverage report will say so honestly. Never fabricate a citation.
+
+## Resuming an interrupted run
+
+Everything lives on disk under `--out`; nothing is in memory. Start with
+`construct status --out <run>` to see what exists (`brief.json`,
+`evidence/`, `SRD.json`, `BUILD-PLAN.json`). Then:
+
+- `analyze`, `check`, and all drills are read-only — always safe.
+- `research` rebuilds the dossier atomically and **re-assigns `[E#]` ids** —
+  if an SRD was already rendered, re-check its citations afterwards.
+- `render` re-renders and renumbers FR/NFR ids, but BUILD-PLAN task progress
+  merges by feature title, so build state survives.
+
 ## Heuristics
 
 - Ground the **load-bearing** decisions first: the stack choice, the

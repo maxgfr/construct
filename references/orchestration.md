@@ -19,6 +19,10 @@ research safe — and it implies a hard rule:
   serially: `construct web --url <u1,u2> --out <run>` to inspect pages, then
   one `construct research` re-run to rebuild the dossier, then `analyze` to
   re-measure. One writer, many readers — no races, no clobbered evidence.
+- Never run two `construct research` (or any dossier-writing command) at the
+  same time on one run folder: the second clobbers `evidence/` and re-assigns
+  the `[E#]` ids the first one's citations point at. Exactly one `research`
+  re-run per fold-in.
 
 ## Pattern 1 — research fan-out (per analyze gap)
 
@@ -85,7 +89,10 @@ rationale back to the user as a real decision to make.
   agent count.
 - Red team (pattern 2): one agent per round, ≤3 rounds. Always worth round 1.
 - Judge panel (pattern 3): 3 agents per ADR — only at `complex` level, only
-  for contested ADRs, normally ≤2 panels per SRD.
+  for ADRs meeting Pattern 3's contested bar (the user hesitated, the
+  evidence conflicts, or the decision is hard to reverse). Hard cap: ≤2
+  panels per SRD; if a third ADR seems contested, take it to the user as a
+  question instead.
 
 No subagent capability available? Run the same three patterns as sequential
 self-passes in the order 1 → 2 → 3. The discipline (output contracts, one
