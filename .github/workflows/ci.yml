@@ -10,7 +10,9 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [24]
+        # 20 is the dev-toolchain floor (vitest needs ≥20); 24 is current. The
+        # published bundle's Node 18 floor is covered by runtime-node-floor.
+        node-version: [20, 24]
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
@@ -22,10 +24,12 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Typecheck
         run: pnpm run typecheck
+      - name: Lint
+        run: pnpm run lint
       - name: Build is reproducible
         run: pnpm run check:build
-      - name: Test
-        run: pnpm test
+      - name: Test (with coverage)
+        run: pnpm run test:coverage
       - name: Smoke-run the committed bundle (offline render + check)
         run: pnpm run demo
       - name: Assert the SRD was produced and is structurally complete
