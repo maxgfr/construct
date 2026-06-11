@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { parse } from "yaml";
@@ -31,6 +31,26 @@ describe("SKILL.md is installable by the `skills` CLI", () => {
     expect(data.name).toBe("construct");
     expect(typeof data.description).toBe("string");
     expect((data.description as string).length).toBeGreaterThan(0);
+  });
+
+  // Claude Code caps skill descriptions at 1024 characters when matching a
+  // request to a skill; a longer description risks truncation at the exact
+  // moment the skill needs to be recognized.
+  it("keeps the description under the 1024-char matcher limit", () => {
+    const data = parse(frontmatter) as Record<string, unknown>;
+    expect((data.description as string).length).toBeLessThanOrEqual(1024);
+  });
+
+  it("only references playbooks that exist on disk", () => {
+    const mentioned = [...new Set(raw.match(/references\/[a-z0-9-]+\.md/g) ?? [])];
+    expect(mentioned.length).toBeGreaterThan(0);
+    for (const ref of mentioned) expect(existsSync(join(ROOT, ref)), `${ref} is mentioned in SKILL.md but missing`).toBe(true);
+  });
+
+  it("mentions every references/*.md playbook", () => {
+    const files = readdirSync(join(ROOT, "references")).filter((f) => f.endsWith(".md"));
+    expect(files.length).toBeGreaterThan(0);
+    for (const f of files) expect(raw.includes(`references/${f}`), `references/${f} exists but SKILL.md never mentions it`).toBe(true);
   });
 
   it("keeps version in lockstep across SKILL.md, package.json and src/types.ts", () => {
