@@ -53,15 +53,11 @@ async function viaDuckDuckGo(query: string, n: number): Promise<string[] | null>
 // tries SearXNG, then DuckDuckGo. The `claude` engine (and the all-failed case)
 // returns no URLs and signals the model to use its built-in WebSearch and feed
 // URLs back via `construct web --url`.
-export async function discover(
-  query: string,
-  engine: WebEngine,
-  n: number,
-): Promise<{ urls: string[]; via: string; notes: string[] }> {
+export async function discover(query: string, engine: WebEngine, n: number): Promise<{ urls: string[]; via: string; notes: string[] }> {
   const notes: string[] = [];
   if (engine === "searxng" || engine === "auto") {
     const s = await viaSearxng(query, n);
-    if (s && s.length) return { urls: s, via: "searxng", notes };
+    if (s?.length) return { urls: s, via: "searxng", notes };
     // null = unreachable/parse failure; [] = reachable but zero results.
     if (engine === "searxng") {
       notes.push(s === null ? `SearXNG unreachable at ${SEARXNG_BASE}. Run \`construct semantic up\`.` : "SearXNG returned no results.");
@@ -69,13 +65,12 @@ export async function discover(
   }
   if (engine === "ddg" || engine === "auto") {
     const d = await viaDuckDuckGo(query, n);
-    if (d && d.length) return { urls: d, via: "duckduckgo", notes };
+    if (d?.length) return { urls: d, via: "duckduckgo", notes };
     if (engine === "ddg") notes.push("DuckDuckGo returned no results.");
   }
   if (engine === "claude" || engine === "auto") {
     notes.push(
-      "No keyless engine returned results. Use your built-in WebSearch to find URLs, " +
-        "then ground them with `construct web --url <url> --out <run>`.",
+      "No keyless engine returned results. Use your built-in WebSearch to find URLs, " + "then ground them with `construct web --url <url> --out <run>`.",
     );
   }
   return { urls: [], via: "none", notes };

@@ -4,7 +4,14 @@ import { fileURLToPath } from "node:url";
 import type { SourceResult } from "../types.js";
 import { httpJson, httpGet } from "./fetch.js";
 import { sh, have } from "../util.js";
-import { REACHABLE_TIMEOUT_MS, EMBED_TIMEOUT_MS, COMPOSE_DOWN_TIMEOUT_MS, COMPOSE_PS_TIMEOUT_MS, COMPOSE_UP_TIMEOUT_MS, OLLAMA_PULL_TIMEOUT_MS } from "../config.js";
+import {
+  REACHABLE_TIMEOUT_MS,
+  EMBED_TIMEOUT_MS,
+  COMPOSE_DOWN_TIMEOUT_MS,
+  COMPOSE_PS_TIMEOUT_MS,
+  COMPOSE_UP_TIMEOUT_MS,
+  OLLAMA_PULL_TIMEOUT_MS,
+} from "../config.js";
 
 // All endpoints are local and keyless; the heavy compute (embeddings) runs in a
 // Docker container, so the published bundle stays dependency-free and only
@@ -21,12 +28,7 @@ export interface Chunk {
 }
 
 // Split content into overlapping line windows. Pure + exported for testing.
-export function chunkText(
-  rel: string,
-  content: string,
-  isDoc: boolean,
-  opts: { windowLines?: number; overlap?: number; maxPerFile?: number } = {},
-): Chunk[] {
+export function chunkText(rel: string, content: string, isDoc: boolean, opts: { windowLines?: number; overlap?: number; maxPerFile?: number } = {}): Chunk[] {
   const win = opts.windowLines ?? 60;
   const overlap = opts.overlap ?? 12;
   const maxPerFile = opts.maxPerFile ?? 40;
@@ -66,12 +68,7 @@ async function reachable(base: string, path = "/"): Promise<boolean> {
 }
 
 async function embed(text: string): Promise<number[] | null> {
-  const r = await httpJson(
-    "POST",
-    `${OLLAMA}/api/embeddings`,
-    { model: EMBED_MODEL, prompt: text.slice(0, 4000) },
-    { timeoutMs: EMBED_TIMEOUT_MS },
-  );
+  const r = await httpJson("POST", `${OLLAMA}/api/embeddings`, { model: EMBED_MODEL, prompt: text.slice(0, 4000) }, { timeoutMs: EMBED_TIMEOUT_MS });
   const v = r.ok ? r.data?.embedding : undefined;
   return Array.isArray(v) && v.length ? v : null;
 }

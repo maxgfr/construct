@@ -26,8 +26,28 @@ function item(title: string, score: number): RawItem {
 
 function ctx(over: Partial<ResearchContext> = {}): ResearchContext {
   return {
-    brief: { schemaVersion: 1, idea: "an idea", product: {}, goals: [], nonGoals: [], constraints: {}, candidateTech: [], competitors: [], ossSeeds: [], featureWishlist: [], nfrPriorities: [], openQuestions: [], createdAt: "" },
-    runDir: "/tmp/unused", angles: ["market", "oss"], query: "", webEngine: "auto", semantic: false, perSource: 6, refresh: false,
+    brief: {
+      schemaVersion: 1,
+      idea: "an idea",
+      product: {},
+      goals: [],
+      nonGoals: [],
+      constraints: {},
+      candidateTech: [],
+      competitors: [],
+      ossSeeds: [],
+      featureWishlist: [],
+      nfrPriorities: [],
+      openQuestions: [],
+      createdAt: "",
+    },
+    runDir: "/tmp/unused",
+    angles: ["market", "oss"],
+    query: "",
+    webEngine: "auto",
+    semantic: false,
+    perSource: 6,
+    refresh: false,
     ...over,
   };
 }
@@ -46,7 +66,11 @@ describe("runAngles", () => {
 
   it("runs the semantic rescore when the angle is selected, folding its notes in", async () => {
     vi.mocked(techAngle).mockResolvedValue([{ source: "docs", items: [], notes: [] }]);
-    vi.mocked(semanticRescore).mockResolvedValue({ results: [{ source: "docs", items: [], notes: [] }], notes: ["semantic stack not reachable — lexical ranking kept"], available: false } as never);
+    vi.mocked(semanticRescore).mockResolvedValue({
+      results: [{ source: "docs", items: [], notes: [] }],
+      notes: ["semantic stack not reachable — lexical ranking kept"],
+      available: false,
+    } as never);
     const { notes } = await runAngles(ctx({ angles: ["tech", "semantic"] }));
     expect(vi.mocked(semanticRescore)).toHaveBeenCalledOnce();
     expect(notes.join(" ")).toMatch(/lexical ranking kept/);

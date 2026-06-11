@@ -23,6 +23,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
+    "lint": "biome ci .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
     "check:build": "tsup && git diff --exit-code -- scripts/construct.mjs",
     "demo": "rm -rf /tmp/construct-demo && mkdir -p /tmp/construct-demo/evidence && cp tests/fixtures/sample-brief.json /tmp/construct-demo/brief.json && cp tests/fixtures/sample-evidence.json /tmp/construct-demo/evidence/evidence.json && node scripts/construct.mjs render --out /tmp/construct-demo --level complex --merge && node scripts/construct.mjs check --out /tmp/construct-demo",
     "release": "semantic-release"
@@ -45,6 +48,7 @@
     "url": "https://github.com/maxgfr/construct"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.16",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/exec": "^6.0.3",
     "@semantic-release/git": "^10.0.1",

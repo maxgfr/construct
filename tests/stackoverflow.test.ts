@@ -30,7 +30,10 @@ describe("stackoverflow", () => {
         },
       ],
     };
-    vi.stubGlobal("fetch", vi.fn(async () => res(JSON.stringify(payload))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => res(JSON.stringify(payload))),
+    );
     const r = await stackoverflow("extract readable content from URL", 6);
     expect(r.source).toBe("so");
     expect(r.items).toHaveLength(1);
@@ -40,7 +43,10 @@ describe("stackoverflow", () => {
   });
 
   it("returns an honest note when the API is unavailable", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => res("", false, 503)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => res("", false, 503)),
+    );
     const r = await stackoverflow("anything here", 6);
     expect(r.items).toEqual([]);
     expect(r.notes.join(" ")).toMatch(/unavailable/);

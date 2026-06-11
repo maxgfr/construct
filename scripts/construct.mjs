@@ -8,14 +8,7 @@ import { realpathSync } from "fs";
 
 // src/types.ts
 var VERSION = "1.1.0";
-var ALL_SOURCE_KINDS = [
-  "market",
-  "oss",
-  "docs",
-  "so",
-  "issue",
-  "pr"
-];
+var ALL_SOURCE_KINDS = ["market", "oss", "docs", "so", "issue", "pr"];
 var BRIEF_SCHEMA_VERSION = 1;
 var SRD_SCHEMA_VERSION = 1;
 var REQUIRED_NFR = {
@@ -387,7 +380,7 @@ async function httpJson(method, url, body, opts = {}) {
       body: body === void 0 ? void 0 : JSON.stringify(body)
     });
     const text = await res.text();
-    let data = void 0;
+    let data;
     try {
       data = text ? JSON.parse(text) : void 0;
     } catch {
@@ -527,14 +520,14 @@ async function discover(query2, engine, n) {
   const notes = [];
   if (engine === "searxng" || engine === "auto") {
     const s = await viaSearxng(query2, n);
-    if (s && s.length) return { urls: s, via: "searxng", notes };
+    if (s?.length) return { urls: s, via: "searxng", notes };
     if (engine === "searxng") {
       notes.push(s === null ? `SearXNG unreachable at ${SEARXNG_BASE}. Run \`construct semantic up\`.` : "SearXNG returned no results.");
     }
   }
   if (engine === "ddg" || engine === "auto") {
     const d = await viaDuckDuckGo(query2, n);
-    if (d && d.length) return { urls: d, via: "duckduckgo", notes };
+    if (d?.length) return { urls: d, via: "duckduckgo", notes };
     if (engine === "ddg") notes.push("DuckDuckGo returned no results.");
   }
   if (engine === "claude" || engine === "auto") {
@@ -676,11 +669,9 @@ function ensureClone(ref, opts = {}) {
         throw new Error(`could not remove the partial clone at ${dir} before retrying: ${e.message} \u2014 delete it manually and re-run`);
       }
     }
-    const fallback = sh(
-      "git",
-      ["clone", "--depth", "1", ...opts.branch ? ["--branch", opts.branch] : [], ref.cloneUrl, dir],
-      { timeoutMs: GIT_CLONE_TIMEOUT_MS }
-    );
+    const fallback = sh("git", ["clone", "--depth", "1", ...opts.branch ? ["--branch", opts.branch] : [], ref.cloneUrl, dir], {
+      timeoutMs: GIT_CLONE_TIMEOUT_MS
+    });
     if (!fallback.ok) {
       throw new Error(
         [
@@ -904,20 +895,7 @@ async function canonicalRepo(ref) {
 async function query(ref, terms, kind, perSource) {
   const q = `repo:${ref.owner}/${ref.repo} type:${kind} ${terms.join(" ")}`.trim();
   if (ghUsable(ref.host)) {
-    const res = sh("gh", [
-      "api",
-      "-X",
-      "GET",
-      "search/issues",
-      "-f",
-      `q=${q}`,
-      "-f",
-      `per_page=${perSource}`,
-      "-f",
-      "sort=updated",
-      "-f",
-      "order=desc"
-    ]);
+    const res = sh("gh", ["api", "-X", "GET", "search/issues", "-f", `q=${q}`, "-f", `per_page=${perSource}`, "-f", "sort=updated", "-f", "order=desc"]);
     if (res.ok) {
       try {
         return { items: toItems(JSON.parse(res.stdout).items, kind) };
@@ -1042,9 +1020,7 @@ var generic = {
   async search(ref, _question, kind) {
     return {
       items: [],
-      notes: [
-        `No public ${kind} API for host "${ref.host}". The code was cloned and indexed; issues/PRs are not retrievable for this host.`
-      ]
+      notes: [`No public ${kind} API for host "${ref.host}". The code was cloned and indexed; issues/PRs are not retrievable for this host.`]
     };
   }
 };
@@ -1072,9 +1048,7 @@ function languageHistogram(files) {
 }
 async function ossAngle(ctx) {
   const notes = [];
-  let seeds = ctx.brief.ossSeeds.filter(
-    (s) => REPO_URL_RE.test(s) || /^([a-z0-9.-]+\.[a-z]{2,}\/)?[\w.-]+(\/[\w.-]+)+$/i.test(s)
-  );
+  let seeds = ctx.brief.ossSeeds.filter((s) => REPO_URL_RE.test(s) || /^([a-z0-9.-]+\.[a-z]{2,}\/)?[\w.-]+(\/[\w.-]+)+$/i.test(s));
   if (seeds.length === 0) {
     const q2 = `${ctx.query || ctx.brief.idea} open source github`;
     const d = await discover(q2, ctx.webEngine, ctx.perSource);
@@ -1249,12 +1223,7 @@ async function reachable(base, path = "/") {
   return r.ok;
 }
 async function embed(text) {
-  const r = await httpJson(
-    "POST",
-    `${OLLAMA}/api/embeddings`,
-    { model: EMBED_MODEL, prompt: text.slice(0, 4e3) },
-    { timeoutMs: EMBED_TIMEOUT_MS }
-  );
+  const r = await httpJson("POST", `${OLLAMA}/api/embeddings`, { model: EMBED_MODEL, prompt: text.slice(0, 4e3) }, { timeoutMs: EMBED_TIMEOUT_MS });
   const v = r.ok ? r.data?.embedding : void 0;
   return Array.isArray(v) && v.length ? v : null;
 }
@@ -1344,9 +1313,7 @@ function rank(s) {
 }
 function assignIds(results) {
   const flat = results.flatMap((r) => r.items);
-  flat.sort(
-    (a, b) => rank(a.source) - rank(b.source) || b.score - a.score || a.ref.localeCompare(b.ref)
-  );
+  flat.sort((a, b) => rank(a.source) - rank(b.source) || b.score - a.score || a.ref.localeCompare(b.ref));
   return flat.map((it, i) => ({ id: `E${i + 1}`, ...it }));
 }
 function renderEvidenceMarkdown(evidence, meta) {
@@ -1371,11 +1338,7 @@ function renderEvidenceMarkdown(evidence, meta) {
     out.push("");
     for (const it of items) {
       out.push(`### [${it.id}] ${it.title}`);
-      const meta1 = [
-        `ref: \`${it.ref}\``,
-        it.location ? `loc: \`${it.location}\`` : "",
-        `score: ${it.score}`
-      ].filter(Boolean).join(" \xB7 ");
+      const meta1 = [`ref: \`${it.ref}\``, it.location ? `loc: \`${it.location}\`` : "", `score: ${it.score}`].filter(Boolean).join(" \xB7 ");
       out.push(meta1);
       if (it.url) out.push(`url: ${it.url}`);
       out.push("");
@@ -1772,7 +1735,7 @@ function buildSRD(brief, evidence, opts) {
     for (const n of nonFunctional) {
       if (coreNfrIds.includes(n.id)) continue;
       const sig = NFR_SIGNALS[n.category.toLowerCase()];
-      if (sig && sig.test(text)) nfrs.push(n.id);
+      if (sig?.test(text)) nfrs.push(n.id);
     }
     return {
       id: `FR-${pad3(i + 1)}`,
@@ -1806,7 +1769,12 @@ function buildSRD(brief, evidence, opts) {
     const ref = resolveRepo(seed);
     const label = ref.owner && ref.repo ? `${ref.owner}/${ref.repo}` : seed;
     const ev = matchEvidence(`${ref.owner ?? ""} ${ref.repo ?? ""}`.trim() || seed, evidence, 2, ["oss", "issue", "pr"]);
-    ossByKey.set(keyOf(seed), { name: label, url: ref.webUrl ?? (/^https?:/.test(seed) ? seed : void 0), note: noteFrom(ev, evById) || "Seed OSS project mined for prior art.", evidence: ev });
+    ossByKey.set(keyOf(seed), {
+      name: label,
+      url: ref.webUrl ?? (/^https?:/.test(seed) ? seed : void 0),
+      note: noteFrom(ev, evById) || "Seed OSS project mined for prior art.",
+      evidence: ev
+    });
   }
   for (const e of evidence.filter((x) => x.source === "oss")) {
     const k = keyOf(e.ref);
@@ -1814,7 +1782,12 @@ function buildSRD(brief, evidence, opts) {
       if (!ossByKey.get(k).evidence.includes(e.id)) ossByKey.get(k).evidence.push(e.id);
       continue;
     }
-    ossByKey.set(k, { name: e.title.replace(/ —.*$/, ""), url: e.url, note: firstSentence(e.snippet) || "Comparable open-source project (prior art).", evidence: [e.id] });
+    ossByKey.set(k, {
+      name: e.title.replace(/ —.*$/, ""),
+      url: e.url,
+      note: firstSentence(e.snippet) || "Comparable open-source project (prior art).",
+      evidence: [e.id]
+    });
   }
   const oss = [...ossByKey.values()];
   const buildPlan = buildMilestones(functional, brief, evidence, evById);
@@ -1863,7 +1836,7 @@ function concreteOutcome(title, notes) {
   const n = (notes ?? "").trim();
   const q = /\b(?:within|at least|at most|no more than|up to|under)\s+\d[^.;,]{0,60}/i.exec(n);
   const m = /\b(?:never|always|so that|so it|must|should|guarantee[sd]?|ensure[sd]?|without)\b\s+([^.;,]{4,})/i.exec(n);
-  if (m && m[1]) {
+  if (m?.[1]) {
     const clause = m[1].split(/[;,]/)[0].trim().replace(/\s+/g, " ");
     if (clause.length > 3 && (/\d/.test(clause) || !q)) return `the action succeeds and ${lowerFirst(clause)}`;
   }
@@ -1906,7 +1879,7 @@ function specialiseStatement(cat, base, ctx) {
   }
   return base;
 }
-function buildMilestones(functional, brief, evidence, evById) {
+function buildMilestones(functional, _brief, evidence, evById) {
   const groups = [
     { key: "must", title: "M1 \u2014 Walking skeleton (must-haves)", outcome: "A usable end-to-end slice covering every must-have requirement." },
     { key: "should", title: "M2 \u2014 Rounded product (should-haves)", outcome: "The product is complete enough for real users." },
@@ -2293,16 +2266,9 @@ function renderBuildPlan(srd) {
   return out.join("\n");
 }
 function renderTraceability(srd) {
-  const out = [
-    `# Traceability matrix`,
-    ``,
-    `| Requirement | NFRs | ADRs | Entities | Interfaces |`,
-    `|---|---|---|---|---|`
-  ];
+  const out = [`# Traceability matrix`, ``, `| Requirement | NFRs | ADRs | Entities | Interfaces |`, `|---|---|---|---|---|`];
   for (const r of srd.traceability) {
-    out.push(
-      `| ${r.fr} | ${r.nfrs.join(", ") || "\u2014"} | ${r.adrs.join(", ") || "\u2014"} | ${r.entities.join(", ") || "\u2014"} | ${r.interfaces.join(", ") || "\u2014"} |`
-    );
+    out.push(`| ${r.fr} | ${r.nfrs.join(", ") || "\u2014"} | ${r.adrs.join(", ") || "\u2014"} | ${r.entities.join(", ") || "\u2014"} | ${r.interfaces.join(", ") || "\u2014"} |`);
   }
   out.push(``);
   return out.join("\n");
@@ -2417,7 +2383,9 @@ function loadEvidence(runDir) {
   }
   try {
     const data = JSON.parse(readFileSync4(path, "utf8"));
-    const evidence = Array.isArray(data) ? data.filter((e) => !!e && typeof e === "object" && typeof e.id === "string" && typeof e.source === "string") : [];
+    const evidence = Array.isArray(data) ? data.filter(
+      (e) => !!e && typeof e === "object" && typeof e.id === "string" && typeof e.source === "string"
+    ) : [];
     return { evidence };
   } catch (e) {
     return { evidence: [], note: `evidence.json unreadable: ${e.message}` };
@@ -2514,7 +2482,9 @@ function checkRun(runDir, opts = {}) {
   }
   const noTrace = srd.functional.filter((fr) => fr.entities.length === 0 && fr.interfaces.length === 0).length;
   if (noTrace) {
-    warnings.push(`${noTrace} functional requirement(s) have no data/interface traceability \u2014 fill DATA-MODEL.md / INTERFACES.md and set FR.entities/interfaces.`);
+    warnings.push(
+      `${noTrace} functional requirement(s) have no data/interface traceability \u2014 fill DATA-MODEL.md / INTERFACES.md and set FR.entities/interfaces.`
+    );
   }
   if (srd.level === "complex" && srd.architecture.dataModel.length === 0) {
     warnings.push("Data model is empty \u2014 a complex SRD should name its core entities.");
@@ -2533,7 +2503,9 @@ function checkRun(runDir, opts = {}) {
   }
   const templatedThen = srd.functional.reduce((n, fr) => n + fr.acceptance.filter((a) => TEMPLATED_THEN_RE.test(a.then)).length, 0);
   if (templatedThen) {
-    warnings.push(`${templatedThen} acceptance criteria are still renderer-templated \u2014 sharpen them into observable, bounded outcomes (see references/acceptance-criteria.md).`);
+    warnings.push(
+      `${templatedThen} acceptance criteria are still renderer-templated \u2014 sharpen them into observable, bounded outcomes (see references/acceptance-criteria.md).`
+    );
   }
   const templatedMetrics = srd.nonFunctional.filter((n) => n.metric && TEMPLATED_METRIC_RE.test(n.metric)).length;
   if (templatedMetrics) {
@@ -2580,7 +2552,9 @@ function formatCheckReport(r, runDir) {
     const g = r.grounding;
     lines.push(``);
     lines.push(`Grounding gate (opt-in --min-grounding ${g.threshold}):`);
-    lines.push(g.ok ? `  \u2713 PASS \u2014 ${g.actualPct}% of groundable claims are grounded (threshold ${g.threshold}%)` : `  \u2717 FAIL \u2014 ${g.actualPct}% of groundable claims are grounded, below the ${g.threshold}% threshold`);
+    lines.push(
+      g.ok ? `  \u2713 PASS \u2014 ${g.actualPct}% of groundable claims are grounded (threshold ${g.threshold}%)` : `  \u2717 FAIL \u2014 ${g.actualPct}% of groundable claims are grounded, below the ${g.threshold}% threshold`
+    );
   }
   return lines.join("\n");
 }
@@ -2593,7 +2567,9 @@ function loadEvidence2(runDir) {
   if (!existsSync6(path)) return [];
   try {
     const data = JSON.parse(readFileSync5(path, "utf8"));
-    return Array.isArray(data) ? data.filter((e) => !!e && typeof e === "object" && typeof e.id === "string" && typeof e.source === "string") : [];
+    return Array.isArray(data) ? data.filter(
+      (e) => !!e && typeof e === "object" && typeof e.id === "string" && typeof e.source === "string"
+    ) : [];
   } catch {
     return [];
   }

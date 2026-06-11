@@ -13,12 +13,7 @@ export type IssueKind = "issue" | "pr";
 export interface Provider {
   name: string;
   matches: (host: string) => boolean;
-  search: (
-    ref: RepoRef,
-    question: string,
-    kind: IssueKind,
-    perSource: number,
-  ) => Promise<{ items: RawItem[]; notes: string[] }>;
+  search: (ref: RepoRef, question: string, kind: IssueKind, perSource: number) => Promise<{ items: RawItem[]; notes: string[] }>;
 }
 
 const PROVIDERS: Provider[] = [github, gitlab];

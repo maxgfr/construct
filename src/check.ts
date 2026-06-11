@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import type { Stats } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { srdManifestPath } from "./srd.js";
 import { REQUIRED_NFR } from "./types.js";
@@ -35,7 +36,7 @@ function mdFiles(runDir: string): string[] {
     }
     for (const name of entries) {
       const abs = join(dir, name);
-      let st;
+      let st: Stats;
       try {
         st = statSync(abs);
       } catch {
@@ -62,7 +63,9 @@ function loadEvidence(runDir: string): { evidence: EvidenceItem[]; note?: string
     const data = JSON.parse(readFileSync(path, "utf8")) as unknown;
     // Drop malformed/null elements so a hand-edited dossier never crashes check.
     const evidence = Array.isArray(data)
-      ? (data.filter((e) => !!e && typeof e === "object" && typeof (e as { id?: unknown }).id === "string" && typeof (e as { source?: unknown }).source === "string") as EvidenceItem[])
+      ? (data.filter(
+          (e) => !!e && typeof e === "object" && typeof (e as { id?: unknown }).id === "string" && typeof (e as { source?: unknown }).source === "string",
+        ) as EvidenceItem[])
       : [];
     return { evidence };
   } catch (e) {
@@ -129,8 +132,16 @@ export function checkRun(runDir: string, opts: { minGrounding?: number } = {}): 
   const warnings: string[] = [];
 
   const emptyCoverage: CoverageReport & { citations: string[]; resolved: string[] } = {
-    frTotal: 0, frGrounded: 0, nfrTotal: 0, nfrGrounded: 0, adrTotal: 0, adrGrounded: 0,
-    dangling: [], uncited: [], citations: [], resolved: [],
+    frTotal: 0,
+    frGrounded: 0,
+    nfrTotal: 0,
+    nfrGrounded: 0,
+    adrTotal: 0,
+    adrGrounded: 0,
+    dangling: [],
+    uncited: [],
+    citations: [],
+    resolved: [],
   };
 
   // Required files.
@@ -186,7 +197,9 @@ export function checkRun(runDir: string, opts: { minGrounding?: number } = {}): 
   // parts a deterministic render leaves generic.
   const noTrace = srd.functional.filter((fr) => fr.entities.length === 0 && fr.interfaces.length === 0).length;
   if (noTrace) {
-    warnings.push(`${noTrace} functional requirement(s) have no data/interface traceability — fill DATA-MODEL.md / INTERFACES.md and set FR.entities/interfaces.`);
+    warnings.push(
+      `${noTrace} functional requirement(s) have no data/interface traceability — fill DATA-MODEL.md / INTERFACES.md and set FR.entities/interfaces.`,
+    );
   }
   if (srd.level === "complex" && srd.architecture.dataModel.length === 0) {
     warnings.push("Data model is empty — a complex SRD should name its core entities.");
@@ -212,7 +225,9 @@ export function checkRun(runDir: string, opts: { minGrounding?: number } = {}): 
   // phrasing — complete but not yet sharpened into something testable.
   const templatedThen = srd.functional.reduce((n, fr) => n + fr.acceptance.filter((a) => TEMPLATED_THEN_RE.test(a.then)).length, 0);
   if (templatedThen) {
-    warnings.push(`${templatedThen} acceptance criteria are still renderer-templated — sharpen them into observable, bounded outcomes (see references/acceptance-criteria.md).`);
+    warnings.push(
+      `${templatedThen} acceptance criteria are still renderer-templated — sharpen them into observable, bounded outcomes (see references/acceptance-criteria.md).`,
+    );
   }
   const templatedMetrics = srd.nonFunctional.filter((n) => n.metric && TEMPLATED_METRIC_RE.test(n.metric)).length;
   if (templatedMetrics) {
@@ -268,7 +283,11 @@ export function formatCheckReport(r: CheckResult, runDir: string): string {
     const g = r.grounding;
     lines.push(``);
     lines.push(`Grounding gate (opt-in --min-grounding ${g.threshold}):`);
-    lines.push(g.ok ? `  ✓ PASS — ${g.actualPct}% of groundable claims are grounded (threshold ${g.threshold}%)` : `  ✗ FAIL — ${g.actualPct}% of groundable claims are grounded, below the ${g.threshold}% threshold`);
+    lines.push(
+      g.ok
+        ? `  ✓ PASS — ${g.actualPct}% of groundable claims are grounded (threshold ${g.threshold}%)`
+        : `  ✗ FAIL — ${g.actualPct}% of groundable claims are grounded, below the ${g.threshold}% threshold`,
+    );
   }
   return lines.join("\n");
 }

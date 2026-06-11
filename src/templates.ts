@@ -22,11 +22,13 @@ export function cell(s: string): string {
 }
 
 export function slugTitle(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60) || "decision";
+  return (
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60) || "decision"
+  );
 }
 
 function bullets(items: string[], empty: string): string {
@@ -213,16 +215,9 @@ export function renderBuildPlan(srd: SRD): string {
 }
 
 export function renderTraceability(srd: SRD): string {
-  const out = [
-    `# Traceability matrix`,
-    ``,
-    `| Requirement | NFRs | ADRs | Entities | Interfaces |`,
-    `|---|---|---|---|---|`,
-  ];
+  const out = [`# Traceability matrix`, ``, `| Requirement | NFRs | ADRs | Entities | Interfaces |`, `|---|---|---|---|---|`];
   for (const r of srd.traceability) {
-    out.push(
-      `| ${r.fr} | ${r.nfrs.join(", ") || "—"} | ${r.adrs.join(", ") || "—"} | ${r.entities.join(", ") || "—"} | ${r.interfaces.join(", ") || "—"} |`,
-    );
+    out.push(`| ${r.fr} | ${r.nfrs.join(", ") || "—"} | ${r.adrs.join(", ") || "—"} | ${r.entities.join(", ") || "—"} | ${r.interfaces.join(", ") || "—"} |`);
   }
   out.push(``);
   return out.join("\n");

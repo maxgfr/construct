@@ -69,8 +69,7 @@ describe("buildSRD", () => {
   });
 
   it("includes the required NFR categories for the level", () => {
-    const cats = (lvl: "light" | "complex") =>
-      buildSRD(brief, evidence, { level: lvl, generatedAt: "T" }).nonFunctional.map((n) => n.category.toLowerCase());
+    const cats = (lvl: "light" | "complex") => buildSRD(brief, evidence, { level: lvl, generatedAt: "T" }).nonFunctional.map((n) => n.category.toLowerCase());
     expect(cats("light")).toEqual(expect.arrayContaining(["performance", "security", "reliability"]));
     expect(cats("complex")).toEqual(expect.arrayContaining(["usability", "observability", "cost"]));
   });
@@ -111,7 +110,15 @@ describe("buildSRD", () => {
 
   it("collapses an OSS seed and its resolved-repo evidence into one landscape row", () => {
     const ev = [
-      { id: "E1", source: "oss", title: "omnivore-app/omnivore — prior art", ref: "omnivore-app/omnivore", url: "https://github.com/omnivore-app/omnivore", score: 9, snippet: "A self-hosted read-it-later app." },
+      {
+        id: "E1",
+        source: "oss",
+        title: "omnivore-app/omnivore — prior art",
+        ref: "omnivore-app/omnivore",
+        url: "https://github.com/omnivore-app/omnivore",
+        score: 9,
+        snippet: "A self-hosted read-it-later app.",
+      },
     ] as EvidenceItem[];
     const b: Brief = { ...brief, ossSeeds: ["https://github.com/omnivore-app/omnivore"] };
     const srd = buildSRD(b, ev, { level: "light", generatedAt: "T" });
@@ -131,7 +138,17 @@ describe("buildSRD", () => {
   });
 
   it("keeps a genuinely short first sentence in OSS notes (does not merge sentences)", () => {
-    const ev = [{ id: "E1", source: "oss", title: "acme/widget — prior art", ref: "acme/widget", url: "https://github.com/acme/widget", score: 5, snippet: "It is fast. The internals use a custom index for full-text search." }] as EvidenceItem[];
+    const ev = [
+      {
+        id: "E1",
+        source: "oss",
+        title: "acme/widget — prior art",
+        ref: "acme/widget",
+        url: "https://github.com/acme/widget",
+        score: 5,
+        snippet: "It is fast. The internals use a custom index for full-text search.",
+      },
+    ] as EvidenceItem[];
     const b: Brief = { ...brief, ossSeeds: [] };
     const note = buildSRD(b, ev, { level: "light", generatedAt: "T" }).competitive.oss[0]!.note;
     expect(note).toBe("It is fast.");
@@ -168,7 +185,10 @@ describe("buildSRD", () => {
   });
 
   it("derives a testable Then from a numeric bound in the notes", () => {
-    const b: Brief = { ...brief, featureWishlist: [{ title: "Bulk import", priority: "must", notes: "Handles exports of up to 10000 articles without timing out." }] };
+    const b: Brief = {
+      ...brief,
+      featureWishlist: [{ title: "Bulk import", priority: "must", notes: "Handles exports of up to 10000 articles without timing out." }],
+    };
     const then = buildSRD(b, evidence, { level: "light", generatedAt: "T" }).functional[0]!.acceptance[0]!.then;
     expect(then).toMatch(/up to 10000 articles/);
   });

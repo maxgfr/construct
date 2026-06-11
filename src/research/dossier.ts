@@ -23,9 +23,7 @@ function rank(s: SourceKind): number {
 // canonical source order, best-scored first within each source.
 export function assignIds(results: SourceResult[]): EvidenceItem[] {
   const flat = results.flatMap((r) => r.items);
-  flat.sort(
-    (a, b) => rank(a.source) - rank(b.source) || b.score - a.score || a.ref.localeCompare(b.ref),
-  );
+  flat.sort((a, b) => rank(a.source) - rank(b.source) || b.score - a.score || a.ref.localeCompare(b.ref));
   return flat.map((it, i) => ({ id: `E${i + 1}`, ...it }));
 }
 
@@ -56,13 +54,7 @@ export function renderEvidenceMarkdown(evidence: EvidenceItem[], meta: DossierMe
     out.push("");
     for (const it of items) {
       out.push(`### [${it.id}] ${it.title}`);
-      const meta1 = [
-        `ref: \`${it.ref}\``,
-        it.location ? `loc: \`${it.location}\`` : "",
-        `score: ${it.score}`,
-      ]
-        .filter(Boolean)
-        .join(" · ");
+      const meta1 = [`ref: \`${it.ref}\``, it.location ? `loc: \`${it.location}\`` : "", `score: ${it.score}`].filter(Boolean).join(" · ");
       out.push(meta1);
       if (it.url) out.push(`url: ${it.url}`);
       out.push("");

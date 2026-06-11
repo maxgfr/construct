@@ -1,30 +1,111 @@
 import { readdirSync, lstatSync, readFileSync } from "node:fs";
+import type { Stats } from "node:fs";
 import { join, relative, sep, extname } from "node:path";
 
 // Directories that never carry signal for a documentation/code question and
 // would bloat the index (dependencies, build output, VCS internals, caches).
 const IGNORE_DIRS = new Set([
-  ".git", "node_modules", ".pnpm", "bower_components", "vendor", "dist", "build", "out",
-  "target", ".next", ".nuxt", ".svelte-kit", ".turbo", "coverage", "__pycache__", ".venv",
-  "venv", ".tox", ".mypy_cache", ".pytest_cache", ".gradle", ".idea", ".vscode", ".cache",
-  "tmp", ".construct", "Pods", "DerivedData", ".terraform", "elm-stuff", ".dart_tool",
+  ".git",
+  "node_modules",
+  ".pnpm",
+  "bower_components",
+  "vendor",
+  "dist",
+  "build",
+  "out",
+  "target",
+  ".next",
+  ".nuxt",
+  ".svelte-kit",
+  ".turbo",
+  "coverage",
+  "__pycache__",
+  ".venv",
+  "venv",
+  ".tox",
+  ".mypy_cache",
+  ".pytest_cache",
+  ".gradle",
+  ".idea",
+  ".vscode",
+  ".cache",
+  "tmp",
+  ".construct",
+  "Pods",
+  "DerivedData",
+  ".terraform",
+  "elm-stuff",
+  ".dart_tool",
 ]);
 
 // Lockfiles: huge, machine-generated, and pure noise for a code/docs question —
 // they'd otherwise rank as keyword-dense "code" hits (e.g. package-lock.json
 // matching a dependency name). Skipped entirely.
 const LOCKFILES = new Set([
-  "package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb",
-  "composer.lock", "cargo.lock", "poetry.lock", "pipfile.lock", "gemfile.lock", "go.sum",
-  "flake.lock", "packages.lock.json", "podfile.lock", "mix.lock",
+  "package-lock.json",
+  "npm-shrinkwrap.json",
+  "yarn.lock",
+  "pnpm-lock.yaml",
+  "bun.lockb",
+  "composer.lock",
+  "cargo.lock",
+  "poetry.lock",
+  "pipfile.lock",
+  "gemfile.lock",
+  "go.sum",
+  "flake.lock",
+  "packages.lock.json",
+  "podfile.lock",
+  "mix.lock",
 ]);
 
 // Binary / non-source extensions to skip when reading file contents.
 const BINARY_EXT = new Set([
-  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".icns", ".svg", ".pdf", ".zip",
-  ".gz", ".tar", ".tgz", ".bz2", ".xz", ".7z", ".rar", ".jar", ".war", ".class", ".so", ".dylib",
-  ".dll", ".exe", ".bin", ".o", ".a", ".wasm", ".woff", ".woff2", ".ttf", ".otf", ".eot", ".mp3",
-  ".mp4", ".mov", ".avi", ".webm", ".wav", ".flac", ".ogg", ".lock", ".min.js", ".map",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".bmp",
+  ".ico",
+  ".icns",
+  ".svg",
+  ".pdf",
+  ".zip",
+  ".gz",
+  ".tar",
+  ".tgz",
+  ".bz2",
+  ".xz",
+  ".7z",
+  ".rar",
+  ".jar",
+  ".war",
+  ".class",
+  ".so",
+  ".dylib",
+  ".dll",
+  ".exe",
+  ".bin",
+  ".o",
+  ".a",
+  ".wasm",
+  ".woff",
+  ".woff2",
+  ".ttf",
+  ".otf",
+  ".eot",
+  ".mp3",
+  ".mp4",
+  ".mov",
+  ".avi",
+  ".webm",
+  ".wav",
+  ".flac",
+  ".ogg",
+  ".lock",
+  ".min.js",
+  ".map",
 ]);
 
 export interface WalkOptions {
@@ -59,7 +140,7 @@ export function walk(root: string, opts: WalkOptions = {}): WalkedFile[] {
     for (const name of entries) {
       if (out.length >= maxFiles) break; // hard cap, even inside one directory
       const abs = join(dir, name);
-      let st;
+      let st: Stats;
       try {
         // lstat (not stat) so symlinks report as symlinks: a symlinked dir is
         // neither isDirectory nor isFile here, so it is skipped — no clone loops.

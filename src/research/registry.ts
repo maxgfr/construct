@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import type { Angle, ResearchContext, SourceResult, SourceKind, EvidenceItem, DossierMeta } from "../types.js";
+import type { ResearchContext, SourceResult, SourceKind, EvidenceItem, DossierMeta } from "../types.js";
 import { marketAngle } from "./market.js";
 import { ossAngle } from "./oss.js";
 import { techAngle } from "./tech.js";

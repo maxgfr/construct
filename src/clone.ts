@@ -91,10 +91,7 @@ export function resolveRepo(raw: string): RepoRef {
 // Local repos are used in place. Remote repos are shallow-cloned into the cache
 // (reused on subsequent runs unless `refresh`). Throws a readable error if the
 // clone fails (private repo, bad URL, no network).
-export function ensureClone(
-  ref: RepoRef,
-  opts: { refresh?: boolean; branch?: string } = {},
-): string {
+export function ensureClone(ref: RepoRef, opts: { refresh?: boolean; branch?: string } = {}): string {
   if (ref.isLocal) return resolve(ref.raw);
 
   const dir = join(cacheRoot(), ref.slug);
@@ -129,11 +126,9 @@ export function ensureClone(
       }
     }
     // Retry without the partial-clone filter; some servers reject it.
-    const fallback = sh(
-      "git",
-      ["clone", "--depth", "1", ...(opts.branch ? ["--branch", opts.branch] : []), ref.cloneUrl!, dir],
-      { timeoutMs: GIT_CLONE_TIMEOUT_MS },
-    );
+    const fallback = sh("git", ["clone", "--depth", "1", ...(opts.branch ? ["--branch", opts.branch] : []), ref.cloneUrl!, dir], {
+      timeoutMs: GIT_CLONE_TIMEOUT_MS,
+    });
     if (!fallback.ok) {
       // Both attempts can fail for different reasons — report each one labeled,
       // instead of whichever stderr happened to be non-empty.

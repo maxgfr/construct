@@ -31,9 +31,7 @@ export async function ossAngle(ctx: ResearchContext): Promise<SourceResult[]> {
   const notes: string[] = [];
   // Accept everything resolveRepo understands: full URLs, host/owner/repo,
   // gitlab subgroups (a/b/c), and bare owner/repo shorthand.
-  let seeds = ctx.brief.ossSeeds.filter(
-    (s) => REPO_URL_RE.test(s) || /^([a-z0-9.-]+\.[a-z]{2,}\/)?[\w.-]+(\/[\w.-]+)+$/i.test(s),
-  );
+  let seeds = ctx.brief.ossSeeds.filter((s) => REPO_URL_RE.test(s) || /^([a-z0-9.-]+\.[a-z]{2,}\/)?[\w.-]+(\/[\w.-]+)+$/i.test(s));
 
   if (seeds.length === 0) {
     const q = `${ctx.query || ctx.brief.idea} open source github`;
@@ -63,10 +61,12 @@ export async function ossAngle(ctx: ResearchContext): Promise<SourceResult[]> {
 
     if (dir) {
       const files = walk(dir);
-      const langs = languageHistogram(files).slice(0, 6).map(([e, c]) => `${e}:${c}`).join(", ");
+      const langs = languageHistogram(files)
+        .slice(0, 6)
+        .map(([e, c]) => `${e}:${c}`)
+        .join(", ");
       let snippet = `Languages: ${langs || "n/a"} · files: ${files.length}.`;
-      const readme =
-        files.find((f) => /^readme(\.|$)/i.test(f.rel)) ?? files.find((f) => /(^|\/)readme\./i.test(f.rel));
+      const readme = files.find((f) => /^readme(\.|$)/i.test(f.rel)) ?? files.find((f) => /(^|\/)readme\./i.test(f.rel));
       if (readme) {
         const text = readText(readme.abs);
         const ex = excerptsFromText(text, ref.webUrl ?? ref.raw, repoLabel, "oss", q, 1);

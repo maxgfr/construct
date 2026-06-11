@@ -2,22 +2,7 @@ import { join } from "node:path";
 import { keywords } from "./util.js";
 import { resolveRepo } from "./clone.js";
 import { SRD_SCHEMA_VERSION, REQUIRED_NFR } from "./types.js";
-import type {
-  Brief,
-  EvidenceItem,
-  Level,
-  Priority,
-  SRD,
-  FR,
-  NFR,
-  ADR,
-  Entity,
-  Interface,
-  CompetitorRow,
-  OssRow,
-  Milestone,
-  TraceRow,
-} from "./types.js";
+import type { Brief, EvidenceItem, Level, Priority, SRD, FR, NFR, ADR, Entity, Interface, CompetitorRow, OssRow, Milestone, TraceRow } from "./types.js";
 
 export function srdManifestPath(runDir: string): string {
   return join(runDir, "SRD.json");
@@ -168,10 +153,37 @@ function priorityOf(p: Priority | undefined): Priority {
 // Leading verbs commonly opening a feature title ("Save an article…"). Stripped
 // so the direct object surfaces; also filtered out as entity candidates.
 const FEATURE_VERBS = new Set([
-  "create", "add", "manage", "book", "view", "send", "track", "sync", "edit",
-  "delete", "list", "share", "export", "import", "search", "save", "read",
-  "tag", "organize", "organise", "schedule", "upload", "download", "browse",
-  "filter", "sort", "archive", "publish", "invite", "assign", "stream",
+  "create",
+  "add",
+  "manage",
+  "book",
+  "view",
+  "send",
+  "track",
+  "sync",
+  "edit",
+  "delete",
+  "list",
+  "share",
+  "export",
+  "import",
+  "search",
+  "save",
+  "read",
+  "tag",
+  "organize",
+  "organise",
+  "schedule",
+  "upload",
+  "download",
+  "browse",
+  "filter",
+  "sort",
+  "archive",
+  "publish",
+  "invite",
+  "assign",
+  "stream",
 ]);
 // Words that name actions or qualities, not data — never entities.
 const NON_ENTITY_WORDS = new Set(["search", "login", "signup", "support", "setup", "offline", "online", "mobile", "desktop", "full", "text", "user", "users"]);
@@ -207,8 +219,7 @@ function entityTokens(title: string, exclude: Set<string>): { tokens: string[]; 
 // closure and the traceability matrix carry real signal.
 function inferEntities(brief: Brief, functional: FR[]): Entity[] {
   const exclude = new Set(
-    [...brief.competitors, ...brief.candidateTech, brief.product.name ?? ""]
-      .flatMap((s) => keywords(s).map((w) => singularize(w.toLowerCase()))),
+    [...brief.competitors, ...brief.candidateTech, brief.product.name ?? ""].flatMap((s) => keywords(s).map((w) => singularize(w.toLowerCase()))),
   );
   const perFr = functional.map((fr) => ({ fr, ...entityTokens(fr.title, exclude) }));
 
@@ -221,9 +232,7 @@ function inferEntities(brief: Brief, functional: FR[]): Entity[] {
     if (p.verbLed && p.fr.priority === "must" && p.tokens[0]) chosen.add(p.tokens[0]);
   }
 
-  const names = [...chosen]
-    .sort((a, b) => freq.get(b)! - freq.get(a)! || a.localeCompare(b))
-    .slice(0, 8);
+  const names = [...chosen].sort((a, b) => freq.get(b)! - freq.get(a)! || a.localeCompare(b)).slice(0, 8);
 
   const entities: Entity[] = names.map((n) => {
     const name = titleCase(n);
@@ -352,7 +361,8 @@ export function buildSRD(brief: Brief, evidence: EvidenceItem[], opts: { level: 
       status: "accepted",
       context: `"${productName}" is positioned as privacy-first / self-hostable${compliance.length ? ` and must satisfy: ${compliance.join(", ")}` : ""}.`,
       decision: "Ship as a self-hostable deployment where the host owns all data; no user data is sent to a third-party service by default.",
-      consequences: "Data residency and compliance become the host's responsibility (a feature, not a liability); the product must run with no mandatory external dependencies and document its data flows.",
+      consequences:
+        "Data residency and compliance become the host's responsibility (a feature, not a liability); the product must run with no mandatory external dependencies and document its data flows.",
       alternatives: "A hosted multi-tenant SaaS was considered but rejected as it conflicts with the privacy/data-ownership value proposition.",
       evidence: matchEvidence(`self-host privacy data ownership ${compliance.join(" ")}`, evidence, 2, GROUND_QUALITY),
     });
@@ -365,7 +375,8 @@ export function buildSRD(brief: Brief, evidence: EvidenceItem[], opts: { level: 
       status: "proposed",
       context: `"${productName}" must persist state and integrate with external services (${brief.candidateTech.filter((t) => INTEGRATION_RE.test(t)).join(", ") || "calendar/email and similar"}) reliably.`,
       decision: "Use a single primary datastore with explicit, versioned integration boundaries for each external service.",
-      consequences: "A clear data-ownership model; integrations are testable in isolation behind an adapter. Cross-service consistency must be designed explicitly.",
+      consequences:
+        "A clear data-ownership model; integrations are testable in isolation behind an adapter. Cross-service consistency must be designed explicitly.",
       alternatives: "A polyglot-persistence or event-sourced approach was considered; deferred until scale demands it.",
       evidence: matchEvidence(`${brief.candidateTech.join(" ")} database persistence integration`, evidence, 2, ["docs", "oss", "so"]),
     });
@@ -387,9 +398,7 @@ export function buildSRD(brief: Brief, evidence: EvidenceItem[], opts: { level: 
         when: `they ${lowerFirst(f.title)}`,
         then: outcome,
       },
-      ...(level === "complex"
-        ? [failurePath(f.title, touchesIntegration)]
-        : []),
+      ...(level === "complex" ? [failurePath(f.title, touchesIntegration)] : []),
     ];
     // Per-FR NFR linkage: the required core + any non-core NFR the FR's text
     // signals (so privacy/a11y/etc. stop being orphaned).
@@ -397,7 +406,7 @@ export function buildSRD(brief: Brief, evidence: EvidenceItem[], opts: { level: 
     for (const n of nonFunctional) {
       if (coreNfrIds.includes(n.id)) continue;
       const sig = NFR_SIGNALS[n.category.toLowerCase()];
-      if (sig && sig.test(text)) nfrs.push(n.id);
+      if (sig?.test(text)) nfrs.push(n.id);
     }
     return {
       id: `FR-${pad3(i + 1)}`,
@@ -437,7 +446,12 @@ export function buildSRD(brief: Brief, evidence: EvidenceItem[], opts: { level: 
     const ref = resolveRepo(seed);
     const label = ref.owner && ref.repo ? `${ref.owner}/${ref.repo}` : seed;
     const ev = matchEvidence(`${ref.owner ?? ""} ${ref.repo ?? ""}`.trim() || seed, evidence, 2, ["oss", "issue", "pr"]);
-    ossByKey.set(keyOf(seed), { name: label, url: ref.webUrl ?? (/^https?:/.test(seed) ? seed : undefined), note: noteFrom(ev, evById) || "Seed OSS project mined for prior art.", evidence: ev });
+    ossByKey.set(keyOf(seed), {
+      name: label,
+      url: ref.webUrl ?? (/^https?:/.test(seed) ? seed : undefined),
+      note: noteFrom(ev, evById) || "Seed OSS project mined for prior art.",
+      evidence: ev,
+    });
   }
   for (const e of evidence.filter((x) => x.source === "oss")) {
     const k = keyOf(e.ref);
@@ -445,7 +459,12 @@ export function buildSRD(brief: Brief, evidence: EvidenceItem[], opts: { level: 
       if (!ossByKey.get(k)!.evidence.includes(e.id)) ossByKey.get(k)!.evidence.push(e.id);
       continue;
     }
-    ossByKey.set(k, { name: e.title.replace(/ —.*$/, ""), url: e.url, note: firstSentence(e.snippet) || "Comparable open-source project (prior art).", evidence: [e.id] });
+    ossByKey.set(k, {
+      name: e.title.replace(/ —.*$/, ""),
+      url: e.url,
+      note: firstSentence(e.snippet) || "Comparable open-source project (prior art).",
+      evidence: [e.id],
+    });
   }
   const oss = [...ossByKey.values()];
 
@@ -510,7 +529,7 @@ function concreteOutcome(title: string, notes?: string): string {
   // clause only when it carries the bound itself (or no bound exists at all).
   const q = /\b(?:within|at least|at most|no more than|up to|under)\s+\d[^.;,]{0,60}/i.exec(n);
   const m = /\b(?:never|always|so that|so it|must|should|guarantee[sd]?|ensure[sd]?|without)\b\s+([^.;,]{4,})/i.exec(n);
-  if (m && m[1]) {
+  if (m?.[1]) {
     const clause = m[1].split(/[;,]/)[0]!.trim().replace(/\s+/g, " ");
     if (clause.length > 3 && (/\d/.test(clause) || !q)) return `the action succeeds and ${lowerFirst(clause)}`;
   }
@@ -558,7 +577,7 @@ function specialiseStatement(cat: string, base: string, ctx: { compliance: strin
   return base;
 }
 
-function buildMilestones(functional: FR[], brief: Brief, evidence: EvidenceItem[], evById: Map<string, EvidenceItem>): Milestone[] {
+function buildMilestones(functional: FR[], _brief: Brief, evidence: EvidenceItem[], evById: Map<string, EvidenceItem>): Milestone[] {
   const groups: { key: Priority; title: string; outcome: string }[] = [
     { key: "must", title: "M1 — Walking skeleton (must-haves)", outcome: "A usable end-to-end slice covering every must-have requirement." },
     { key: "should", title: "M2 — Rounded product (should-haves)", outcome: "The product is complete enough for real users." },

@@ -7,8 +7,7 @@ type RawItem = Omit<EvidenceItem, "id">;
 const UA = "construct/0.x (+https://github.com/maxgfr/construct)";
 // A recent desktop-browser UA, used ONLY as a fallback when the polite bot UA is
 // blocked (some sites 403/429 unknown agents). Off the default to stay honest.
-const BROWSER_UA =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+const BROWSER_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 
 export interface HttpResult {
   ok: boolean;
@@ -108,7 +107,7 @@ export async function httpJson(
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     const text = await res.text();
-    let data: any = undefined;
+    let data: any;
     try {
       data = text ? JSON.parse(text) : undefined;
     } catch {
@@ -123,8 +122,16 @@ export async function httpJson(
 }
 
 const NAMED: Record<string, string> = {
-  amp: "&", lt: "<", gt: ">", quot: '"', apos: "'",
-  nbsp: " ", mdash: "—", ndash: "–", hellip: "…", copy: "©",
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: " ",
+  mdash: "—",
+  ndash: "–",
+  hellip: "…",
+  copy: "©",
 };
 
 // Extract readable text from an HTML page. Zero-dep and intentionally simple:
@@ -183,14 +190,7 @@ export async function fetchAndExtract(url: string): Promise<{ text: string; note
 
 // Turn fetched page text into ranked evidence excerpts around the question's
 // keywords. Returned as `docs` evidence (the external official documentation).
-export function excerptsFromText(
-  text: string,
-  url: string,
-  title: string,
-  source: EvidenceItem["source"],
-  question: string,
-  perSource: number,
-): RawItem[] {
+export function excerptsFromText(text: string, url: string, title: string, source: EvidenceItem["source"], question: string, perSource: number): RawItem[] {
   const lines = text.split("\n");
   const kws = extractKeywords(question).map((k) => k.toLowerCase());
   const hits: { idx: number; cov: number }[] = [];

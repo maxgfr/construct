@@ -6,7 +6,11 @@ import type { EvidenceItem } from "../src/types.js";
 type RawItem = Omit<EvidenceItem, "id">;
 
 const item = (ref: string, title: string, snippet: string, score = 1): RawItem => ({
-  source: "pr", title, ref, snippet, score,
+  source: "pr",
+  title,
+  ref,
+  snippet,
+  score,
 });
 
 describe("github rerank", () => {

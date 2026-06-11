@@ -10,10 +10,7 @@ export const generic: Provider = {
   async search(ref, _question, kind) {
     return {
       items: [],
-      notes: [
-        `No public ${kind} API for host "${ref.host}". The code was cloned and indexed; ` +
-          `issues/PRs are not retrievable for this host.`,
-      ],
+      notes: [`No public ${kind} API for host "${ref.host}". The code was cloned and indexed; ` + `issues/PRs are not retrievable for this host.`],
     };
   },
 };

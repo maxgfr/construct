@@ -165,11 +165,7 @@ describe("checkRun — renderer-templated criteria nudges", () => {
 
   it("stays silent once every criterion is sharpened", () => {
     const dir = renderRun();
-    mutateSRD(dir, (s) =>
-      s.functional.forEach((f) =>
-        f.acceptance.forEach((a) => (a.then = "the article appears in the reading list within 2 seconds")),
-      ),
-    );
+    mutateSRD(dir, (s) => s.functional.forEach((f) => f.acceptance.forEach((a) => (a.then = "the article appears in the reading list within 2 seconds"))));
     const r = checkRun(dir);
     expect(r.structural.warnings.join(" ")).not.toMatch(/renderer-templated/);
   });

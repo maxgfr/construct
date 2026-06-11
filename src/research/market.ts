@@ -7,9 +7,7 @@ import { discover, webFetchUrls } from "./web.js";
 // real signal rather than the model's memory.
 export async function marketAngle(ctx: ResearchContext): Promise<SourceResult[]> {
   const b = ctx.brief;
-  const query =
-    ctx.query ||
-    [b.idea, b.competitors.join(" "), "competitors alternatives market"].filter(Boolean).join(" ").trim();
+  const query = ctx.query || [b.idea, b.competitors.join(" "), "competitors alternatives market"].filter(Boolean).join(" ").trim();
   if (!query) return [{ source: "market", items: [], notes: ["No idea/competitors to search the market for."] }];
 
   const { urls, via, notes } = await discover(query, ctx.webEngine, ctx.perSource);

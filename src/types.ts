@@ -12,14 +12,7 @@ export const VERSION = "1.1.0";
 // grounding pass classify citations.
 export type SourceKind = "market" | "oss" | "docs" | "so" | "issue" | "pr";
 
-export const ALL_SOURCE_KINDS: readonly SourceKind[] = [
-  "market",
-  "oss",
-  "docs",
-  "so",
-  "issue",
-  "pr",
-];
+export const ALL_SOURCE_KINDS: readonly SourceKind[] = ["market", "oss", "docs", "so", "issue", "pr"];
 
 // A research angle is the CLI/orchestrator concept; one angle can emit several
 // evidence `source` kinds (e.g. the `tech` angle emits `docs` + `so`, the `oss`

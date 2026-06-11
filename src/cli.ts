@@ -80,7 +80,21 @@ Workflow:
 
 const COMMANDS = new Set(["init", "research", "analyze", "web", "oss", "tech", "so", "render", "check", "verify", "status", "semantic"]);
 const VALUE_FLAGS = new Set([
-  "idea", "out", "run", "angles", "q", "question", "url", "seeds", "docs-url", "level", "web-engine", "per-source", "source", "min-grounding", "app",
+  "idea",
+  "out",
+  "run",
+  "angles",
+  "q",
+  "question",
+  "url",
+  "seeds",
+  "docs-url",
+  "level",
+  "web-engine",
+  "per-source",
+  "source",
+  "min-grounding",
+  "app",
 ]);
 const BOOL_FLAGS = new Set(["semantic", "merge", "json", "refresh", "run-tests", "strict"]);
 
@@ -171,7 +185,10 @@ const DEFAULT_ANGLES: Angle[] = ["market", "oss", "tech"];
 
 function parseAngles(s: string): Angle[] {
   const out: Angle[] = [];
-  for (const t of s.split(",").map((x) => x.trim().toLowerCase()).filter(Boolean)) {
+  for (const t of s
+    .split(",")
+    .map((x) => x.trim().toLowerCase())
+    .filter(Boolean)) {
     if (!(ALL_ANGLES as string[]).includes(t)) fail(`unknown angle "${t}" (use: market,oss,tech,semantic)`);
     if (!out.includes(t as Angle)) out.push(t as Angle);
   }
@@ -180,7 +197,10 @@ function parseAngles(s: string): Angle[] {
 }
 
 function csv(s: string | undefined): string[] {
-  return (s ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+  return (s ?? "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
 }
 
 function requireOut(p: Parsed): string {

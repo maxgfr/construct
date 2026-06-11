@@ -108,7 +108,12 @@ const STATUSES: TaskStatus[] = ["todo", "in-progress", "done"];
 // task's progress to todo, which is the honest reading of a changed feature.
 // T-000 and any FR-less task fall back to their id.
 function taskKey(t: BuildTask): string {
-  return t.frIds.length ? `fr:${t.title.replace(/^FR-\d+\s*—\s*/, "").trim().toLowerCase()}` : `id:${t.id}`;
+  return t.frIds.length
+    ? `fr:${t.title
+        .replace(/^FR-\d+\s*—\s*/, "")
+        .trim()
+        .toLowerCase()}`
+    : `id:${t.id}`;
 }
 
 // Preserve the agent-owned fields of `prev` onto the freshly derived `next`.

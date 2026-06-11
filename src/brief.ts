@@ -69,7 +69,10 @@ export function normalizeBrief(data: unknown, warn: (msg: string) => void = () =
       warn(`${field} is not an array — ignored.`);
       return [];
     }
-    const kept = v.filter((x): x is string => typeof x === "string").map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean);
+    const kept = v
+      .filter((x): x is string => typeof x === "string")
+      .map((s) => s.replace(/\s+/g, " ").trim())
+      .filter(Boolean);
     if (kept.length < v.length) warn(`${field}: dropped ${v.length - kept.length} non-string/empty entr${v.length - kept.length === 1 ? "y" : "ies"}.`);
     return kept;
   };

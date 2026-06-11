@@ -29,7 +29,10 @@ describe("httpGet retry policy", () => {
   it("retries a 5xx once with backoff and recovers", async () => {
     const { delays, sleep } = recorder();
     let calls = 0;
-    vi.stubGlobal("fetch", vi.fn(async () => (++calls === 1 ? res("", { ok: false, status: 503 }) : res("fine"))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => (++calls === 1 ? res("", { ok: false, status: 503 }) : res("fine"))),
+    );
     const r = await httpGet("https://flaky.example", { sleep });
     expect(calls).toBe(2);
     expect(r.ok).toBe(true);
@@ -40,7 +43,10 @@ describe("httpGet retry policy", () => {
   it("honours a parseable Retry-After on 429", async () => {
     const { delays, sleep } = recorder();
     let calls = 0;
-    vi.stubGlobal("fetch", vi.fn(async () => (++calls === 1 ? res("", { ok: false, status: 429, retryAfter: "1" }) : res("fine"))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => (++calls === 1 ? res("", { ok: false, status: 429, retryAfter: "1" }) : res("fine"))),
+    );
     const r = await httpGet("https://limited.example", { sleep });
     expect(r.ok).toBe(true);
     expect(delays).toEqual([1000]);
@@ -49,7 +55,13 @@ describe("httpGet retry policy", () => {
   it("never retries a deterministic 4xx", async () => {
     const { delays, sleep } = recorder();
     let calls = 0;
-    vi.stubGlobal("fetch", vi.fn(async () => (calls++, res("", { ok: false, status: 404 }))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        calls++;
+        return res("", { ok: false, status: 404 });
+      }),
+    );
     const r = await httpGet("https://gone.example", { sleep });
     expect(calls).toBe(1);
     expect(r.status).toBe(404);
@@ -74,7 +86,13 @@ describe("httpGet retry policy", () => {
   it("makes a single attempt with retries: 0", async () => {
     const { sleep } = recorder();
     let calls = 0;
-    vi.stubGlobal("fetch", vi.fn(async () => (calls++, res("", { ok: false, status: 503 }))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        calls++;
+        return res("", { ok: false, status: 503 });
+      }),
+    );
     const r = await httpGet("https://down.example", { retries: 0, sleep });
     expect(calls).toBe(1);
     expect(r.ok).toBe(false);
@@ -113,7 +131,10 @@ describe("fetchAndExtract", () => {
   });
 
   it("returns an honest note when both attempts fail", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => res("", { ok: false, status: 403 })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => res("", { ok: false, status: 403 })),
+    );
     const { text, note } = await fetchAndExtract("https://blocked.example");
     expect(text).toBe("");
     expect(note).toMatch(/Could not fetch/);

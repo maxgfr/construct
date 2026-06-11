@@ -91,7 +91,9 @@ describe("helpers", () => {
 describe("ossAngle", () => {
   it("fingerprints the cloned repo and mines issues + PRs", async () => {
     const r = await ossAngle(ctx());
-    const oss = r[0]!, issues = r[1]!, prs = r[2]!;
+    const oss = r[0]!,
+      issues = r[1]!,
+      prs = r[2]!;
     expect(oss.source).toBe("oss");
     expect(oss.items).toHaveLength(1);
     expect(oss.items[0]!.snippet).toMatch(/Languages: ts:2/);
@@ -105,7 +107,8 @@ describe("ossAngle", () => {
       throw new Error("clone failed");
     });
     const r = await ossAngle(ctx());
-    const oss = r[0]!, issues = r[1]!;
+    const oss = r[0]!,
+      issues = r[1]!;
     expect(oss.items).toHaveLength(0);
     expect(oss.notes.join(" ")).toMatch(/Could not clone/);
     expect(issues.items).toHaveLength(1); // owner/repo still resolved → providers ran

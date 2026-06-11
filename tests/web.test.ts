@@ -6,16 +6,13 @@ function res(body: string, opts: { ok?: boolean; status?: number; contentType?: 
   return {
     ok: opts.ok ?? true,
     status: opts.status ?? 200,
-    headers: { get: (h: string) => (h.toLowerCase() === "content-type" ? opts.contentType ?? "text/html" : null) },
+    headers: { get: (h: string) => (h.toLowerCase() === "content-type" ? (opts.contentType ?? "text/html") : null) },
     arrayBuffer: async () => new TextEncoder().encode(body).buffer,
     text: async () => body,
   };
 }
 
-const ddgHtml = (urls: string[]) =>
-  urls
-    .map((u) => `<a class="result__a" href="//duckduckgo.com/l/?uddg=${encodeURIComponent(u)}&rut=x">title</a>`)
-    .join("\n");
+const ddgHtml = (urls: string[]) => urls.map((u) => `<a class="result__a" href="//duckduckgo.com/l/?uddg=${encodeURIComponent(u)}&rut=x">title</a>`).join("\n");
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -24,7 +21,8 @@ describe("discover (three-tier keyless web search)", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {
-        if (String(url).includes("8888")) return res(JSON.stringify({ results: [{ url: "https://s1.com" }, { url: "https://s2.com" }] }), { contentType: "application/json" });
+        if (String(url).includes("8888"))
+          return res(JSON.stringify({ results: [{ url: "https://s1.com" }, { url: "https://s2.com" }] }), { contentType: "application/json" });
         return res("", { ok: false, status: 404 });
       }),
     );
@@ -49,7 +47,10 @@ describe("discover (three-tier keyless web search)", () => {
   });
 
   it("emits a WebSearch hint when no keyless engine returns results", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => res("", { ok: false, status: 404 })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => res("", { ok: false, status: 404 })),
+    );
     const d = await discover("x", "auto", 5);
     expect(d.urls).toEqual([]);
     expect(d.notes.join(" ")).toMatch(/built-in WebSearch/i);
@@ -59,7 +60,10 @@ describe("discover (three-tier keyless web search)", () => {
 describe("webFetchUrls", () => {
   it("fetches a page and grounds excerpts around the question keywords", async () => {
     const page = "<html><body><p>Intro</p><p>The search index supports full-text search with tagging.</p></body></html>";
-    vi.stubGlobal("fetch", vi.fn(async () => res(page)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => res(page)),
+    );
     const { items } = await webFetchUrls(["https://example.com"], "full-text search", 6, "market");
     expect(items.length).toBeGreaterThan(0);
     expect(items[0]!.source).toBe("market");
@@ -68,10 +72,13 @@ describe("webFetchUrls", () => {
 
   it("fetches ALL user-named URLs when fetchAll is set (does not drop half)", async () => {
     const fetched: string[] = [];
-    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
-      fetched.push(String(url));
-      return res(`<p>content about search at ${url}</p>`);
-    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        fetched.push(String(url));
+        return res(`<p>content about search at ${url}</p>`);
+      }),
+    );
     const urls = ["https://a.com", "https://b.com", "https://c.com", "https://d.com"];
     const { items } = await webFetchUrls(urls, "search", 2, "docs", true);
     expect(fetched.length).toBe(4); // all four, despite perSource=2

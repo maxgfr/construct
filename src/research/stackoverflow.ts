@@ -12,8 +12,7 @@ export async function stackoverflow(question: string, perSource: number): Promis
   const q = encodeURIComponent(kws);
   const pat = process.env.STACK_PAT ? `&access_token=${process.env.STACK_PAT}` : "";
   const url =
-    `https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=relevance` +
-    `&q=${q}&site=stackoverflow&filter=withbody&pagesize=${perSource}${pat}`;
+    `https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=relevance` + `&q=${q}&site=stackoverflow&filter=withbody&pagesize=${perSource}${pat}`;
 
   const r = await httpGet(url, { accept: "application/json" });
   if (!r.ok) {
@@ -38,10 +37,7 @@ export async function stackoverflow(question: string, perSource: number): Promis
         meta: { questionId: it.question_id, isAnswered: it.is_answered, answerCount: it.answer_count },
       };
     });
-    const notes =
-      data.quota_remaining !== undefined && data.quota_remaining < 20
-        ? [`StackExchange anonymous quota low (${data.quota_remaining} left).`]
-        : [];
+    const notes = data.quota_remaining !== undefined && data.quota_remaining < 20 ? [`StackExchange anonymous quota low (${data.quota_remaining} left).`] : [];
     if (items.length === 0) notes.push("No StackOverflow questions matched.");
     return { source: "so", items, notes };
   } catch {

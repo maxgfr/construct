@@ -17,7 +17,9 @@ function loadEvidence(runDir: string): EvidenceItem[] {
   try {
     const data = JSON.parse(readFileSync(path, "utf8")) as unknown;
     return Array.isArray(data)
-      ? (data.filter((e) => !!e && typeof e === "object" && typeof (e as { id?: unknown }).id === "string" && typeof (e as { source?: unknown }).source === "string") as EvidenceItem[])
+      ? (data.filter(
+          (e) => !!e && typeof e === "object" && typeof (e as { id?: unknown }).id === "string" && typeof (e as { source?: unknown }).source === "string",
+        ) as EvidenceItem[])
       : [];
   } catch {
     return [];
@@ -98,7 +100,9 @@ export function formatGapReport(r: GapReport, runDir: string): string {
   const lines: string[] = [];
   lines.push(`construct analyze: ${runDir}`);
   lines.push(``);
-  const sources = Object.entries(r.bySource).sort(([a], [b]) => a.localeCompare(b)).map(([s, n]) => `${s}: ${n}`);
+  const sources = Object.entries(r.bySource)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([s, n]) => `${s}: ${n}`);
   lines.push(`Evidence: ${r.evidenceCount} item(s)${sources.length ? ` (${sources.join(" · ")})` : ""}`);
   for (const n of r.notes) lines.push(`  ⚠ ${n}`);
   lines.push(``);
