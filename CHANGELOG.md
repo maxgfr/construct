@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [1.2.0](https://github.com/maxgfr/construct/compare/v1.1.0...v1.2.0) (2026-06-11)
+
+
+### Bug Fixes
+
+* **clone:** report both clone attempts and a missing git binary distinctly ([844ccc7](https://github.com/maxgfr/construct/commit/844ccc73435d5cfe7efb8f455e3dc981805c3ccc))
+* **oss:** never treat a GitHub/GitLab site section as a repo seed ([4ac6bcf](https://github.com/maxgfr/construct/commit/4ac6bcf8ba82745dfb528f01aef512da103c5a03))
+* **srd:** dedupe matched evidence on a stable key when url is absent ([032f891](https://github.com/maxgfr/construct/commit/032f891b97099c0060b032df8f340b00cb0254b4))
+* **verify:** detect rspec, pytest-prefix and JVM-suffix test files ([aa1d4d9](https://github.com/maxgfr/construct/commit/aa1d4d9fd5be94f29524ee4ae33875df3a4a4de4))
+
+
+### Features
+
+* **brief:** surface normalization warnings instead of dropping data silently ([32f077d](https://github.com/maxgfr/construct/commit/32f077d0505a8140953c33ed8afbc7aa98f2f6ba))
+* **fetch:** retry httpGet with backoff and Retry-After on 5xx/429 ([14df6a4](https://github.com/maxgfr/construct/commit/14df6a41b2cc2479fb129a09a27e458742766814))
+* **research:** wire --docs-url into the tech angle and drill ([991c655](https://github.com/maxgfr/construct/commit/991c6558830c86810fe245eb90e5c40bedee644d))
+
 # [1.1.0](https://github.com/maxgfr/construct/compare/v1.0.2...v1.1.0) (2026-06-10)
 
 
