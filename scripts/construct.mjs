@@ -812,6 +812,7 @@ function walk(root, opts = {}) {
       continue;
     }
     for (const name of entries) {
+      if (out.length >= maxFiles) break;
       const abs = join3(dir, name);
       let st;
       try {

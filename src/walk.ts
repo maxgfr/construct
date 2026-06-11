@@ -57,6 +57,7 @@ export function walk(root: string, opts: WalkOptions = {}): WalkedFile[] {
       continue;
     }
     for (const name of entries) {
+      if (out.length >= maxFiles) break; // hard cap, even inside one directory
       const abs = join(dir, name);
       let st;
       try {
