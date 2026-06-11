@@ -1446,13 +1446,13 @@ function matchEvidence(text, evidence, n, onlySources) {
     const hay = new Set(keywords(`${e.title} ${e.snippet}`).map((k) => k.toLowerCase()));
     let cov = 0;
     for (const kw of kws) if (hay.has(kw)) cov++;
-    return { id: e.id, url: e.url ?? "", cov, ratio: cov / kws.length, score: e.score };
+    return { id: e.id, key: e.url || `${e.source}:${e.ref}`, cov, ratio: cov / kws.length, score: e.score };
   }).filter((x) => x.cov >= need && x.ratio >= ratioFloor).sort((a, b) => b.cov - a.cov || b.ratio - a.ratio || b.score - a.score || a.id.localeCompare(b.id));
-  const seenUrl = /* @__PURE__ */ new Set();
+  const seen = /* @__PURE__ */ new Set();
   const out = [];
   for (const x of scored) {
-    if (x.url && seenUrl.has(x.url)) continue;
-    if (x.url) seenUrl.add(x.url);
+    if (seen.has(x.key)) continue;
+    seen.add(x.key);
     out.push(x.id);
     if (out.length >= n) break;
   }

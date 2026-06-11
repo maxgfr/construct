@@ -35,6 +35,20 @@ describe("matchEvidence", () => {
     ] as EvidenceItem[];
     expect(matchEvidence("full text search", ev, 2)).toEqual(["E1"]);
   });
+  it("de-duplicates url-less items on source:ref (two excerpts of one local repo)", () => {
+    const ev = [
+      { id: "E1", source: "oss", title: "repo summary", ref: "acme/reader", score: 2, snippet: "full text search index" },
+      { id: "E2", source: "oss", title: "repo readme", ref: "acme/reader", score: 1, snippet: "full text search ranking" },
+    ] as EvidenceItem[];
+    expect(matchEvidence("full text search", ev, 2)).toEqual(["E1"]);
+  });
+  it("keeps url-less items with distinct refs apart", () => {
+    const ev = [
+      { id: "E1", source: "oss", title: "repo a", ref: "acme/reader", score: 2, snippet: "full text search index" },
+      { id: "E2", source: "oss", title: "repo b", ref: "acme/clipper", score: 1, snippet: "full text search ranking" },
+    ] as EvidenceItem[];
+    expect(matchEvidence("full text search", ev, 2)).toEqual(["E1", "E2"]);
+  });
 });
 
 describe("buildSRD", () => {

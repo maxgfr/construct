@@ -41,8 +41,9 @@ export const GROUND_QUALITY = ["oss", "docs", "so", "issue", "pr"];
 // Deterministic keyword-overlap match: return up to `n` evidence ids whose
 // title+snippet share the most *distinctive* keywords with `text`. Matching is
 // token-set membership (word boundaries, not substring), requires a real overlap
-// (so a single generic token can't ground a claim), and de-duplicates by URL so
-// two excerpts of the same page never both cite.
+// (so a single generic token can't ground a claim), and de-duplicates on a
+// stable key — the URL, or `source:ref` for url-less items (e.g. local-repo OSS
+// summaries) — so two excerpts of one page/repo never both cite.
 export function matchEvidence(text: string, evidence: EvidenceItem[], n: number, onlySources?: string[]): string[] {
   const kws = keywords(text).map((k) => k.toLowerCase());
   if (kws.length === 0) return [];
@@ -58,17 +59,18 @@ export function matchEvidence(text: string, evidence: EvidenceItem[], n: number,
       const hay = new Set(keywords(`${e.title} ${e.snippet}`).map((k) => k.toLowerCase()));
       let cov = 0;
       for (const kw of kws) if (hay.has(kw)) cov++;
-      return { id: e.id, url: e.url ?? "", cov, ratio: cov / kws.length, score: e.score };
+      return { id: e.id, key: e.url || `${e.source}:${e.ref}`, cov, ratio: cov / kws.length, score: e.score };
     })
     .filter((x) => x.cov >= need && x.ratio >= ratioFloor)
     .sort((a, b) => b.cov - a.cov || b.ratio - a.ratio || b.score - a.score || a.id.localeCompare(b.id));
 
-  // De-dupe by canonical URL (keep the highest-ranked excerpt of any one page).
-  const seenUrl = new Set<string>();
+  // De-dupe on the stable key (keep the highest-ranked excerpt of any one
+  // page or url-less source like a local repo summary).
+  const seen = new Set<string>();
   const out: string[] = [];
   for (const x of scored) {
-    if (x.url && seenUrl.has(x.url)) continue;
-    if (x.url) seenUrl.add(x.url);
+    if (seen.has(x.key)) continue;
+    seen.add(x.key);
     out.push(x.id);
     if (out.length >= n) break;
   }
