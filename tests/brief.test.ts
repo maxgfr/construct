@@ -50,6 +50,38 @@ describe("normalizeBrief", () => {
     expect(b.featureWishlist[0]!.title).not.toContain("\n");
     expect(b.idea).toBe("an app");
   });
+
+  it("warns about every coercion that drops or rewrites data", () => {
+    const warnings: string[] = [];
+    const b = normalizeBrief(
+      {
+        idea: "y",
+        goals: ["ok", 42],
+        featureWishlist: [{ title: "Real feature" }, { notes: "no title" }, { title: "Hot one", priority: "high" }],
+        competitors: "not-an-array",
+      },
+      (w) => warnings.push(w),
+    );
+    expect(warnings.sort()).toEqual(
+      [
+        "goals: dropped 1 non-string/empty entry.",
+        "featureWishlist[1] has no usable title — dropped.",
+        'featureWishlist[2].priority "high" is not must|should|could — treated as should.',
+        "competitors is not an array — ignored.",
+      ].sort(),
+    );
+    // The returned shape is the same as before — tolerant, never crashing.
+    expect(b.goals).toEqual(["ok"]);
+    expect(b.featureWishlist.map((f) => f.title)).toEqual(["Real feature", "Hot one"]);
+    expect(b.featureWishlist[1]!.priority).toBeUndefined();
+    expect(b.competitors).toEqual([]);
+  });
+
+  it("stays silent when nothing is coerced", () => {
+    const warnings: string[] = [];
+    normalizeBrief({ idea: "y", goals: ["a"], featureWishlist: [{ title: "T", priority: "must" }] }, (w) => warnings.push(w));
+    expect(warnings).toEqual([]);
+  });
 });
 
 describe("validateBrief", () => {

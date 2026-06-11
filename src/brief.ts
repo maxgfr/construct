@@ -38,7 +38,7 @@ export function saveBrief(runDir: string, brief: Brief): string {
   return path;
 }
 
-export function loadBrief(runDir: string): Brief {
+export function loadBrief(runDir: string, warn: (msg: string) => void = () => {}): Brief {
   const path = briefPath(runDir);
   if (!existsSync(path)) {
     throw new Error(`No brief.json in ${runDir} — run \`construct init --idea "..." --out ${runDir}\` first.`);
@@ -50,50 +50,70 @@ export function loadBrief(runDir: string): Brief {
   } catch (e) {
     throw new Error(`brief.json is unreadable: ${(e as Error).message}`);
   }
-  return normalizeBrief(data);
+  return normalizeBrief(data, warn);
 }
 
+const PRIORITIES = ["must", "should", "could"] as const;
+
 // Coerce a parsed object into a Brief, tolerating missing arrays/objects so a
-// hand-edited brief never crashes the renderer.
-export function normalizeBrief(data: unknown): Brief {
+// hand-edited brief never crashes the renderer. Tolerance must not mean silent
+// loss: anything dropped or rewritten is reported through `warn`.
+export function normalizeBrief(data: unknown, warn: (msg: string) => void = () => {}): Brief {
   const d = (data ?? {}) as Partial<Brief>;
   // Collapse internal whitespace/newlines on free text so a multi-line value
   // can't inject Markdown structure (fake headings/list items) at render time.
   const line = (v: unknown): string | undefined => (typeof v === "string" ? v.replace(/\s+/g, " ").trim() : undefined);
-  const arr = (v: unknown): string[] =>
-    Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean) : [];
+  const arr = (v: unknown, field: string): string[] => {
+    if (v === undefined || v === null) return [];
+    if (!Array.isArray(v)) {
+      warn(`${field} is not an array — ignored.`);
+      return [];
+    }
+    const kept = v.filter((x): x is string => typeof x === "string").map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean);
+    if (kept.length < v.length) warn(`${field}: dropped ${v.length - kept.length} non-string/empty entr${v.length - kept.length === 1 ? "y" : "ies"}.`);
+    return kept;
+  };
+  const features: Brief["featureWishlist"] = [];
+  if (d.featureWishlist !== undefined && !Array.isArray(d.featureWishlist)) {
+    warn("featureWishlist is not an array — ignored.");
+  } else if (Array.isArray(d.featureWishlist)) {
+    d.featureWishlist.forEach((f, i) => {
+      const title = line((f as { title?: unknown } | null)?.title);
+      if (!title) {
+        warn(`featureWishlist[${i}] has no usable title — dropped.`);
+        return;
+      }
+      let priority = (f as { priority?: Brief["featureWishlist"][number]["priority"] }).priority;
+      if (priority !== undefined && !(PRIORITIES as readonly string[]).includes(priority)) {
+        warn(`featureWishlist[${i}].priority "${priority}" is not must|should|could — treated as should.`);
+        priority = undefined;
+      }
+      features.push({ title, priority, notes: line((f as { notes?: string }).notes) });
+    });
+  }
   return {
     schemaVersion: typeof d.schemaVersion === "number" ? d.schemaVersion : BRIEF_SCHEMA_VERSION,
     idea: line(d.idea) ?? "",
     product: {
       name: line(d.product?.name),
       problem: line(d.product?.problem),
-      users: arr(d.product?.users),
+      users: arr(d.product?.users, "product.users"),
       valueProp: line(d.product?.valueProp),
     },
-    goals: arr(d.goals),
-    nonGoals: arr(d.nonGoals),
+    goals: arr(d.goals, "goals"),
+    nonGoals: arr(d.nonGoals, "nonGoals"),
     constraints: {
       budget: line(d.constraints?.budget),
       timeline: line(d.constraints?.timeline),
       team: line(d.constraints?.team),
-      compliance: arr(d.constraints?.compliance),
+      compliance: arr(d.constraints?.compliance, "constraints.compliance"),
     },
-    candidateTech: arr(d.candidateTech),
-    competitors: arr(d.competitors),
-    ossSeeds: arr(d.ossSeeds),
-    featureWishlist: Array.isArray(d.featureWishlist)
-      ? d.featureWishlist
-          .filter((f): f is { title: string } => !!f && typeof (f as { title?: unknown }).title === "string")
-          .map((f) => ({
-            title: line(f.title) ?? "",
-            priority: (f as { priority?: Brief["featureWishlist"][number]["priority"] }).priority,
-            notes: line((f as { notes?: string }).notes),
-          }))
-          .filter((f) => f.title)
-      : [],
-    nfrPriorities: arr(d.nfrPriorities),
-    openQuestions: arr(d.openQuestions),
+    candidateTech: arr(d.candidateTech, "candidateTech"),
+    competitors: arr(d.competitors, "competitors"),
+    ossSeeds: arr(d.ossSeeds, "ossSeeds"),
+    featureWishlist: features,
+    nfrPriorities: arr(d.nfrPriorities, "nfrPriorities"),
+    openQuestions: arr(d.openQuestions, "openQuestions"),
     createdAt: typeof d.createdAt === "string" ? d.createdAt : "",
   };
 }

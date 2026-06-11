@@ -190,8 +190,10 @@ function requireOut(p: Parsed): string {
   return resolve(out);
 }
 
+const warnBrief = (w: string): void => void process.stderr.write(`  ⚠ brief: ${w}\n`);
+
 function buildResearchContext(p: Parsed, runDir: string, angles: Angle[]): ResearchContext {
-  const brief = loadBrief(runDir);
+  const brief = loadBrief(runDir, warnBrief);
   const perSource = p.values["per-source"] ? Number(p.values["per-source"]) : 6;
   if (!Number.isFinite(perSource) || perSource <= 0) fail("invalid --per-source");
   const webEngine = oneOf<WebEngine>("web-engine", p.values["web-engine"] ?? "auto", ["auto", "searxng", "ddg", "claude"]);
@@ -307,7 +309,7 @@ async function main(): Promise<void> {
 
     case "render": {
       const out = requireOut(p);
-      const brief = loadBrief(out);
+      const brief = loadBrief(out, warnBrief);
       const v = validateBrief(brief);
       if (!v.ok) fail(`brief is incomplete:\n${v.errors.map((e) => "  - " + e).join("\n")}`);
       const level = oneOf<Level>("level", p.values.level ?? "light", ["light", "complex"]);

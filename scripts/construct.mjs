@@ -233,7 +233,8 @@ function saveBrief(runDir, brief) {
   writeFileSync(path, JSON.stringify(brief, null, 2));
   return path;
 }
-function loadBrief(runDir) {
+function loadBrief(runDir, warn = () => {
+}) {
   const path = briefPath(runDir);
   if (!existsSync(path)) {
     throw new Error(`No brief.json in ${runDir} \u2014 run \`construct init --idea "..." --out ${runDir}\` first.`);
@@ -245,39 +246,64 @@ function loadBrief(runDir) {
   } catch (e) {
     throw new Error(`brief.json is unreadable: ${e.message}`);
   }
-  return normalizeBrief(data);
+  return normalizeBrief(data, warn);
 }
-function normalizeBrief(data) {
+var PRIORITIES = ["must", "should", "could"];
+function normalizeBrief(data, warn = () => {
+}) {
   const d = data ?? {};
   const line = (v) => typeof v === "string" ? v.replace(/\s+/g, " ").trim() : void 0;
-  const arr = (v) => Array.isArray(v) ? v.filter((x) => typeof x === "string").map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean) : [];
+  const arr = (v, field) => {
+    if (v === void 0 || v === null) return [];
+    if (!Array.isArray(v)) {
+      warn(`${field} is not an array \u2014 ignored.`);
+      return [];
+    }
+    const kept = v.filter((x) => typeof x === "string").map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean);
+    if (kept.length < v.length) warn(`${field}: dropped ${v.length - kept.length} non-string/empty entr${v.length - kept.length === 1 ? "y" : "ies"}.`);
+    return kept;
+  };
+  const features = [];
+  if (d.featureWishlist !== void 0 && !Array.isArray(d.featureWishlist)) {
+    warn("featureWishlist is not an array \u2014 ignored.");
+  } else if (Array.isArray(d.featureWishlist)) {
+    d.featureWishlist.forEach((f, i) => {
+      const title = line(f?.title);
+      if (!title) {
+        warn(`featureWishlist[${i}] has no usable title \u2014 dropped.`);
+        return;
+      }
+      let priority = f.priority;
+      if (priority !== void 0 && !PRIORITIES.includes(priority)) {
+        warn(`featureWishlist[${i}].priority "${priority}" is not must|should|could \u2014 treated as should.`);
+        priority = void 0;
+      }
+      features.push({ title, priority, notes: line(f.notes) });
+    });
+  }
   return {
     schemaVersion: typeof d.schemaVersion === "number" ? d.schemaVersion : BRIEF_SCHEMA_VERSION,
     idea: line(d.idea) ?? "",
     product: {
       name: line(d.product?.name),
       problem: line(d.product?.problem),
-      users: arr(d.product?.users),
+      users: arr(d.product?.users, "product.users"),
       valueProp: line(d.product?.valueProp)
     },
-    goals: arr(d.goals),
-    nonGoals: arr(d.nonGoals),
+    goals: arr(d.goals, "goals"),
+    nonGoals: arr(d.nonGoals, "nonGoals"),
     constraints: {
       budget: line(d.constraints?.budget),
       timeline: line(d.constraints?.timeline),
       team: line(d.constraints?.team),
-      compliance: arr(d.constraints?.compliance)
+      compliance: arr(d.constraints?.compliance, "constraints.compliance")
     },
-    candidateTech: arr(d.candidateTech),
-    competitors: arr(d.competitors),
-    ossSeeds: arr(d.ossSeeds),
-    featureWishlist: Array.isArray(d.featureWishlist) ? d.featureWishlist.filter((f) => !!f && typeof f.title === "string").map((f) => ({
-      title: line(f.title) ?? "",
-      priority: f.priority,
-      notes: line(f.notes)
-    })).filter((f) => f.title) : [],
-    nfrPriorities: arr(d.nfrPriorities),
-    openQuestions: arr(d.openQuestions),
+    candidateTech: arr(d.candidateTech, "candidateTech"),
+    competitors: arr(d.competitors, "competitors"),
+    ossSeeds: arr(d.ossSeeds, "ossSeeds"),
+    featureWishlist: features,
+    nfrPriorities: arr(d.nfrPriorities, "nfrPriorities"),
+    openQuestions: arr(d.openQuestions, "openQuestions"),
     createdAt: typeof d.createdAt === "string" ? d.createdAt : ""
   };
 }
@@ -2996,8 +3022,10 @@ function requireOut(p) {
   if (!out) fail("missing --out <run>");
   return resolve3(out);
 }
+var warnBrief = (w) => void process.stderr.write(`  \u26A0 brief: ${w}
+`);
 function buildResearchContext(p, runDir, angles) {
-  const brief = loadBrief(runDir);
+  const brief = loadBrief(runDir, warnBrief);
   const perSource = p.values["per-source"] ? Number(p.values["per-source"]) : 6;
   if (!Number.isFinite(perSource) || perSource <= 0) fail("invalid --per-source");
   const webEngine = oneOf("web-engine", p.values["web-engine"] ?? "auto", ["auto", "searxng", "ddg", "claude"]);
@@ -3106,7 +3134,7 @@ async function main() {
     }
     case "render": {
       const out = requireOut(p);
-      const brief = loadBrief(out);
+      const brief = loadBrief(out, warnBrief);
       const v = validateBrief(brief);
       if (!v.ok) fail(`brief is incomplete:
 ${v.errors.map((e) => "  - " + e).join("\n")}`);
