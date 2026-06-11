@@ -1,5 +1,6 @@
 import type { EvidenceItem } from "../types.js";
 import { keywords as extractKeywords } from "../util.js";
+import { HTTP_GET_TIMEOUT_MS, HTTP_JSON_TIMEOUT_MS } from "../config.js";
 
 type RawItem = Omit<EvidenceItem, "id">;
 
@@ -25,7 +26,7 @@ export async function httpGet(
   opts: { timeoutMs?: number; accept?: string; maxBytes?: number; headers?: Record<string, string> } = {},
 ): Promise<HttpResult> {
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 20_000);
+  const t = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? HTTP_GET_TIMEOUT_MS);
   try {
     const res = await fetch(url, {
       signal: ctrl.signal,
@@ -56,7 +57,7 @@ export async function httpJson(
   opts: { timeoutMs?: number } = {},
 ): Promise<{ ok: boolean; status: number; data: any; error?: string }> {
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 30_000);
+  const t = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? HTTP_JSON_TIMEOUT_MS);
   try {
     const res = await fetch(url, {
       method,

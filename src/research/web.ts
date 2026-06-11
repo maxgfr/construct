@@ -1,4 +1,5 @@
 import type { RawItem, SourceKind, WebEngine } from "../types.js";
+import { SEARXNG_TIMEOUT_MS, DDG_TIMEOUT_MS } from "../config.js";
 import { httpGet, fetchAndExtract, excerptsFromText } from "./fetch.js";
 
 const SEARXNG_BASE = process.env.CONSTRUCT_SEARXNG || "http://localhost:8888";
@@ -7,7 +8,7 @@ const SEARXNG_BASE = process.env.CONSTRUCT_SEARXNG || "http://localhost:8888";
 // `construct semantic up`). Returns null when unreachable so we fall through.
 async function viaSearxng(query: string, n: number): Promise<string[] | null> {
   const url = `${SEARXNG_BASE.replace(/\/$/, "")}/search?q=${encodeURIComponent(query)}&format=json`;
-  const r = await httpGet(url, { accept: "application/json", timeoutMs: 8000 });
+  const r = await httpGet(url, { accept: "application/json", timeoutMs: SEARXNG_TIMEOUT_MS });
   if (!r.ok) return null;
   try {
     const data = JSON.parse(r.body);
@@ -22,7 +23,7 @@ async function viaSearxng(query: string, n: number): Promise<string[] | null> {
 // wraps result links through a redirector carrying the real URL in `uddg`.
 async function viaDuckDuckGo(query: string, n: number): Promise<string[] | null> {
   const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-  const r = await httpGet(url, { accept: "text/html", timeoutMs: 12000 });
+  const r = await httpGet(url, { accept: "text/html", timeoutMs: DDG_TIMEOUT_MS });
   if (!r.ok || !r.body) return null;
   const urls: string[] = [];
   // Match any result anchor regardless of attribute order, then pull href out

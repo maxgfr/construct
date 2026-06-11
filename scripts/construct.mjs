@@ -26,12 +26,31 @@ var BUILD_PLAN_SCHEMA_VERSION = 1;
 
 // src/util.ts
 import { spawnSync } from "child_process";
+
+// src/config.ts
+var HTTP_GET_TIMEOUT_MS = 2e4;
+var HTTP_JSON_TIMEOUT_MS = 3e4;
+var SEARXNG_TIMEOUT_MS = 8e3;
+var DDG_TIMEOUT_MS = 12e3;
+var SH_DEFAULT_TIMEOUT_MS = 12e4;
+var GIT_CLONE_TIMEOUT_MS = 3e5;
+var GIT_FETCH_TIMEOUT_MS = 18e4;
+var GIT_RESET_TIMEOUT_MS = 6e4;
+var VERIFY_COMMAND_TIMEOUT_MS = 6e5;
+var REACHABLE_TIMEOUT_MS = 2500;
+var EMBED_TIMEOUT_MS = 6e4;
+var COMPOSE_DOWN_TIMEOUT_MS = 12e4;
+var COMPOSE_PS_TIMEOUT_MS = 3e4;
+var COMPOSE_UP_TIMEOUT_MS = 3e5;
+var OLLAMA_PULL_TIMEOUT_MS = 6e5;
+
+// src/util.ts
 function sh(cmd, args, opts = {}) {
   const res = spawnSync(cmd, args, {
     cwd: opts.cwd,
     input: opts.input,
     encoding: "utf8",
-    timeout: opts.timeoutMs ?? 12e4,
+    timeout: opts.timeoutMs ?? SH_DEFAULT_TIMEOUT_MS,
     maxBuffer: 64 * 1024 * 1024,
     env: opts.env ?? process.env
   });
@@ -289,7 +308,7 @@ var UA = "construct/0.x (+https://github.com/maxgfr/construct)";
 var BROWSER_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 async function httpGet(url, opts = {}) {
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 2e4);
+  const t = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? HTTP_GET_TIMEOUT_MS);
   try {
     const res = await fetch(url, {
       signal: ctrl.signal,
@@ -312,7 +331,7 @@ async function httpGet(url, opts = {}) {
 }
 async function httpJson(method, url, body, opts = {}) {
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 3e4);
+  const t = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? HTTP_JSON_TIMEOUT_MS);
   try {
     const res = await fetch(url, {
       method,
@@ -425,7 +444,7 @@ function excerptsFromText(text, url, title, source, question, perSource) {
 var SEARXNG_BASE = process.env.CONSTRUCT_SEARXNG || "http://localhost:8888";
 async function viaSearxng(query2, n) {
   const url = `${SEARXNG_BASE.replace(/\/$/, "")}/search?q=${encodeURIComponent(query2)}&format=json`;
-  const r = await httpGet(url, { accept: "application/json", timeoutMs: 8e3 });
+  const r = await httpGet(url, { accept: "application/json", timeoutMs: SEARXNG_TIMEOUT_MS });
   if (!r.ok) return null;
   try {
     const data = JSON.parse(r.body);
@@ -437,7 +456,7 @@ async function viaSearxng(query2, n) {
 }
 async function viaDuckDuckGo(query2, n) {
   const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query2)}`;
-  const r = await httpGet(url, { accept: "text/html", timeoutMs: 12e3 });
+  const r = await httpGet(url, { accept: "text/html", timeoutMs: DDG_TIMEOUT_MS });
   if (!r.ok || !r.body) return null;
   const urls = [];
   const tagRe = /<a\b[^>]*\bresult__a\b[^>]*>/g;
@@ -590,21 +609,21 @@ function ensureClone(ref, opts = {}) {
   const alreadyCloned = existsSync2(join2(dir, ".git"));
   if (alreadyCloned && !opts.refresh) return dir;
   if (alreadyCloned && opts.refresh) {
-    sh("git", ["-C", dir, "fetch", "--depth", "1", "origin"], { timeoutMs: 18e4 });
-    sh("git", ["-C", dir, "reset", "--hard", "FETCH_HEAD"], { timeoutMs: 6e4 });
+    sh("git", ["-C", dir, "fetch", "--depth", "1", "origin"], { timeoutMs: GIT_FETCH_TIMEOUT_MS });
+    sh("git", ["-C", dir, "reset", "--hard", "FETCH_HEAD"], { timeoutMs: GIT_RESET_TIMEOUT_MS });
     return dir;
   }
   mkdirSync2(cacheRoot(), { recursive: true });
   const args = ["clone", "--depth", "1", "--filter=blob:none"];
   if (opts.branch) args.push("--branch", opts.branch);
   args.push(ref.cloneUrl, dir);
-  const res = sh("git", args, { timeoutMs: 3e5 });
+  const res = sh("git", args, { timeoutMs: GIT_CLONE_TIMEOUT_MS });
   if (!res.ok) {
     if (existsSync2(dir)) rmSync(dir, { recursive: true, force: true });
     const fallback = sh(
       "git",
       ["clone", "--depth", "1", ...opts.branch ? ["--branch", opts.branch] : [], ref.cloneUrl, dir],
-      { timeoutMs: 3e5 }
+      { timeoutMs: GIT_CLONE_TIMEOUT_MS }
     );
     if (!fallback.ok) {
       throw new Error(
@@ -1166,7 +1185,7 @@ function cosine(a, b) {
   return Number.isFinite(r) ? r : 0;
 }
 async function reachable(base, path = "/") {
-  const r = await httpGet(base + path, { timeoutMs: 2500 });
+  const r = await httpGet(base + path, { timeoutMs: REACHABLE_TIMEOUT_MS });
   return r.ok;
 }
 async function embed(text) {
@@ -1174,7 +1193,7 @@ async function embed(text) {
     "POST",
     `${OLLAMA}/api/embeddings`,
     { model: EMBED_MODEL, prompt: text.slice(0, 4e3) },
-    { timeoutMs: 6e4 }
+    { timeoutMs: EMBED_TIMEOUT_MS }
   );
   const v = r.ok ? r.data?.embedding : void 0;
   return Array.isArray(v) && v.length ? v : null;
@@ -1226,19 +1245,19 @@ function semanticControl(action) {
   }
   const file = composeFile();
   if (action === "down") {
-    const r = sh("docker", ["compose", "-f", file, "--profile", "all", "down"], { timeoutMs: 12e4 });
+    const r = sh("docker", ["compose", "-f", file, "--profile", "all", "down"], { timeoutMs: COMPOSE_DOWN_TIMEOUT_MS });
     return { message: r.ok ? "construct semantic: stack stopped." : `construct semantic: down failed.
 ${r.stderr}`, code: r.ok ? 0 : 1 };
   }
   if (action === "status") {
-    const r = sh("docker", ["compose", "-f", file, "ps"], { timeoutMs: 3e4 });
+    const r = sh("docker", ["compose", "-f", file, "ps"], { timeoutMs: COMPOSE_PS_TIMEOUT_MS });
     return { message: r.ok ? r.stdout || "construct semantic: no services running." : `construct semantic: status failed.
 ${r.stderr}`, code: 0 };
   }
-  const up = sh("docker", ["compose", "-f", file, "--profile", "all", "up", "-d"], { timeoutMs: 3e5 });
+  const up = sh("docker", ["compose", "-f", file, "--profile", "all", "up", "-d"], { timeoutMs: COMPOSE_UP_TIMEOUT_MS });
   if (!up.ok) return { message: `construct semantic: up failed.
 ${up.stderr}`, code: 1 };
-  const pull = sh("docker", ["compose", "-f", file, "exec", "-T", "ollama", "ollama", "pull", EMBED_MODEL], { timeoutMs: 6e5 });
+  const pull = sh("docker", ["compose", "-f", file, "exec", "-T", "ollama", "ollama", "pull", EMBED_MODEL], { timeoutMs: OLLAMA_PULL_TIMEOUT_MS });
   const lines = [
     "construct semantic: stack is up (Qdrant :6333 \xB7 Ollama :11434 \xB7 SearXNG :8888).",
     pull.ok ? `  model:  ${EMBED_MODEL} ready` : `  model:  pull '${EMBED_MODEL}' yourself: docker compose -f ${file} exec ollama ollama pull ${EMBED_MODEL}`,
@@ -2624,7 +2643,7 @@ function detectCycle(plan) {
   return null;
 }
 function runCommand(command, cwd) {
-  const r = process.platform === "win32" ? sh("cmd", ["/c", command], { cwd, timeoutMs: 6e5 }) : sh("sh", ["-c", command], { cwd, timeoutMs: 6e5 });
+  const r = process.platform === "win32" ? sh("cmd", ["/c", command], { cwd, timeoutMs: VERIFY_COMMAND_TIMEOUT_MS }) : sh("sh", ["-c", command], { cwd, timeoutMs: VERIFY_COMMAND_TIMEOUT_MS });
   return { command, ok: r.ok, exitCode: r.status };
 }
 function verifyRun(runDir, opts = {}) {

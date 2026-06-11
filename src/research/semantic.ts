@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { SourceResult } from "../types.js";
 import { httpJson, httpGet } from "./fetch.js";
 import { sh, have } from "../util.js";
+import { REACHABLE_TIMEOUT_MS, EMBED_TIMEOUT_MS, COMPOSE_DOWN_TIMEOUT_MS, COMPOSE_PS_TIMEOUT_MS, COMPOSE_UP_TIMEOUT_MS, OLLAMA_PULL_TIMEOUT_MS } from "../config.js";
 
 // All endpoints are local and keyless; the heavy compute (embeddings) runs in a
 // Docker container, so the published bundle stays dependency-free and only
@@ -60,7 +61,7 @@ export function cosine(a: number[], b: number[]): number {
 }
 
 async function reachable(base: string, path = "/"): Promise<boolean> {
-  const r = await httpGet(base + path, { timeoutMs: 2500 });
+  const r = await httpGet(base + path, { timeoutMs: REACHABLE_TIMEOUT_MS });
   return r.ok;
 }
 
@@ -69,7 +70,7 @@ async function embed(text: string): Promise<number[] | null> {
     "POST",
     `${OLLAMA}/api/embeddings`,
     { model: EMBED_MODEL, prompt: text.slice(0, 4000) },
-    { timeoutMs: 60_000 },
+    { timeoutMs: EMBED_TIMEOUT_MS },
   );
   const v = r.ok ? r.data?.embedding : undefined;
   return Array.isArray(v) && v.length ? v : null;
@@ -144,18 +145,18 @@ export function semanticControl(action: string): { message: string; code: number
   const file = composeFile();
 
   if (action === "down") {
-    const r = sh("docker", ["compose", "-f", file, "--profile", "all", "down"], { timeoutMs: 120_000 });
+    const r = sh("docker", ["compose", "-f", file, "--profile", "all", "down"], { timeoutMs: COMPOSE_DOWN_TIMEOUT_MS });
     return { message: r.ok ? "construct semantic: stack stopped." : `construct semantic: down failed.\n${r.stderr}`, code: r.ok ? 0 : 1 };
   }
 
   if (action === "status") {
-    const r = sh("docker", ["compose", "-f", file, "ps"], { timeoutMs: 30_000 });
+    const r = sh("docker", ["compose", "-f", file, "ps"], { timeoutMs: COMPOSE_PS_TIMEOUT_MS });
     return { message: r.ok ? r.stdout || "construct semantic: no services running." : `construct semantic: status failed.\n${r.stderr}`, code: 0 };
   }
 
-  const up = sh("docker", ["compose", "-f", file, "--profile", "all", "up", "-d"], { timeoutMs: 300_000 });
+  const up = sh("docker", ["compose", "-f", file, "--profile", "all", "up", "-d"], { timeoutMs: COMPOSE_UP_TIMEOUT_MS });
   if (!up.ok) return { message: `construct semantic: up failed.\n${up.stderr}`, code: 1 };
-  const pull = sh("docker", ["compose", "-f", file, "exec", "-T", "ollama", "ollama", "pull", EMBED_MODEL], { timeoutMs: 600_000 });
+  const pull = sh("docker", ["compose", "-f", file, "exec", "-T", "ollama", "ollama", "pull", EMBED_MODEL], { timeoutMs: OLLAMA_PULL_TIMEOUT_MS });
   const lines = [
     "construct semantic: stack is up (Qdrant :6333 · Ollama :11434 · SearXNG :8888).",
     pull.ok ? `  model:  ${EMBED_MODEL} ready` : `  model:  pull '${EMBED_MODEL}' yourself: docker compose -f ${file} exec ollama ollama pull ${EMBED_MODEL}`,

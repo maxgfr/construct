@@ -4,6 +4,7 @@ import { srdManifestPath } from "./srd.js";
 import { buildPlanPath, loadPlan } from "./plan.js";
 import { walk, readText } from "./walk.js";
 import { sh } from "./util.js";
+import { VERIFY_COMMAND_TIMEOUT_MS } from "./config.js";
 import { BUILD_PLAN_SCHEMA_VERSION } from "./types.js";
 import type { BuildPlanDoc, FrTestCoverage, SRD, VerifyResult } from "./types.js";
 
@@ -57,8 +58,8 @@ function detectCycle(plan: BuildPlanDoc): string | null {
 function runCommand(command: string, cwd: string): { command: string; ok: boolean; exitCode: number | null } {
   const r =
     process.platform === "win32"
-      ? sh("cmd", ["/c", command], { cwd, timeoutMs: 600_000 })
-      : sh("sh", ["-c", command], { cwd, timeoutMs: 600_000 });
+      ? sh("cmd", ["/c", command], { cwd, timeoutMs: VERIFY_COMMAND_TIMEOUT_MS })
+      : sh("sh", ["-c", command], { cwd, timeoutMs: VERIFY_COMMAND_TIMEOUT_MS });
   return { command, ok: r.ok, exitCode: r.status };
 }
 

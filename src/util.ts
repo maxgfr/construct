@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { SH_DEFAULT_TIMEOUT_MS } from "./config.js";
 
 // Result of a subprocess call. `ok` is true on exit code 0 with the binary
 // found; `missing` is true when the binary isn't on PATH (so callers can fall
@@ -24,7 +25,7 @@ export function sh(
     cwd: opts.cwd,
     input: opts.input,
     encoding: "utf8",
-    timeout: opts.timeoutMs ?? 120_000,
+    timeout: opts.timeoutMs ?? SH_DEFAULT_TIMEOUT_MS,
     maxBuffer: 64 * 1024 * 1024,
     env: opts.env ?? process.env,
   });

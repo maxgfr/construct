@@ -3,6 +3,7 @@ import { resolve, join, basename } from "node:path";
 import { tmpdir } from "node:os";
 import type { RepoRef } from "./types.js";
 import { sh, slugify } from "./util.js";
+import { GIT_CLONE_TIMEOUT_MS, GIT_FETCH_TIMEOUT_MS, GIT_RESET_TIMEOUT_MS } from "./config.js";
 
 // Root of the on-disk clone/index cache. Everything construct writes for a repo
 // lives under /tmp/construct/<slug>/ so repeated questions reuse the clone and
@@ -102,8 +103,8 @@ export function ensureClone(
   if (alreadyCloned && !opts.refresh) return dir;
 
   if (alreadyCloned && opts.refresh) {
-    sh("git", ["-C", dir, "fetch", "--depth", "1", "origin"], { timeoutMs: 180_000 });
-    sh("git", ["-C", dir, "reset", "--hard", "FETCH_HEAD"], { timeoutMs: 60_000 });
+    sh("git", ["-C", dir, "fetch", "--depth", "1", "origin"], { timeoutMs: GIT_FETCH_TIMEOUT_MS });
+    sh("git", ["-C", dir, "reset", "--hard", "FETCH_HEAD"], { timeoutMs: GIT_RESET_TIMEOUT_MS });
     return dir;
   }
 
@@ -112,7 +113,7 @@ export function ensureClone(
   if (opts.branch) args.push("--branch", opts.branch);
   args.push(ref.cloneUrl!, dir);
 
-  const res = sh("git", args, { timeoutMs: 300_000 });
+  const res = sh("git", args, { timeoutMs: GIT_CLONE_TIMEOUT_MS });
   if (!res.ok) {
     // The first attempt can leave a partial, non-empty dir behind; git clone
     // refuses to write into it, so the retry would fail for the wrong reason.
@@ -121,7 +122,7 @@ export function ensureClone(
     const fallback = sh(
       "git",
       ["clone", "--depth", "1", ...(opts.branch ? ["--branch", opts.branch] : []), ref.cloneUrl!, dir],
-      { timeoutMs: 300_000 },
+      { timeoutMs: GIT_CLONE_TIMEOUT_MS },
     );
     if (!fallback.ok) {
       throw new Error(
