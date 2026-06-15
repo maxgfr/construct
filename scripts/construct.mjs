@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { resolve as resolve3, join as join13 } from "path";
-import { existsSync as existsSync8, readFileSync as readFileSync7 } from "fs";
+import { resolve as resolve3, join as join14 } from "path";
+import { existsSync as existsSync9, readFileSync as readFileSync8 } from "fs";
 import { pathToFileURL, fileURLToPath as fileURLToPath2 } from "url";
 import { realpathSync } from "fs";
 
@@ -2465,6 +2465,23 @@ function computeCoverage(srd, evidence) {
 }
 var TEMPLATED_THEN_RE = /is persisted and visible to the user$/;
 var TEMPLATED_METRIC_RE = /^A measurable target for "/;
+function applySemantic(runDir, result) {
+  const p = join10(runDir, "VERIFY.json");
+  if (!existsSync5(p)) {
+    result.structural.warnings.push("--semantic: no VERIFY.json \u2014 run `construct review` then `review --apply <verdicts.json>` first; semantic gate skipped.");
+    return;
+  }
+  try {
+    const sem = JSON.parse(readFileSync4(p, "utf8"));
+    result.semantic = sem;
+    if (!sem.ok) result.ok = false;
+    if (sem.unadjudicated?.length) {
+      result.structural.warnings.push(`${sem.unadjudicated.length} claim(s) not fully adjudicated by review.`);
+    }
+  } catch (e) {
+    result.structural.warnings.push(`--semantic: VERIFY.json is unreadable (${e.message}).`);
+  }
+}
 function checkRun(runDir, opts = {}) {
   const errors = [];
   const warnings = [];
@@ -2561,7 +2578,9 @@ function checkRun(runDir, opts = {}) {
     grounding = { threshold: opts.minGrounding, actualPct, ok: actualPct >= opts.minGrounding };
   }
   const ok = structuralOk && (grounding?.ok ?? true);
-  return { ok, structural: { ok: structuralOk, errors, warnings }, coverage, grounding };
+  const result = { ok, structural: { ok: structuralOk, errors, warnings }, coverage, grounding };
+  if (opts.semantic) applySemantic(runDir, result);
+  return result;
 }
 function pct(part, total) {
   if (total === 0) return "n/a";
@@ -2590,6 +2609,14 @@ function formatCheckReport(r, runDir) {
     lines.push(
       g.ok ? `  \u2713 PASS \u2014 ${g.actualPct}% of groundable claims are grounded (threshold ${g.threshold}%)` : `  \u2717 FAIL \u2014 ${g.actualPct}% of groundable claims are grounded, below the ${g.threshold}% threshold`
     );
+  }
+  if (r.semantic) {
+    const s = r.semantic;
+    lines.push(``);
+    lines.push(`Semantic claim-support gate (--semantic):`);
+    lines.push(`  supported ${s.supported} \xB7 partial ${s.partial} \xB7 refuted ${s.refuted} \xB7 unsupported ${s.unsupported}`);
+    for (const f of s.failures.slice(0, 8)) lines.push(`  \u2717 ${f.claimId} (${f.evidenceId}): ${f.verdict}`);
+    lines.push(s.ok ? `  \u2713 PASS \u2014 every cited claim is supported by its evidence` : `  \u2717 FAIL \u2014 a claim is refuted or unsupported by its cited evidence`);
   }
   return lines.join("\n");
 }
@@ -2880,6 +2907,149 @@ function formatVerifyReport(r, runDir) {
   return lines.join("\n");
 }
 
+// src/review.ts
+import { existsSync as existsSync8, readFileSync as readFileSync7, writeFileSync as writeFileSync5 } from "fs";
+import { join as join13 } from "path";
+var REVIEW_MAX = 40;
+var VALID_VERDICTS = ["supported", "partial", "refuted", "unsupported"];
+function srdClaims(srd) {
+  const out = [];
+  for (const f of srd.functional) {
+    const ac = f.acceptance.map((a) => `${a.given} / ${a.when} / ${a.then}`).join("; ");
+    out.push({ id: f.id, kind: "FR", text: `${f.title}: ${f.description}${ac ? " \u2014 " + ac : ""}`, ev: f.rationaleEvidence });
+  }
+  for (const n of srd.nonFunctional) {
+    out.push({ id: n.id, kind: "NFR", text: `${n.category}: ${n.statement}${n.metric ? ` (${n.metric})` : ""}`, ev: n.rationaleEvidence });
+  }
+  for (const a of srd.architecture.adrs) {
+    out.push({ id: `ADR-${a.id}`, kind: "ADR", text: `${a.title}: ${a.decision}`, ev: a.evidence });
+  }
+  srd.competitive.competitors.forEach((c, i) => out.push({ id: `COMP-${i + 1}`, kind: "competitor", text: `${c.name}: ${c.note}`, ev: c.evidence }));
+  srd.competitive.oss.forEach((o, i) => out.push({ id: `OSS-${i + 1}`, kind: "oss", text: `${o.name}: ${o.note}`, ev: o.evidence }));
+  return out;
+}
+function runReview(runDir, opts = {}) {
+  const srd = JSON.parse(readFileSync7(srdManifestPath(runDir), "utf8"));
+  const evPath = join13(runDir, "evidence", "evidence.json");
+  const evidence = existsSync8(evPath) ? JSON.parse(readFileSync7(evPath, "utf8")) : [];
+  const byId = new Map(evidence.map((e) => [e.id, e]));
+  const pairs = [];
+  for (const c of srdClaims(srd)) {
+    for (const id of [...new Set(c.ev)]) {
+      const e = byId.get(id);
+      if (!e) continue;
+      pairs.push({
+        claimId: c.id,
+        kind: c.kind,
+        claim: c.text.trim().slice(0, 400),
+        evidenceId: id,
+        source: e.source,
+        digest: (e.snippet || e.title || e.ref).slice(0, 600),
+        score: e.score
+      });
+    }
+  }
+  const max = Math.max(1, Math.floor(opts.maxReview ?? REVIEW_MAX));
+  const kept = pairs.length > max ? pairs.slice().sort((a, b) => b.score - a.score || a.claimId.localeCompare(b.claimId) || a.evidenceId.localeCompare(b.evidenceId)).slice(0, max) : pairs;
+  const worklist = { run: runDir, pairs: kept.map(({ score, ...rest }) => rest) };
+  const todo = {
+    run: runDir,
+    pairs: worklist.pairs.map((p) => ({ ...p, verdict: null, note: "" }))
+  };
+  writeFileSync5(join13(runDir, "VERIFY.todo.json"), JSON.stringify(todo, null, 2));
+  writeFileSync5(join13(runDir, "VERIFY.md"), renderWorklistMd(worklist, pairs.length, kept.length));
+  return worklist;
+}
+function renderWorklistMd(wl, total, kept) {
+  const out = [];
+  out.push(`# Claim-support review worklist`);
+  out.push("");
+  out.push(
+    `For each pair, open the cited evidence and judge whether it **supports** the claim. In \`VERIFY.todo.json\`, set each \`verdict\` to one of supported \xB7 partial \xB7 refuted \xB7 unsupported, add a short \`note\`, save it (e.g. as \`verdicts.json\`), then run \`construct review --apply verdicts.json --out <run>\`.`
+  );
+  if (kept < total) out.push(`
+_Showing ${kept} of ${total} pair(s) \u2014 capped at the highest-score evidence._`);
+  out.push("");
+  for (const p of wl.pairs) {
+    out.push(`## ${p.claimId} \xB7 ${p.evidenceId} (${p.source})`);
+    out.push(`**Claim (${p.kind}):** ${p.claim}`);
+    out.push(`**Cited evidence:** ${p.digest}`);
+    out.push(`**Verdict:** _____ \xB7 **Note:** _____`);
+    out.push("");
+  }
+  return out.join("\n");
+}
+function applyVerdicts(runDir, verdictsPath) {
+  const raw = JSON.parse(readFileSync7(verdictsPath, "utf8"));
+  const list = Array.isArray(raw) ? raw : Array.isArray(raw?.pairs) ? raw.pairs : [];
+  const verdicts = [];
+  for (const v of list) {
+    if (!v || typeof v.claimId !== "string" || typeof v.evidenceId !== "string") continue;
+    const verdict = VALID_VERDICTS.includes(v.verdict) ? v.verdict : void 0;
+    verdicts.push({
+      claimId: v.claimId,
+      kind: v.kind,
+      claim: typeof v.claim === "string" ? v.claim : "",
+      evidenceId: v.evidenceId,
+      source: v.source,
+      digest: typeof v.digest === "string" ? v.digest : "",
+      verdict,
+      note: typeof v.note === "string" ? v.note : ""
+    });
+  }
+  const result = reduceVerdicts(verdicts);
+  writeFileSync5(join13(runDir, "VERIFY.json"), JSON.stringify({ ...result, verdicts }, null, 2));
+  return result;
+}
+function reduceVerdicts(verdicts) {
+  const counts = { supported: 0, partial: 0, refuted: 0, unsupported: 0 };
+  for (const v of verdicts) if (v.verdict && counts[v.verdict] !== void 0) counts[v.verdict]++;
+  const byClaim = /* @__PURE__ */ new Map();
+  for (const v of verdicts) {
+    const group = byClaim.get(v.claimId) ?? [];
+    group.push(v);
+    byClaim.set(v.claimId, group);
+  }
+  const failures = [];
+  const unadjudicated = [];
+  for (const [claimId, group] of byClaim) {
+    const adjudicated = group.filter((g) => !!g.verdict);
+    if (adjudicated.length < group.length) unadjudicated.push(claimId);
+    const refuted = adjudicated.find((g) => g.verdict === "refuted");
+    const hasSupport = adjudicated.some((g) => g.verdict === "supported" || g.verdict === "partial");
+    if (refuted) {
+      failures.push({ claimId, evidenceId: refuted.evidenceId, verdict: "refuted", note: refuted.note });
+    } else if (adjudicated.length === group.length && adjudicated.length > 0 && !hasSupport) {
+      const u = adjudicated.find((g) => g.verdict === "unsupported") ?? adjudicated[0];
+      failures.push({ claimId, evidenceId: u.evidenceId, verdict: u.verdict, note: u.note });
+    }
+  }
+  return {
+    ok: failures.length === 0,
+    pairs: verdicts.length,
+    adjudicated: verdicts.filter((v) => !!v.verdict).length,
+    supported: counts.supported,
+    partial: counts.partial,
+    refuted: counts.refuted,
+    unsupported: counts.unsupported,
+    failures,
+    unadjudicated
+  };
+}
+function formatReviewReport(r) {
+  const lines = [];
+  lines.push(`construct review: ${r.adjudicated}/${r.pairs} pair(s) adjudicated`);
+  lines.push(`  supported: ${r.supported} \xB7 partial: ${r.partial} \xB7 refuted: ${r.refuted} \xB7 unsupported: ${r.unsupported}`);
+  for (const f of r.failures.slice(0, 12)) {
+    lines.push(`  \u2717 ${f.claimId} (${f.evidenceId}): ${f.verdict}${f.note ? " \u2014 " + f.note : ""}`);
+  }
+  if (r.unadjudicated.length) {
+    lines.push(`  \u26A0 ${r.unadjudicated.length} claim(s) not fully adjudicated: ${r.unadjudicated.join(", ")}`);
+  }
+  lines.push(r.ok ? `  \u2713 every grounded claim is backed by its cited evidence` : `  \u2717 some claims are refuted or unsupported`);
+  return lines.join("\n");
+}
+
 // src/cli.ts
 var HELP = `construct v${VERSION}
 Turn a product idea into a grounded, buildable SRD suite. Interview \u2192 research
@@ -2892,7 +3062,8 @@ Usage:
   construct analyze  --out <run> [--json]
   construct web|oss|tech|so --out <run> [--q "<focus>"] [--url <u,...>] [--seeds <u,...>]
   construct render   --out <run> [--level light|complex] [--merge]
-  construct check    --out <run> [--min-grounding <0-100>] [--json]
+  construct check    --out <run> [--min-grounding <0-100>] [--semantic] [--json]
+  construct review   --out <run> [--apply <verdicts.json>] [--json]
   construct verify   --out <run> [--app <dir>] [--run-tests] [--strict] [--json]
   construct status   --out <run>
   construct semantic up|down|status
@@ -2905,6 +3076,11 @@ Commands:
   tech       Drill tech docs + StackOverflow.   so    Drill StackOverflow only.
   render     Render the SRD tree + SRD.json from brief.json + the dossier.
   check      Hard structural gate + advisory grounding-coverage report.
+             --semantic also folds in the review verdicts (fails on a claim its
+             cited evidence does not support).
+  review     Emit a claim\u2194evidence worklist for adversarial support-checking,
+             then (--apply <verdicts.json>) gate on refuted/unsupported claims.
+             Mechanizes the manual adversarial-review of SRD grounding.
   verify     Check a built app against BUILD-PLAN.json + the SRD (static by
              default; --run-tests executes the declared test commands).
   status     Show what exists in a run (brief / evidence / SRD / check).
@@ -2920,6 +3096,8 @@ Options:
   --docs-url <u,...>   For 'tech'/'research': docs page(s) to fetch + ground directly
   --level <l>          light | complex                           (default: light)
   --min-grounding <n>  For 'check': fail unless \u2265 n% of claims are grounded (opt-in)
+  --semantic           For 'check': fold in the 'review' claim-support verdicts
+  --apply <file>       For 'review': consume an adjudicated verdicts file + gate
   --app <dir>          For 'verify': the built app directory (default: conventions.appDir)
   --run-tests          For 'verify': also execute testCommand + per-task verify commands
   --strict             For 'verify': a built must-have FR with no referencing test FAILS
@@ -2938,7 +3116,7 @@ Workflow:
   construct render --out ./my-idea --level complex # writes the SRD tree
   construct check --out ./my-idea                 # structural gate + coverage report
 `;
-var COMMANDS = /* @__PURE__ */ new Set(["init", "research", "analyze", "web", "oss", "tech", "so", "render", "check", "verify", "status", "semantic"]);
+var COMMANDS = /* @__PURE__ */ new Set(["init", "research", "analyze", "web", "oss", "tech", "so", "render", "check", "verify", "review", "status", "semantic"]);
 var VALUE_FLAGS = /* @__PURE__ */ new Set([
   "idea",
   "out",
@@ -2954,7 +3132,9 @@ var VALUE_FLAGS = /* @__PURE__ */ new Set([
   "per-source",
   "source",
   "min-grounding",
-  "app"
+  "app",
+  "apply",
+  "max-review"
 ]);
 var BOOL_FLAGS = /* @__PURE__ */ new Set(["semantic", "merge", "json", "refresh", "run-tests", "strict"]);
 function fail(message) {
@@ -3174,7 +3354,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
         [
           `construct: rendered the ${level} SRD for "${brief.idea}"`,
           `  files:    ${r.files.length} (${r.srd.functional.length} FR \xB7 ${r.srd.nonFunctional.length} NFR \xB7 ${r.srd.architecture.adrs.length} ADR)`,
-          `  manifest: ${join13(out, "SRD.json")}`,
+          `  manifest: ${join14(out, "SRD.json")}`,
           `  next:     construct check --out ${out}`
         ].join("\n") + "\n"
       );
@@ -3199,13 +3379,36 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
           fail("invalid --min-grounding (expected a number between 0 and 100)");
         }
       }
-      const res = checkRun(out, { minGrounding });
+      const res = checkRun(out, { minGrounding, semantic: p.bools.has("semantic") });
       if (p.bools.has("json")) {
         process.stdout.write(JSON.stringify(res, null, 2) + "\n");
       } else {
         process.stdout.write(formatCheckReport(res, out) + "\n");
       }
       if (!res.ok) process.exit(1);
+      return;
+    }
+    case "review": {
+      const out = requireOut(p);
+      if (p.values.apply) {
+        const res = applyVerdicts(out, resolve3(p.values.apply));
+        if (p.bools.has("json")) process.stdout.write(JSON.stringify(res, null, 2) + "\n");
+        else process.stdout.write(formatReviewReport(res) + "\n");
+        if (!res.ok) process.exit(1);
+        return;
+      }
+      const maxReview = p.values["max-review"] ? Number(p.values["max-review"]) : REVIEW_MAX;
+      if (!Number.isFinite(maxReview) || maxReview <= 0) fail("invalid --max-review");
+      const wl = runReview(out, { maxReview });
+      if (p.bools.has("json")) {
+        process.stdout.write(JSON.stringify(wl, null, 2) + "\n");
+        return;
+      }
+      process.stderr.write(
+        `construct: ${wl.pairs.length} claim\u2194evidence pair(s) \u2192 ${out}/VERIFY.md & VERIFY.todo.json
+  adjudicate each verdict, save as verdicts.json, then: construct review --apply verdicts.json --out ${out}
+`
+      );
       return;
     }
     case "verify": {
@@ -3225,7 +3428,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
     }
     case "status": {
       const out = requireOut(p);
-      const has = (rel) => existsSync8(join13(out, rel)) ? "\u2713" : "\xB7";
+      const has = (rel) => existsSync9(join14(out, rel)) ? "\u2713" : "\xB7";
       const plan = loadPlan(out);
       const planLine = plan ? `  \u2713 BUILD-PLAN.json (build: ${plan.tasks.filter((t) => t.status === "done").length}/${plan.tasks.length} tasks done)` : `  \xB7 BUILD-PLAN.json (build plan)`;
       process.stdout.write(
@@ -3250,10 +3453,10 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
   }
 }
 function loadEvidence3(runDir) {
-  const path = join13(runDir, "evidence", "evidence.json");
-  if (!existsSync8(path)) return [];
+  const path = join14(runDir, "evidence", "evidence.json");
+  if (!existsSync9(path)) return [];
   try {
-    const data = JSON.parse(readFileSync7(path, "utf8"));
+    const data = JSON.parse(readFileSync8(path, "utf8"));
     return Array.isArray(data) ? data.filter(isEvidenceItem) : [];
   } catch {
     return [];
