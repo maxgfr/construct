@@ -3,7 +3,7 @@ import type { Stats } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { srdManifestPath } from "./srd.js";
 import { REQUIRED_NFR } from "./types.js";
-import type { CheckResult, SRD, EvidenceItem, CoverageReport } from "./types.js";
+import type { CheckResult, SRD, EvidenceItem, CoverageReport, ClaimVerifyResult } from "./types.js";
 
 const REQUIRED_FILES = [
   "00-overview/VISION.md",
@@ -124,10 +124,34 @@ function computeCoverage(srd: SRD, evidence: EvidenceItem[]): CoverageReport & {
 const TEMPLATED_THEN_RE = /is persisted and visible to the user$/;
 const TEMPLATED_METRIC_RE = /^A measurable target for "/;
 
+// Fold the resolved claim-support record (VERIFY.json, written by `review
+// --apply`) into a check result when `--semantic` is requested. Strictly
+// additive: it can only ADD a failure (a refuted/unsupported claim), never relax
+// the structural gate. Missing VERIFY.json warns (run `review` first), never fails.
+function applySemantic(runDir: string, result: CheckResult): void {
+  const p = join(runDir, "VERIFY.json");
+  if (!existsSync(p)) {
+    result.structural.warnings.push("--semantic: no VERIFY.json — run `construct review` then `review --apply <verdicts.json>` first; semantic gate skipped.");
+    return;
+  }
+  try {
+    const sem = JSON.parse(readFileSync(p, "utf8")) as ClaimVerifyResult;
+    result.semantic = sem;
+    if (!sem.ok) result.ok = false;
+    if (sem.unadjudicated?.length) {
+      result.structural.warnings.push(`${sem.unadjudicated.length} claim(s) not fully adjudicated by review.`);
+    }
+  } catch (e) {
+    result.structural.warnings.push(`--semantic: VERIFY.json is unreadable (${(e as Error).message}).`);
+  }
+}
+
 // The dual gate. `ok` reflects the hard structural/buildability gate, AND the
 // opt-in grounding threshold when the caller passes `minGrounding` (the
-// advisory coverage report itself never flips `ok`).
-export function checkRun(runDir: string, opts: { minGrounding?: number } = {}): CheckResult {
+// advisory coverage report itself never flips `ok`). With `opts.semantic`, ALSO
+// folds in the VERIFY.json claim-support verdicts (fails on a refuted/unsupported
+// claim) — additive: plain `check` (no opts) is byte-for-byte unchanged.
+export function checkRun(runDir: string, opts: { minGrounding?: number; semantic?: boolean } = {}): CheckResult {
   const errors: string[] = [];
   const warnings: string[] = [];
 
@@ -255,7 +279,9 @@ export function checkRun(runDir: string, opts: { minGrounding?: number } = {}): 
   }
 
   const ok = structuralOk && (grounding?.ok ?? true);
-  return { ok, structural: { ok: structuralOk, errors, warnings }, coverage, grounding };
+  const result: CheckResult = { ok, structural: { ok: structuralOk, errors, warnings }, coverage, grounding };
+  if (opts.semantic) applySemantic(runDir, result);
+  return result;
 }
 
 function pct(part: number, total: number): string {
@@ -288,6 +314,14 @@ export function formatCheckReport(r: CheckResult, runDir: string): string {
         ? `  ✓ PASS — ${g.actualPct}% of groundable claims are grounded (threshold ${g.threshold}%)`
         : `  ✗ FAIL — ${g.actualPct}% of groundable claims are grounded, below the ${g.threshold}% threshold`,
     );
+  }
+  if (r.semantic) {
+    const s = r.semantic;
+    lines.push(``);
+    lines.push(`Semantic claim-support gate (--semantic):`);
+    lines.push(`  supported ${s.supported} · partial ${s.partial} · refuted ${s.refuted} · unsupported ${s.unsupported}`);
+    for (const f of s.failures.slice(0, 8)) lines.push(`  ✗ ${f.claimId} (${f.evidenceId}): ${f.verdict}`);
+    lines.push(s.ok ? `  ✓ PASS — every cited claim is supported by its evidence` : `  ✗ FAIL — a claim is refuted or unsupported by its cited evidence`);
   }
   return lines.join("\n");
 }

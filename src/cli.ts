@@ -17,6 +17,7 @@ import { renderSRD } from "./render.js";
 import { checkRun, formatCheckReport } from "./check.js";
 import { analyzeRun, formatGapReport } from "./analyze.js";
 import { verifyRun, formatVerifyReport } from "./verify.js";
+import { runReview, applyVerdicts, formatReviewReport, REVIEW_MAX } from "./review.js";
 import { loadPlan } from "./plan.js";
 import { semanticControl } from "./research/semantic.js";
 
@@ -31,7 +32,8 @@ Usage:
   construct analyze  --out <run> [--json]
   construct web|oss|tech|so --out <run> [--q "<focus>"] [--url <u,...>] [--seeds <u,...>]
   construct render   --out <run> [--level light|complex] [--merge]
-  construct check    --out <run> [--min-grounding <0-100>] [--json]
+  construct check    --out <run> [--min-grounding <0-100>] [--semantic] [--json]
+  construct review   --out <run> [--apply <verdicts.json>] [--json]
   construct verify   --out <run> [--app <dir>] [--run-tests] [--strict] [--json]
   construct status   --out <run>
   construct semantic up|down|status
@@ -44,6 +46,11 @@ Commands:
   tech       Drill tech docs + StackOverflow.   so    Drill StackOverflow only.
   render     Render the SRD tree + SRD.json from brief.json + the dossier.
   check      Hard structural gate + advisory grounding-coverage report.
+             --semantic also folds in the review verdicts (fails on a claim its
+             cited evidence does not support).
+  review     Emit a claim↔evidence worklist for adversarial support-checking,
+             then (--apply <verdicts.json>) gate on refuted/unsupported claims.
+             Mechanizes the manual adversarial-review of SRD grounding.
   verify     Check a built app against BUILD-PLAN.json + the SRD (static by
              default; --run-tests executes the declared test commands).
   status     Show what exists in a run (brief / evidence / SRD / check).
@@ -59,6 +66,8 @@ Options:
   --docs-url <u,...>   For 'tech'/'research': docs page(s) to fetch + ground directly
   --level <l>          light | complex                           (default: light)
   --min-grounding <n>  For 'check': fail unless ≥ n% of claims are grounded (opt-in)
+  --semantic           For 'check': fold in the 'review' claim-support verdicts
+  --apply <file>       For 'review': consume an adjudicated verdicts file + gate
   --app <dir>          For 'verify': the built app directory (default: conventions.appDir)
   --run-tests          For 'verify': also execute testCommand + per-task verify commands
   --strict             For 'verify': a built must-have FR with no referencing test FAILS
@@ -78,7 +87,7 @@ Workflow:
   construct check --out ./my-idea                 # structural gate + coverage report
 `;
 
-const COMMANDS = new Set(["init", "research", "analyze", "web", "oss", "tech", "so", "render", "check", "verify", "status", "semantic"]);
+const COMMANDS = new Set(["init", "research", "analyze", "web", "oss", "tech", "so", "render", "check", "verify", "review", "status", "semantic"]);
 const VALUE_FLAGS = new Set([
   "idea",
   "out",
@@ -95,6 +104,8 @@ const VALUE_FLAGS = new Set([
   "source",
   "min-grounding",
   "app",
+  "apply",
+  "max-review",
 ]);
 const BOOL_FLAGS = new Set(["semantic", "merge", "json", "refresh", "run-tests", "strict"]);
 
@@ -371,13 +382,36 @@ async function main(): Promise<void> {
           fail("invalid --min-grounding (expected a number between 0 and 100)");
         }
       }
-      const res = checkRun(out, { minGrounding });
+      const res = checkRun(out, { minGrounding, semantic: p.bools.has("semantic") });
       if (p.bools.has("json")) {
         process.stdout.write(JSON.stringify(res, null, 2) + "\n");
       } else {
         process.stdout.write(formatCheckReport(res, out) + "\n");
       }
       if (!res.ok) process.exit(1);
+      return;
+    }
+
+    case "review": {
+      const out = requireOut(p);
+      if (p.values.apply) {
+        const res = applyVerdicts(out, resolve(p.values.apply));
+        if (p.bools.has("json")) process.stdout.write(JSON.stringify(res, null, 2) + "\n");
+        else process.stdout.write(formatReviewReport(res) + "\n");
+        if (!res.ok) process.exit(1);
+        return;
+      }
+      const maxReview = p.values["max-review"] ? Number(p.values["max-review"]) : REVIEW_MAX;
+      if (!Number.isFinite(maxReview) || maxReview <= 0) fail("invalid --max-review");
+      const wl = runReview(out, { maxReview });
+      if (p.bools.has("json")) {
+        process.stdout.write(JSON.stringify(wl, null, 2) + "\n");
+        return;
+      }
+      process.stderr.write(
+        `construct: ${wl.pairs.length} claim↔evidence pair(s) → ${out}/VERIFY.md & VERIFY.todo.json\n` +
+          `  adjudicate each verdict, save as verdicts.json, then: construct review --apply verdicts.json --out ${out}\n`,
+      );
       return;
     }
 

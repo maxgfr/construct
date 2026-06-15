@@ -280,6 +280,50 @@ export interface CheckResult {
   // Present ONLY when the caller opted into a grounding threshold
   // (`check --min-grounding N`). The advisory default is unchanged without it.
   grounding?: { threshold: number; actualPct: number; ok: boolean };
+  // Present ONLY with `check --semantic` (folds the `review` verdicts). Fails the
+  // gate on a refuted/unsupported claim. Undefined — and `ok` unchanged — without it.
+  semantic?: ClaimVerifyResult;
+}
+
+// ---------------------------------------------------------------------------
+// Semantic claim-support review. The structural gate proves an SRD is complete
+// and the coverage report counts which claims CITE evidence — but neither proves
+// the cited evidence actually SUPPORTS the claim (today that's the manual
+// adversarial review). `construct review` emits ClaimEvidencePair[] — a
+// deterministic worklist over the SRD's grounded claims; an agent fills a
+// ClaimVerdict per pair; `review --apply` / `check --semantic` then FAIL on a
+// refuted/unsupported claim. (Distinct from `verify`/VerifyResult, which referee
+// the BUILT app against BUILD-PLAN.json — a different gate.)
+// ---------------------------------------------------------------------------
+export type VerdictKind = "supported" | "partial" | "refuted" | "unsupported";
+
+// One grounded SRD claim paired with one evidence item it cites + that item's
+// snippet, for an agent to adjudicate.
+export interface ClaimEvidencePair {
+  claimId: string; // FR-001 / NFR-001 / ADR-0001 / COMP-1 / OSS-1
+  kind: "FR" | "NFR" | "ADR" | "competitor" | "oss";
+  claim: string; // the claim text (capped)
+  evidenceId: string; // the cited [E#]
+  source: SourceKind;
+  digest: string; // the cited item's snippet
+}
+
+export interface ClaimVerdict extends ClaimEvidencePair {
+  verdict: VerdictKind;
+  note: string;
+}
+
+export interface ClaimVerifyResult {
+  ok: boolean; // false when any claim is refuted/unsupported
+  pairs: number;
+  adjudicated: number;
+  supported: number;
+  partial: number;
+  refuted: number;
+  unsupported: number;
+  failures: { claimId: string; evidenceId: string; verdict: VerdictKind; note: string }[];
+  unadjudicated: string[];
+  verdicts?: ClaimVerdict[];
 }
 
 // ---------------------------------------------------------------------------
