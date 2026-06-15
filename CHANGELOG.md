@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [1.3.0](https://github.com/maxgfr/construct/compare/v1.2.0...v1.3.0) (2026-06-15)
+
+
+### Features
+
+* semantic claim-support gate — review + check --semantic ([#8](https://github.com/maxgfr/construct/issues/8)) ([129cf31](https://github.com/maxgfr/construct/commit/129cf317a11c58f436938d9fa1b3e2ffcddda474))
+
 # [1.2.0](https://github.com/maxgfr/construct/compare/v1.1.0...v1.2.0) (2026-06-11)
 
 
