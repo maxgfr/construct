@@ -144,6 +144,41 @@ export function mergePlan(prev: BuildPlanDoc | null, next: BuildPlanDoc): BuildP
   };
 }
 
+export interface ReadyFrontier {
+  product: string;
+  done: number;
+  total: number;
+  tasks: { id: string; milestone: string; status: TaskStatus; dependsOn: string[]; ready: boolean }[];
+  frontier: string[]; // ids buildable right now (not done, every dep done)
+  blocked: { id: string; waitingOn: string[] }[]; // not-done tasks with unmet deps
+}
+
+// Which tasks are buildable RIGHT NOW? A task is ready when it is not done and
+// every `dependsOn` is done. Within a milestone, derivePlan adds no edges
+// between tasks, so a milestone's ready set is independent — safe to fan out in
+// parallel (see references/build-playbook.md "Parallel build within a
+// milestone"). Pure and deterministic — no I/O, no clock — so the bundle stays
+// reproducible. The engine answers "what is graph-ready"; the agent decides
+// which of those are file-safe to run together.
+export function readyFrontier(plan: BuildPlanDoc): ReadyFrontier {
+  const done = new Set(plan.tasks.filter((t) => t.status === "done").map((t) => t.id));
+  const tasks = plan.tasks.map((t) => ({
+    id: t.id,
+    milestone: t.milestone,
+    status: t.status,
+    dependsOn: t.dependsOn,
+    ready: t.status !== "done" && t.dependsOn.every((d) => done.has(d)),
+  }));
+  return {
+    product: plan.product,
+    done: done.size,
+    total: plan.tasks.length,
+    tasks,
+    frontier: tasks.filter((t) => t.ready).map((t) => t.id),
+    blocked: tasks.filter((t) => t.status !== "done" && !t.ready).map((t) => ({ id: t.id, waitingOn: t.dependsOn.filter((d) => !done.has(d)) })),
+  };
+}
+
 export function loadPlan(runDir: string): BuildPlanDoc | null {
   const path = buildPlanPath(runDir);
   if (!existsSync(path)) return null;

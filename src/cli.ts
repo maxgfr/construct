@@ -18,7 +18,7 @@ import { checkRun, formatCheckReport } from "./check.js";
 import { analyzeRun, formatGapReport } from "./analyze.js";
 import { verifyRun, formatVerifyReport } from "./verify.js";
 import { runReview, applyVerdicts, formatReviewReport, REVIEW_MAX } from "./review.js";
-import { loadPlan } from "./plan.js";
+import { loadPlan, readyFrontier } from "./plan.js";
 import { semanticControl } from "./research/semantic.js";
 
 const HELP = `construct v${VERSION}
@@ -33,9 +33,9 @@ Usage:
   construct web|oss|tech|so --out <run> [--q "<focus>"] [--url <u,...>] [--seeds <u,...>]
   construct render   --out <run> [--level light|complex] [--merge]
   construct check    --out <run> [--min-grounding <0-100>] [--semantic] [--json]
-  construct review   --out <run> [--apply <verdicts.json>] [--json]
+  construct review   --out <run> [--apply <verdicts.json>] [--max-review N] [--json]
   construct verify   --out <run> [--app <dir>] [--run-tests] [--strict] [--json]
-  construct status   --out <run>
+  construct status   --out <run> [--json]
   construct semantic up|down|status
 
 Commands:
@@ -433,8 +433,15 @@ async function main(): Promise<void> {
 
     case "status": {
       const out = requireOut(p);
-      const has = (rel: string) => (existsSync(join(out, rel)) ? "✓" : "·");
       const plan = loadPlan(out);
+      if (p.bools.has("json")) {
+        // The build frontier — buildable tasks now, blocked tasks and what they
+        // wait on. Lets the orchestrator fan out a milestone without eyeballing
+        // the DAG (references/build-playbook.md). null when no plan exists yet.
+        process.stdout.write(JSON.stringify(plan ? readyFrontier(plan) : null, null, 2) + "\n");
+        return;
+      }
+      const has = (rel: string) => (existsSync(join(out, rel)) ? "✓" : "·");
       const planLine = plan
         ? `  ✓ BUILD-PLAN.json (build: ${plan.tasks.filter((t) => t.status === "done").length}/${plan.tasks.length} tasks done)`
         : `  · BUILD-PLAN.json (build plan)`;

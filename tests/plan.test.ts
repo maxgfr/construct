@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildSRD } from "../src/srd.js";
-import { derivePlan, mergePlan, loadPlan, writePlan, buildPlanPath } from "../src/plan.js";
+import { derivePlan, mergePlan, loadPlan, writePlan, buildPlanPath, readyFrontier } from "../src/plan.js";
 import { renderSRD } from "../src/render.js";
 import type { Brief, BuildPlanDoc, EvidenceItem } from "../src/types.js";
 
@@ -135,6 +135,43 @@ describe("render writes BUILD-PLAN.json and preserves it across re-renders", () 
     renderSRD(brief, evidence, { level: "complex", out: a, merge: false, generatedAt: "T" });
     renderSRD(brief, evidence, { level: "complex", out: b, merge: false, generatedAt: "T" });
     expect(readFileSync(buildPlanPath(a), "utf8")).toBe(readFileSync(buildPlanPath(b), "utf8"));
+  });
+});
+
+describe("readyFrontier — the buildable set", () => {
+  it("exposes only T-000 until the skeleton is done", () => {
+    const plan = derivePlan(srd());
+    const f = readyFrontier(plan);
+    expect(f.frontier).toEqual(["T-000"]);
+    expect(f.total).toBe(plan.tasks.length);
+    expect(f.done).toBe(0);
+    // every FR task is blocked, waiting on the skeleton
+    expect(f.blocked.find((b) => b.id === "T-001")!.waitingOn).toContain("T-000");
+  });
+
+  it("opens same-milestone tasks in parallel once T-000 is done, but holds entity-dependent ones", () => {
+    const plan = derivePlan(srd());
+    plan.tasks.find((t) => t.id === "T-000")!.status = "done";
+    const f = readyFrontier(plan);
+    const t1 = plan.tasks.find((t) => t.frIds.includes("FR-001"))!;
+    const t2 = plan.tasks.find((t) => t.frIds.includes("FR-002"))!;
+    // FR-001 and FR-002 are both must-haves (M1) depending only on T-000 → both ready in parallel
+    expect(f.frontier).toContain(t1.id);
+    expect(f.frontier).toContain(t2.id);
+    // FR-003 (should) carries an entity edge to FR-001 → blocked until FR-001 is done
+    const t3 = plan.tasks.find((t) => t.frIds.includes("FR-003"))!;
+    expect(f.frontier).not.toContain(t3.id);
+    expect(f.blocked.find((b) => b.id === t3.id)!.waitingOn).toContain(t1.id);
+    expect(f.done).toBe(1);
+  });
+
+  it("drops done tasks from the frontier and clears blocked when all are done", () => {
+    const plan = derivePlan(srd());
+    for (const t of plan.tasks) t.status = "done";
+    const f = readyFrontier(plan);
+    expect(f.frontier).toEqual([]);
+    expect(f.blocked).toEqual([]);
+    expect(f.done).toBe(f.total);
   });
 });
 
