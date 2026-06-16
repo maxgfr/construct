@@ -39,7 +39,16 @@ function srdClaims(srd: SRD): { id: string; kind: ClaimEvidencePair["kind"]; tex
 // SUPPORTS the claim. Deterministic; the JUDGEMENT is the agent's. Capped at the
 // highest-score evidence. Writes VERIFY.todo.json + VERIFY.md.
 export function runReview(runDir: string, opts: { maxReview?: number } = {}): ReviewWorklist {
-  const srd = JSON.parse(readFileSync(srdManifestPath(runDir), "utf8")) as SRD;
+  // Guard the manifest like check/verify do, so a missing/un-rendered run yields
+  // a clean domain message ("No SRD.json …") instead of leaking a raw fs ENOENT.
+  const manifest = srdManifestPath(runDir);
+  if (!existsSync(manifest)) throw new Error(`No SRD.json in ${runDir} — render the SRD first (construct render).`);
+  let srd: SRD;
+  try {
+    srd = JSON.parse(readFileSync(manifest, "utf8")) as SRD;
+  } catch (e) {
+    throw new Error(`SRD.json is unreadable: ${(e as Error).message}`);
+  }
   const evPath = join(runDir, "evidence", "evidence.json");
   const evidence: EvidenceItem[] = existsSync(evPath) ? JSON.parse(readFileSync(evPath, "utf8")) : [];
   const byId = new Map(evidence.map((e) => [e.id, e] as const));
@@ -106,10 +115,29 @@ function renderWorklistMd(wl: ReviewWorklist, total: number, kept: number): stri
 // object or a bare array), validate it, reduce to a ClaimVerifyResult, and
 // persist VERIFY.json (read by `check --semantic`).
 export function applyVerdicts(runDir: string, verdictsPath: string): ClaimVerifyResult {
-  const raw = JSON.parse(readFileSync(verdictsPath, "utf8"));
-  const list: any[] = Array.isArray(raw) ? raw : Array.isArray(raw?.pairs) ? raw.pairs : [];
+  if (!existsSync(verdictsPath)) throw new Error(`verdicts file not found: ${verdictsPath}`);
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(verdictsPath, "utf8"));
+  } catch (e) {
+    throw new Error(`verdicts file is not valid JSON (${verdictsPath}): ${(e as Error).message}`);
+  }
+  // Accept a bare array of verdicts or { pairs: [...] }. Reject any other shape
+  // LOUDLY: a stray number/object would otherwise silently reduce to a vacuous
+  // 0-pair "pass" and overwrite a good VERIFY.json — a dangerous footgun.
+  const list: ClaimVerdict[] | null = Array.isArray(raw)
+    ? (raw as ClaimVerdict[])
+    : raw && typeof raw === "object" && Array.isArray((raw as { pairs?: unknown }).pairs)
+      ? (raw as { pairs: ClaimVerdict[] }).pairs
+      : null;
+  if (list === null) {
+    throw new Error(`verdicts file must be a JSON array of verdicts or an object with a "pairs" array (${verdictsPath}).`);
+  }
+
   const verdicts: ClaimVerdict[] = [];
-  for (const v of list) {
+  const seen = new Set<string>();
+  const key = (claimId: string, evidenceId: string) => `${claimId}::${evidenceId}`;
+  for (const v of list as any[]) {
     if (!v || typeof v.claimId !== "string" || typeof v.evidenceId !== "string") continue;
     const verdict = VALID_VERDICTS.includes(v.verdict) ? (v.verdict as VerdictKind) : (undefined as unknown as VerdictKind);
     verdicts.push({
@@ -122,7 +150,37 @@ export function applyVerdicts(runDir: string, verdictsPath: string): ClaimVerify
       verdict,
       note: typeof v.note === "string" ? v.note : "",
     });
+    seen.add(key(v.claimId, v.evidenceId));
   }
+
+  // Cross-reference the worklist (VERIFY.todo.json): a claim↔evidence pair DROPPED
+  // from the verdicts file is surfaced as unadjudicated, never silently passed —
+  // omitting a load-bearing pair must not read as "every cited claim supported".
+  const todoPath = join(runDir, "VERIFY.todo.json");
+  if (existsSync(todoPath)) {
+    try {
+      const todo = JSON.parse(readFileSync(todoPath, "utf8")) as { pairs?: ClaimEvidencePair[] };
+      for (const p of todo.pairs ?? []) {
+        if (!p || typeof p.claimId !== "string" || typeof p.evidenceId !== "string") continue;
+        if (seen.has(key(p.claimId, p.evidenceId))) continue;
+        verdicts.push({
+          claimId: p.claimId,
+          kind: p.kind,
+          claim: p.claim ?? "",
+          evidenceId: p.evidenceId,
+          source: p.source,
+          digest: p.digest ?? "",
+          verdict: undefined as unknown as VerdictKind,
+          note: "",
+        });
+        seen.add(key(p.claimId, p.evidenceId));
+      }
+    } catch {
+      // A corrupt worklist must not block applying real verdicts — reduce over
+      // what was provided.
+    }
+  }
+
   const result = reduceVerdicts(verdicts);
   writeFileSync(join(runDir, "VERIFY.json"), JSON.stringify({ ...result, verdicts }, null, 2));
   return result;

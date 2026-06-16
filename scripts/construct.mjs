@@ -2101,6 +2101,24 @@ function mergePlan(prev, next) {
     tasks
   };
 }
+function readyFrontier(plan) {
+  const done = new Set(plan.tasks.filter((t) => t.status === "done").map((t) => t.id));
+  const tasks = plan.tasks.map((t) => ({
+    id: t.id,
+    milestone: t.milestone,
+    status: t.status,
+    dependsOn: t.dependsOn,
+    ready: t.status !== "done" && t.dependsOn.every((d) => done.has(d))
+  }));
+  return {
+    product: plan.product,
+    done: done.size,
+    total: plan.tasks.length,
+    tasks,
+    frontier: tasks.filter((t) => t.ready).map((t) => t.id),
+    blocked: tasks.filter((t) => t.status !== "done" && !t.ready).map((t) => ({ id: t.id, waitingOn: t.dependsOn.filter((d) => !done.has(d)) }))
+  };
+}
 function loadPlan(runDir) {
   const path = buildPlanPath(runDir);
   if (!existsSync4(path)) return null;
@@ -2929,7 +2947,14 @@ function srdClaims(srd) {
   return out;
 }
 function runReview(runDir, opts = {}) {
-  const srd = JSON.parse(readFileSync7(srdManifestPath(runDir), "utf8"));
+  const manifest = srdManifestPath(runDir);
+  if (!existsSync8(manifest)) throw new Error(`No SRD.json in ${runDir} \u2014 render the SRD first (construct render).`);
+  let srd;
+  try {
+    srd = JSON.parse(readFileSync7(manifest, "utf8"));
+  } catch (e) {
+    throw new Error(`SRD.json is unreadable: ${e.message}`);
+  }
   const evPath = join13(runDir, "evidence", "evidence.json");
   const evidence = existsSync8(evPath) ? JSON.parse(readFileSync7(evPath, "utf8")) : [];
   const byId = new Map(evidence.map((e) => [e.id, e]));
@@ -2980,9 +3005,20 @@ _Showing ${kept} of ${total} pair(s) \u2014 capped at the highest-score evidence
   return out.join("\n");
 }
 function applyVerdicts(runDir, verdictsPath) {
-  const raw = JSON.parse(readFileSync7(verdictsPath, "utf8"));
-  const list = Array.isArray(raw) ? raw : Array.isArray(raw?.pairs) ? raw.pairs : [];
+  if (!existsSync8(verdictsPath)) throw new Error(`verdicts file not found: ${verdictsPath}`);
+  let raw;
+  try {
+    raw = JSON.parse(readFileSync7(verdictsPath, "utf8"));
+  } catch (e) {
+    throw new Error(`verdicts file is not valid JSON (${verdictsPath}): ${e.message}`);
+  }
+  const list = Array.isArray(raw) ? raw : raw && typeof raw === "object" && Array.isArray(raw.pairs) ? raw.pairs : null;
+  if (list === null) {
+    throw new Error(`verdicts file must be a JSON array of verdicts or an object with a "pairs" array (${verdictsPath}).`);
+  }
   const verdicts = [];
+  const seen = /* @__PURE__ */ new Set();
+  const key = (claimId, evidenceId) => `${claimId}::${evidenceId}`;
   for (const v of list) {
     if (!v || typeof v.claimId !== "string" || typeof v.evidenceId !== "string") continue;
     const verdict = VALID_VERDICTS.includes(v.verdict) ? v.verdict : void 0;
@@ -2996,6 +3032,29 @@ function applyVerdicts(runDir, verdictsPath) {
       verdict,
       note: typeof v.note === "string" ? v.note : ""
     });
+    seen.add(key(v.claimId, v.evidenceId));
+  }
+  const todoPath = join13(runDir, "VERIFY.todo.json");
+  if (existsSync8(todoPath)) {
+    try {
+      const todo = JSON.parse(readFileSync7(todoPath, "utf8"));
+      for (const p of todo.pairs ?? []) {
+        if (!p || typeof p.claimId !== "string" || typeof p.evidenceId !== "string") continue;
+        if (seen.has(key(p.claimId, p.evidenceId))) continue;
+        verdicts.push({
+          claimId: p.claimId,
+          kind: p.kind,
+          claim: p.claim ?? "",
+          evidenceId: p.evidenceId,
+          source: p.source,
+          digest: p.digest ?? "",
+          verdict: void 0,
+          note: ""
+        });
+        seen.add(key(p.claimId, p.evidenceId));
+      }
+    } catch {
+    }
   }
   const result = reduceVerdicts(verdicts);
   writeFileSync5(join13(runDir, "VERIFY.json"), JSON.stringify({ ...result, verdicts }, null, 2));
@@ -3063,9 +3122,9 @@ Usage:
   construct web|oss|tech|so --out <run> [--q "<focus>"] [--url <u,...>] [--seeds <u,...>]
   construct render   --out <run> [--level light|complex] [--merge]
   construct check    --out <run> [--min-grounding <0-100>] [--semantic] [--json]
-  construct review   --out <run> [--apply <verdicts.json>] [--json]
+  construct review   --out <run> [--apply <verdicts.json>] [--max-review N] [--json]
   construct verify   --out <run> [--app <dir>] [--run-tests] [--strict] [--json]
-  construct status   --out <run>
+  construct status   --out <run> [--json]
   construct semantic up|down|status
 
 Commands:
@@ -3428,8 +3487,12 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
     }
     case "status": {
       const out = requireOut(p);
-      const has = (rel) => existsSync9(join14(out, rel)) ? "\u2713" : "\xB7";
       const plan = loadPlan(out);
+      if (p.bools.has("json")) {
+        process.stdout.write(JSON.stringify(plan ? readyFrontier(plan) : null, null, 2) + "\n");
+        return;
+      }
+      const has = (rel) => existsSync9(join14(out, rel)) ? "\u2713" : "\xB7";
       const planLine = plan ? `  \u2713 BUILD-PLAN.json (build: ${plan.tasks.filter((t) => t.status === "done").length}/${plan.tasks.length} tasks done)` : `  \xB7 BUILD-PLAN.json (build plan)`;
       process.stdout.write(
         [
