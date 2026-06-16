@@ -15,8 +15,8 @@ CI verifies the committed bundle is reproducible (`pnpm run check:build`).
 ## Pipeline
 
 ```
-init → (interview, agent-driven) → research → analyze → render → check → verify
-brief.json          evidence/         gap report   SRD tree + SRD.json   report   build referee
+init → (interview, agent-driven) → research → analyze → render → check → review → verify
+brief.json          evidence/         gap report   SRD tree + SRD.json   report  claim-support  build referee
                                                    + BUILD-PLAN.json
 ```
 
@@ -59,7 +59,10 @@ Evidence `[E#]` hooks are auto-attached by keyword overlap (`matchEvidence`).
 `templates.ts` turns each model slice into Markdown (pure, golden-testable);
 `render.ts` writes the tree + `SRD.json` + `BUILD-PLAN.json` (`src/plan.ts`:
 `derivePlan` builds the task DAG from the SRD; `mergePlan` preserves the
-building agent's progress across re-renders, keyed by feature title).
+building agent's progress across re-renders, keyed by feature title;
+`readyFrontier`, exposed by `status --out <run> --json`, computes which tasks are
+buildable now vs. blocked — same-milestone tasks carry no edges between them, so
+a milestone's frontier can be fanned out in parallel).
 
 Conventions: `> 🧠 **Decide:**` for open decisions; `[E#]` for grounded claims.
 
@@ -72,6 +75,21 @@ Two independent passes:
   `[E#]`, uncited evidence, renderer-templated criteria nudges. Never changes
   the exit code — unless the caller opts into `--min-grounding <0-100>`, which
   adds a third gate failing below the threshold.
+- **`--semantic` (opt-in):** folds the `VERIFY.json` claim-support verdicts (see
+  `review`) into the gate, failing on a refuted/unsupported claim. Additive —
+  plain `check` is byte-for-byte unchanged.
+
+### `review`  (`src/review.ts`)
+The claim-support harness — coverage proves a claim *is cited*; review proves the
+citation *holds*. `runReview` pairs every grounded SRD claim with each cited
+`[E#]` snippet into a worklist (`VERIFY.todo.json` + `VERIFY.md`), capped at
+`--max-review` (highest-score first). An agent adjudicates each pair
+(`supported | partial | refuted | unsupported`); `review --apply <verdicts.json>`
+(a bare array or `{ pairs: [...] }`) reduces them into `VERIFY.json` — a claim
+fails if a cited item refutes it or all its adjudicated items are unsupported.
+Pairs omitted from the verdicts file are cross-referenced against the worklist
+and surfaced as *unadjudicated*, never silently passed; a malformed verdicts file
+is rejected rather than overwriting `VERIFY.json` with a vacuous pass.
 
 ### `verify`  (`src/verify.ts`)
 The build referee. Static by default: `BUILD-PLAN.json` well-formed and

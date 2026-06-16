@@ -25,12 +25,15 @@ by Conventional Commits.
    with Given/When/Then, non-functional requirements, system context, an
    *inferred* data model and interfaces, ADRs, competitive landscape, build plan,
    traceability) + `SRD.json` + a machine-readable `BUILD-PLAN.json` task DAG.
-5. **Check** it: a **hard** structural-completeness gate plus an **advisory**
-   grounding-coverage report (opt-in `--min-grounding` threshold).
+5. **Check** it: a **hard** structural-completeness gate, an **advisory**
+   grounding-coverage report (opt-in `--min-grounding` threshold), and — via
+   `review` + `check --semantic` — an opt-in **claim-support** gate that fails
+   on any cited evidence that doesn't actually back its claim.
 6. **Verify** the build *(optional)*: the agent implements the app task-by-task
-   from `BUILD-PLAN.json`; `construct verify` referees it against the SRD —
-   declared files exist, every requirement is referenced by a test, and (with
-   `--run-tests`) the declared test commands pass.
+   from `BUILD-PLAN.json` (`status --json` lists the buildable task frontier so
+   independent same-milestone tasks can be built in parallel); `construct verify`
+   referees it against the SRD — declared files exist, every requirement is
+   referenced by a test, and (with `--run-tests`) the declared test commands pass.
 
 No API keys. No `npm install` at skill-use time.
 
@@ -49,6 +52,8 @@ node scripts/construct.mjs research --out ./readpile --angles market,oss,tech
 node scripts/construct.mjs analyze  --out ./readpile          # what's thin? drill it
 node scripts/construct.mjs render   --out ./readpile --level complex
 node scripts/construct.mjs check    --out ./readpile          # add --min-grounding 70 to enforce
+node scripts/construct.mjs review   --out ./readpile          # adjudicate each cited [E#] → verdicts.json
+node scripts/construct.mjs check    --out ./readpile --semantic   # gate refuted/unsupported claims
 node scripts/construct.mjs verify   --out ./readpile --app ./readpile-app --run-tests --strict
 ```
 
@@ -65,6 +70,7 @@ architecture/  SYSTEM-CONTEXT.md · DATA-MODEL.md · INTERFACES.md · decisions/
 competitive/   LANDSCAPE.md
 BUILD-PLAN.md · BUILD-PLAN.json (task DAG for the build phase) · TRACEABILITY.md
 evidence/      EVIDENCE.md · evidence.json · meta.json   ·   brief.json · SRD.json
+VERIFY.md · VERIFY.todo.json · VERIFY.json (claim-support review, from `review`)
 ```
 
 ## Grounding is advisory; completeness is enforced
@@ -76,6 +82,13 @@ ADR). The **grounding coverage** is a report — it tells you how well-cited the
 SRD is so you can invest research where it matters, but it never fails the build
 by default. When you *do* want it enforced, `--min-grounding <0-100>` opts into
 a second gate that fails below the threshold.
+
+Coverage counts citations; it does not check they *hold*. `construct review`
+builds a claim↔evidence worklist (one pair per cited `[E#]`); an agent (or a
+fan-out of skeptic subagents — see `references/orchestration.md`) adjudicates
+each as `supported | partial | refuted | unsupported`, and `check --semantic`
+turns that into a third opt-in gate that fails on a refuted or unsupported
+claim.
 
 ## Optional local stack
 
