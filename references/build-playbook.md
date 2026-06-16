@@ -16,6 +16,14 @@ Agent-owned (a re-render preserves these, keyed by the feature title):
 `conventions.testCommand`, `conventions.appDir`, and per task `artifacts`,
 `tests`, `verify.commands`, `status` (`todo` → `in-progress` → `done`).
 
+**One-writer rule (build phase).** `BUILD-PLAN.json` is a run-folder file; only
+the orchestrator writes it — exactly as only `construct research`/`review` write
+the dossier and verdicts. When you fan a build out (below), a subagent NEVER
+edits `BUILD-PLAN.json` (or `SRD.json`): it builds in its own worktree and
+*returns* its artifacts/tests/status, and you alone fold those in, then run
+`verify`. Parallel writers would clobber each other's `status`/`artifacts` and
+corrupt the merge-by-title contract.
+
 **The FR-tag convention is load-bearing.** Every test you write must name the
 FR id it exercises (in the describe/it string or a comment) — e.g.
 `describe("FR-001 save an article", …)`. This is exactly what
@@ -55,6 +63,46 @@ must-haves.
    ```
    It executes `testCommand` + every done task's `verify.commands`, and fails
    if a built must-have FR has no referencing test.
+
+## Parallel build within a milestone (optional)
+
+The task DAG is built for this: within a milestone, tasks carry no edges to each
+other (only cross-milestone shared-entity edges exist), so a milestone's ready
+frontier is independent. When you can spawn subagents AND isolate their file
+writes, build the frontier in parallel (Pattern 5 in
+`references/orchestration.md`):
+
+1. **Gate `T-000` first.** Every task depends on it; there is no frontier until
+   the skeleton, test harness, `conventions.appDir` and `conventions.testCommand`
+   are in place.
+2. **Get the frontier.** `node scripts/construct.mjs status --out <run> --json`
+   returns `frontier` (buildable now) and `blocked` (with what each waits on) —
+   don't hand-compute it from the DAG.
+3. **Serialise the file-collision subset.** The DAG models *data-entity*
+   dependencies, not *file* collisions. Two "independent" tasks that both edit an
+   app-shared file — a route table, the DI container, a DB schema/migration, a
+   barrel/index export, CI config, or the **test-harness** config — will conflict.
+   Pull those out and run them serially; fan out only the file-disjoint remainder.
+4. **Map.** One subagent per remaining ready task, each in its **own git
+   worktree**. Give it the task's `frIds`, the acceptance criteria from
+   `SRD.json`, and `conventions`. It TDDs the task (every test names its FR id),
+   runs the test command in its worktree, and **returns** — it writes nothing in
+   the run folder. Output contract: `{ taskId, frIds, artifacts[], tests[],
+   verifyCommands[], diffRef, testResult, notes }`.
+5. **Reduce (you, alone).** Merge worktrees back **one at a time** (you own
+   conflict resolution — a clean attribution per merge beats debugging a tangle),
+   fold each task's `status:"done"` + `artifacts` + `tests` + `verify.commands`
+   into `BUILD-PLAN.json`, and run `node scripts/construct.mjs verify --out <run>`
+   (static) after each fold. **Reserve the strict gate
+   (`verify --run-tests --strict`) for after the whole frontier is merged** —
+   `verify`'s FR-tag grep is global, so a mid-frontier `--strict` false-fails
+   must-haves whose tests aren't merged yet.
+6. **Loop** to the next frontier — folding `status:"done"` eagerly is what
+   unblocks the next milestone's entity-dependent tasks.
+
+**No worktrees or no subagents?** The serial task loop above is unchanged.
+Parallel build is a pure speedup over file-disjoint tasks; it changes nothing
+about correctness.
 
 ## The milestone review (adversarial)
 

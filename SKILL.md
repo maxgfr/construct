@@ -38,16 +38,25 @@ No `npm install`, no API keys. Run `--help` for the full surface. Key commands:
   dig deeper on a thin thread; `--docs-url` grounds known docs pages directly.
 - `render --out <run> [--level light|complex] [--merge]` — render the SRD tree +
   `SRD.json` from `brief.json` + the dossier.
-- `check --out <run> [--min-grounding <0-100>] [--json]` — the HARD structural
-  gate (exit ≠ 0 on an incomplete SRD) plus the ADVISORY grounding-coverage
-  report. `--min-grounding N` opts into a second gate that fails below N%
-  grounded claims.
+- `check --out <run> [--min-grounding <0-100>] [--semantic] [--json]` — the HARD
+  structural gate (exit ≠ 0 on an incomplete SRD) plus the ADVISORY grounding-
+  coverage report. `--min-grounding N` opts into a second gate that fails below
+  N% grounded claims; `--semantic` folds in `VERIFY.json` (see `review`) and
+  fails on any refuted/unsupported claim. (Distinct from `research --semantic`,
+  which only re-ranks evidence by embedding relevance.)
+- `review --out <run> [--apply <verdicts.json>] [--max-review N] [--json]` — the
+  claim-support harness. With no `--apply` it writes a claim↔evidence worklist
+  (`VERIFY.todo.json` + `VERIFY.md`): every grounded claim paired with each cited
+  `[E#]` snippet to adjudicate. `--apply <verdicts.json>` reduces your verdicts
+  (`supported|partial|refuted|unsupported`) into `VERIFY.json`, which
+  `check --semantic` gates on. Fan it out per `references/orchestration.md`.
 - `verify --out <run> [--app <dir>] [--run-tests] [--strict] [--json]` — the
   build referee: BUILD-PLAN.json well-formed and acyclic, every task ref
   resolves into SRD.json, done tasks' files exist, every requirement is
   referenced by a test. `--run-tests` also executes the declared test
   commands; `--strict` fails a built must-have with no referencing test.
-- `status --out <run>` — what exists in the run so far.
+- `status --out <run> [--json]` — what exists in the run so far; `--json` adds
+  the build frontier (which BUILD-PLAN tasks are buildable now vs. blocked).
 - `semantic up|down|status` — optional local Docker stack (Qdrant + Ollama +
   SearXNG).
 
@@ -115,7 +124,7 @@ loop to completion; only pause to ask the user a real decision.
    For a genuinely contested, hard-to-reverse ADR at `complex` level, also run
    the 3-judge panel from `references/orchestration.md`.
 
-6. **Validate (two layers).**
+6. **Validate (three layers).**
    - *Structural (hard):* `node scripts/construct.mjs check --out <run>`. It
      fails on any unresolved `🧠`, no functional requirements at all, an FR with
      no acceptance criteria, a dangling entity/interface/NFR reference, a missing
@@ -125,6 +134,12 @@ loop to completion; only pause to ask the user a real decision.
      bearing decisions); see `references/grounding-coverage.md`. By default it
      never fails the build, so use judgement. When the user wants grounding
      *enforced*, add the opt-in gate: `check --out <run> --min-grounding 70`.
+   - *Claim-support (advisory → opt-in gate):* coverage counts citations; it does
+     not check they hold. `construct review --out <run>` builds a claim↔evidence
+     worklist; adjudicate each pair (fan out per `references/orchestration.md`
+     Pattern 4), assemble `verdicts.json`, `review --apply verdicts.json`, then
+     `check --out <run> --semantic` to gate refuted/unsupported claims. Worth one
+     pass over the load-bearing FRs/ADRs before presenting.
    Loop steps 3–6 until `check` passes structurally, the reviewer finds no new
    blockers, and the grounding is honest.
 
@@ -145,6 +160,10 @@ loop to completion; only pause to ask the user a real decision.
      `tests`; set `status: "done"`; run
      `node scripts/construct.mjs verify --out <run>` and fix any error before
      the next task.
+   - Same-milestone tasks carry no edges to each other, so their ready frontier
+     (`status --out <run> --json`) can be built in parallel — one isolated git
+     worktree per task; you alone fold results into `BUILD-PLAN.json` (Pattern 5
+     in `references/orchestration.md`).
    - Per milestone: `verify --out <run> --run-tests --strict`, then a
      milestone adversarial review — fresh eyes hunting for an acceptance
      criterion no test actually exercises (see the playbook;
@@ -188,7 +207,7 @@ See `references/semantic-setup.md`.
 
 - `references/interview-playbook.md` — how to elicit the brief, one question at a time.
 - `references/research-playbook.md` — picking angles and digging deeper to "good enough".
-- `references/orchestration.md` — subagent patterns: research fan-out, red team, judge panel (and the one-writer rule).
+- `references/orchestration.md` — the three-tier dynamic-workflow model and the subagent patterns: research fan-out, red team, judge panel, claim-support review fan-out, build fan-out (and the one-writer rule).
 - `references/adversarial-review.md` — the red-team checklist and its findings contract.
 - `references/srd-authoring.md` — resolving 🧠 callouts, writing testable requirements and ADRs.
 - `references/acceptance-criteria.md` — bad→good Given/When/Then rewrites and measurable NFR metric patterns.
