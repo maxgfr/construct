@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [1.4.0](https://github.com/maxgfr/construct/compare/v1.3.0...v1.4.0) (2026-06-16)
+
+
+### Bug Fixes
+
+* **review:** clean domain errors, reject malformed verdicts, flag omitted claim pairs ([e585caf](https://github.com/maxgfr/construct/commit/e585caf44ff0024797bd20eb57818be146a44eb3))
+
+
+### Features
+
+* **cli:** add status --json ready-frontier query for parallel build fan-out ([153a285](https://github.com/maxgfr/construct/commit/153a285b01629b28146e2e45c5573ad2a88987d9))
+* **skill:** three-tier dynamic-workflow orchestration with claim-support and build fan-out ([5c1d284](https://github.com/maxgfr/construct/commit/5c1d284cbf350c9265a5c4eec2fca156ba354ae6))
+
 # [1.3.0](https://github.com/maxgfr/construct/compare/v1.2.0...v1.3.0) (2026-06-15)
 
 
