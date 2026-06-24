@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+## [1.5.1](https://github.com/maxgfr/construct/compare/v1.5.0...v1.5.1) (2026-06-24)
+
+
+### Bug Fixes
+
+* **plan,check:** preserve design-task progress and stop 🧠 gate false-positives ([a4acfbf](https://github.com/maxgfr/construct/commit/a4acfbf89044f025498a0c6cc652bd97e0999a4f))
+
 # [1.5.0](https://github.com/maxgfr/construct/compare/v1.4.0...v1.5.0) (2026-06-24)
 
 
