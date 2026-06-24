@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [1.5.0](https://github.com/maxgfr/construct/compare/v1.4.0...v1.5.0) (2026-06-24)
+
+
+### Features
+
+* **design:** add a design-system mode to the SRD (tokens, components, screens, a11y) ([cd0496d](https://github.com/maxgfr/construct/commit/cd0496d5d7ebe320671583067ab697bc8eb9945e))
+
 # [1.4.0](https://github.com/maxgfr/construct/compare/v1.3.0...v1.4.0) (2026-06-16)
 
 

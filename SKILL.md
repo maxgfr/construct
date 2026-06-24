@@ -3,7 +3,7 @@ name: construct
 description: "Use when the user wants to turn a product idea into a serious, buildable requirements document (an SRD/PRD) — or build the app from one. Triggers: write an SRD or PRD, spec out a product, write requirements, define requirements, product specification, software requirements document, turn an idea into requirements, greenfield product spec, idea to spec, build from spec, implement the SRD. construct interviews the user, grounds every major decision in real research — competitors and market signal, comparable open-source projects and their issues/PRs, candidate-technology docs and StackOverflow pitfalls — then renders a complete SRD suite: vision, scope, numbered functional requirements with Given/When/Then acceptance criteria, NFRs, data model, interfaces, ADRs, competitive landscape, build plan, traceability. A hard structural gate plus an advisory grounding report validate it; for building, it emits a BUILD-PLAN.json task DAG and `construct verify` referees the app against the SRD."
 license: MIT
 metadata:
-  version: 1.4.0
+  version: 1.5.0
 ---
 
 # construct — a product idea, grounded into a buildable SRD
