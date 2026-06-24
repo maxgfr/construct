@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { renderSRD } from "../src/render.js";
 import { checkRun } from "../src/check.js";
 import { srdManifestPath } from "../src/srd.js";
+import { DESIGN_TOKENS_SEEDED_BANNER } from "../src/types.js";
 import type { Brief, EvidenceItem, SRD, Level } from "../src/types.js";
 
 const FIX = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
@@ -228,6 +229,31 @@ describe("checkRun — design system gate", () => {
     expect(r.ok).toBe(true);
     expect(r.structural.warnings.join(" ")).toMatch(/seeded defaults/i);
   });
+
+  it("stays silent on the seeded-defaults advisory once the banner is replaced", () => {
+    const dir = renderRun({ level: "complex" });
+    const tokenDoc = join(dir, "design", "DESIGN-TOKENS.md");
+    writeFileSync(tokenDoc, readFileSync(tokenDoc, "utf8").replace(DESIGN_TOKENS_SEEDED_BANNER, "Brand-tuned tokens."));
+    expect(checkRun(dir).structural.warnings.join(" ")).not.toMatch(/seeded defaults/i);
+  });
+
+  it("fails when a screen or a user flow references an unknown requirement", () => {
+    const sdir = renderRun({ level: "complex" });
+    mutateSRD(sdir, (s) => (s.design!.screens[0]!.relatedFRs = ["FR-999"]));
+    expect(checkRun(sdir).structural.errors.join(" ")).toMatch(/Screen ".*" references unknown requirement "FR-999"/);
+
+    const fdir = renderRun({ level: "complex" });
+    mutateSRD(fdir, (s) => (s.design!.flows[0]!.frIds = ["FR-999"]));
+    expect(checkRun(fdir).structural.errors.join(" ")).toMatch(/User flow ".*" references unknown requirement "FR-999"/);
+  });
+
+  it("fails when the design system has no accessibility requirements", () => {
+    const dir = renderRun({ level: "complex" });
+    mutateSRD(dir, (s) => (s.design!.accessibility.requirements = []));
+    const r = checkRun(dir);
+    expect(r.ok).toBe(false);
+    expect(r.structural.errors.join(" ")).toMatch(/no accessibility requirements/);
+  });
 });
 
 describe("checkRun — placeholder words vs decisions", () => {
@@ -241,5 +267,13 @@ describe("checkRun — placeholder words vs decisions", () => {
     const r = checkRun(renderRun({ briefOverride: { openQuestions: ["Pick a license"] } }));
     expect(r.ok).toBe(false);
     expect(r.structural.errors.join(" ")).toMatch(/🧠/);
+  });
+
+  it("does NOT hard-fail when a 🧠 glyph appears in a feature title (only the rendered Decide callout counts)", () => {
+    // The 🧠 lands in FUNCTIONAL.md, design/SCREENS.md and TRACEABILITY.md, but
+    // none of those is the renderer's `> 🧠 **Decide:**` callout.
+    const r = checkRun(renderRun({ level: "complex", briefOverride: { featureWishlist: [{ title: "Capture a 🧠 brainstorm", priority: "must" }] } }));
+    expect(r.ok).toBe(true);
+    expect(r.structural.errors.join(" ")).not.toMatch(/Unresolved decision/);
   });
 });

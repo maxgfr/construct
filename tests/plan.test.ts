@@ -125,6 +125,26 @@ describe("mergePlan — re-render never loses agent progress", () => {
     expect(merged.tasks[1]!.title).not.toBe("hand-edited title");
     expect(merged.tasks[1]!.dependsOn).toContain("T-000");
   });
+
+  it("preserves the design-foundation task's progress even when the FR count shifts its id", () => {
+    const withDesign = (b: Brief) => derivePlan(buildSRD(b, evidence, { level: "complex", generatedAt: "T", design: true }));
+    const prev = withDesign(brief);
+    const design = prev.tasks.find((t) => /design foundation/i.test(t.title))!;
+    design.status = "done";
+    design.artifacts = ["design/tokens.css"];
+    design.tests = ["tests/tokens.test.ts"];
+    design.verify = { commands: ["pnpm test -- tokens"] };
+
+    // Prepend a must-have feature → FR ids and the design task's positional id shift.
+    const grown: Brief = { ...brief, featureWishlist: [{ title: "Sign in with a passkey", priority: "must" }, ...brief.featureWishlist] };
+    const merged = mergePlan(prev, withDesign(grown));
+    const m = merged.tasks.find((t) => /design foundation/i.test(t.title))!;
+    expect(m.id).not.toBe(design.id); // the id genuinely moved
+    expect(m.status).toBe("done"); // …but progress followed the task
+    expect(m.artifacts).toEqual(["design/tokens.css"]);
+    expect(m.tests).toEqual(["tests/tokens.test.ts"]);
+    expect(m.verify.commands).toEqual(["pnpm test -- tokens"]);
+  });
 });
 
 describe("render writes BUILD-PLAN.json and preserves it across re-renders", () => {

@@ -125,14 +125,17 @@ const STATUSES: TaskStatus[] = ["todo", "in-progress", "done"];
 // is keyed by the feature title embedded in its own title ("FR-002 — <title>")
 // — the title survives reordering. Rewording a feature title resets that
 // task's progress to todo, which is the honest reading of a changed feature.
-// T-000 and any FR-less task fall back to their id.
+// FR-less tasks (the T-000 skeleton and the design-foundation task) also carry
+// POSITIONAL ids — the design task's id is `T-<FR count + 1>`, so it shifts when
+// a feature is added/removed. Key them by their constant title too, so amending
+// the feature list and re-rendering never silently drops their agent progress.
 function taskKey(t: BuildTask): string {
   return t.frIds.length
     ? `fr:${t.title
         .replace(/^FR-\d+\s*—\s*/, "")
         .trim()
         .toLowerCase()}`
-    : `id:${t.id}`;
+    : `title:${t.title.trim().toLowerCase()}`;
 }
 
 // Preserve the agent-owned fields of `prev` onto the freshly derived `next`.

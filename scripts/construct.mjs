@@ -2307,7 +2307,7 @@ function derivePlan(srd) {
 }
 var STATUSES = ["todo", "in-progress", "done"];
 function taskKey(t) {
-  return t.frIds.length ? `fr:${t.title.replace(/^FR-\d+\s*—\s*/, "").trim().toLowerCase()}` : `id:${t.id}`;
+  return t.frIds.length ? `fr:${t.title.replace(/^FR-\d+\s*—\s*/, "").trim().toLowerCase()}` : `title:${t.title.trim().toLowerCase()}`;
 }
 function mergePlan(prev, next) {
   if (!prev) return next;
@@ -2745,7 +2745,7 @@ var REQUIRED_FILES = [
   "TRACEABILITY.md",
   "SRD.json"
 ];
-var DECISION_RE = /🧠/;
+var DECISION_RE = /^> 🧠 \*\*Decide:\*\*/m;
 var PLACEHOLDER_RE = /\bTODO\b|\bTBD\b|\bFIXME\b/;
 function mdFiles(runDir) {
   const out = [];

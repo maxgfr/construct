@@ -252,9 +252,15 @@ describe("buildSRD design system", () => {
 
   it("derives the accessibility standard from the brief, defaulting to WCAG 2.2 AA", () => {
     expect(deriveA11yStandard(brief)).toBe("WCAG 2.2 AA");
+    // an explicit target wins, even over a conflicting compliance signal
     expect(deriveA11yStandard({ ...brief, design: { accessibilityTarget: "RGAA 4.1" } })).toBe("RGAA 4.1");
-    expect(deriveA11yStandard({ ...brief, constraints: { ...brief.constraints, compliance: ["RGAA"] } })).toMatch(/RGAA/);
-    expect(deriveA11yStandard({ ...brief, nfrPriorities: [...brief.nfrPriorities, "Section 508"] })).toMatch(/508/);
+    expect(
+      deriveA11yStandard({ ...brief, design: { accessibilityTarget: "Custom A11y Std" }, constraints: { ...brief.constraints, compliance: ["RGAA"] } }),
+    ).toBe("Custom A11y Std");
+    // recognised standards map to the full, exact string (guards a mistyped WCAG version)
+    expect(deriveA11yStandard({ ...brief, constraints: { ...brief.constraints, compliance: ["RGAA"] } })).toBe("RGAA 4.1 (aligned to WCAG 2.2 AA)");
+    expect(deriveA11yStandard({ ...brief, nfrPriorities: [...brief.nfrPriorities, "Section 508"] })).toBe("Section 508 (WCAG 2.0 AA)");
+    expect(deriveA11yStandard({ ...brief, constraints: { ...brief.constraints, compliance: ["EN 301 549"] } })).toBe("EN 301 549 (WCAG 2.1 AA)");
   });
 
   it("weaves component/screen traceability into the matrix only when design is present", () => {

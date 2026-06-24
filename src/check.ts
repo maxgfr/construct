@@ -26,11 +26,13 @@ const REQUIRED_FILES = [
   "SRD.json",
 ];
 
-// The 🧠 glyph is ONLY ever renderer-emitted (the open-decision callout), so its
-// presence unambiguously means an unresolved decision → hard fail. TODO/TBD/
-// FIXME, by contrast, can legitimately appear in a feature title ("Add a TODO
-// list") — those are an advisory nudge, never a hard failure.
-const DECISION_RE = /🧠/;
+// The renderer emits an open decision as exactly `> 🧠 **Decide:** <question>`
+// (templates.ts). Match that whole callout structure, NOT a bare 🧠 — otherwise a
+// user who puts the glyph in a feature title or a design field (which the renderer
+// threads verbatim into FUNCTIONAL.md, SCREENS.md, TRACEABILITY.md, design/*)
+// would trip a false hard-fail. TODO/TBD/FIXME can also legitimately appear in a
+// title ("Add a TODO list") — those stay an advisory nudge, never a hard failure.
+const DECISION_RE = /^> 🧠 \*\*Decide:\*\*/m;
 const PLACEHOLDER_RE = /\bTODO\b|\bTBD\b|\bFIXME\b/;
 
 // Recursively list rendered .md files under a run dir, excluding the evidence
