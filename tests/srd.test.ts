@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { buildSRD, matchEvidence } from "../src/srd.js";
+import { buildSRD, matchEvidence, deriveA11yStandard } from "../src/srd.js";
+import { DESIGN_TOKEN_CATEGORIES } from "../src/types.js";
 import type { Brief, EvidenceItem } from "../src/types.js";
 
 const FIX = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
@@ -208,5 +209,68 @@ describe("buildSRD", () => {
     const s2 = buildSRD(withGoal, evidence, { level: "complex", generatedAt: "T" });
     expect(s2.nonFunctional.find((n) => n.category === "security")!.metric).toMatch(/GDPR/);
     expect(s2.nonFunctional.find((n) => n.category === "performance")!.metric).toMatch(/under 5 second/i);
+  });
+});
+
+describe("buildSRD design system", () => {
+  it("omits the design block unless explicitly requested", () => {
+    expect(buildSRD(brief, evidence, { level: "complex", generatedAt: "T" }).design).toBeUndefined();
+    expect(buildSRD(brief, evidence, { level: "light", generatedAt: "T" }).design).toBeUndefined();
+  });
+
+  it("seeds a complete, internally-consistent design system when requested", () => {
+    const srd = buildSRD(brief, evidence, { level: "complex", generatedAt: "T", design: true });
+    const ds = srd.design!;
+    expect(ds).toBeDefined();
+    expect(ds.principles.length).toBeGreaterThanOrEqual(3);
+    expect(ds.principles.length).toBeLessThanOrEqual(5);
+
+    // every required token category is present
+    const cats = new Set(ds.tokens.map((t) => t.category));
+    for (const c of DESIGN_TOKEN_CATEGORIES) expect(cats.has(c), c).toBe(true);
+
+    // components carry the interaction-state checklist and resolve to real FRs
+    const frIds = new Set(srd.functional.map((f) => f.id));
+    expect(ds.components.length).toBeGreaterThan(0);
+    for (const c of ds.components) {
+      expect(c.states.length).toBeGreaterThan(0);
+      for (const id of c.relatedFRs) expect(frIds.has(id), `${c.name} → ${id}`).toBe(true);
+    }
+    // a search component traces to the full-text-search FR
+    const search = ds.components.find((c) => /search/i.test(c.name))!;
+    expect(search.relatedFRs).toContain("FR-002");
+
+    // screens and flows resolve to real FRs
+    for (const s of ds.screens) for (const id of s.relatedFRs) expect(frIds.has(id)).toBe(true);
+    for (const f of ds.flows) for (const id of f.frIds) expect(frIds.has(id)).toBe(true);
+
+    // accessibility block defaults to WCAG 2.2 AA with testable criteria
+    expect(ds.accessibility.standard).toBe("WCAG 2.2 AA");
+    expect(ds.accessibility.requirements.length).toBeGreaterThan(0);
+    for (const r of ds.accessibility.requirements) expect(r.acceptance.length).toBeGreaterThan(0);
+  });
+
+  it("derives the accessibility standard from the brief, defaulting to WCAG 2.2 AA", () => {
+    expect(deriveA11yStandard(brief)).toBe("WCAG 2.2 AA");
+    expect(deriveA11yStandard({ ...brief, design: { accessibilityTarget: "RGAA 4.1" } })).toBe("RGAA 4.1");
+    expect(deriveA11yStandard({ ...brief, constraints: { ...brief.constraints, compliance: ["RGAA"] } })).toMatch(/RGAA/);
+    expect(deriveA11yStandard({ ...brief, nfrPriorities: [...brief.nfrPriorities, "Section 508"] })).toMatch(/508/);
+  });
+
+  it("weaves component/screen traceability into the matrix only when design is present", () => {
+    const withDesign = buildSRD(brief, evidence, { level: "complex", generatedAt: "T", design: true });
+    const fr001 = withDesign.traceability.find((r) => r.fr === "FR-001")!;
+    expect(fr001.components?.length).toBeGreaterThan(0);
+    expect(fr001.screens?.length).toBeGreaterThan(0);
+
+    const noDesign = buildSRD(brief, evidence, { level: "complex", generatedAt: "T" });
+    expect(noDesign.traceability[0]!.components).toBeUndefined();
+    expect(noDesign.traceability[0]!.screens).toBeUndefined();
+  });
+
+  it("is deterministic with the design block", () => {
+    const a = buildSRD(brief, evidence, { level: "complex", generatedAt: "T", design: true });
+    const b = buildSRD(brief, evidence, { level: "complex", generatedAt: "T", design: true });
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b));
   });
 });

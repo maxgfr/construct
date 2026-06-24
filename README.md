@@ -24,7 +24,10 @@ by Conventional Commits.
 4. **Render** a complete SRD tree (vision, scope, numbered functional requirements
    with Given/When/Then, non-functional requirements, system context, an
    *inferred* data model and interfaces, ADRs, competitive landscape, build plan,
-   traceability) + `SRD.json` + a machine-readable `BUILD-PLAN.json` task DAG.
+   traceability) + `SRD.json` + a machine-readable `BUILD-PLAN.json` task DAG. At
+   `--level complex` it also renders a **design system** (`design/`: principles,
+   design tokens, components, screens/flows, an accessibility contract); pass
+   `--no-design` to skip it.
 5. **Check** it: a **hard** structural-completeness gate, an **advisory**
    grounding-coverage report (opt-in `--min-grounding` threshold), and — via
    `review` + `check --semantic` — an opt-in **claim-support** gate that fails
@@ -67,6 +70,7 @@ surface, or see [`SKILL.md`](SKILL.md) for the agent playbook and
 00-overview/   VISION.md · SCOPE.md
 requirements/  FUNCTIONAL.md · NON-FUNCTIONAL.md
 architecture/  SYSTEM-CONTEXT.md · DATA-MODEL.md · INTERFACES.md · decisions/NNNN-*.md
+design/        PRINCIPLES.md · DESIGN-TOKENS.md (+ design-tokens.json) · COMPONENTS.md · SCREENS.md · ACCESSIBILITY.md   (complex; --no-design to skip)
 competitive/   LANDSCAPE.md
 BUILD-PLAN.md · BUILD-PLAN.json (task DAG for the build phase) · TRACEABILITY.md
 evidence/      EVIDENCE.md · evidence.json · meta.json   ·   brief.json · SRD.json

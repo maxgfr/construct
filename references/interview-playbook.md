@@ -50,7 +50,13 @@ Check the fit before question 1; a wrong fit wastes the whole loop.
 10. **OSS seeds** → `ossSeeds`. Known comparable repos to mine (optional; the
     `oss` angle can also discover them).
 11. **NFR priorities** → `nfrPriorities` (performance, security, privacy, a11y…).
-12. **Open questions** → `openQuestions`. Genuine decisions the user hasn't made.
+12. **Design intent** → `design` (optional, all fields optional). Target
+    `platforms` (web/iOS/Android/desktop), `brandConstraints` (existing brand or
+    greenfield), `referenceSystems` to emulate (Material, shadcn…), an explicit
+    `accessibilityTarget` (e.g. RGAA 4.1 — otherwise derived from compliance /
+    nfrPriorities, default WCAG 2.2 AA) and a `tone`. Drives the `complex`
+    design system (`design/`). Skip it for a `light`/non-UI spec.
+13. **Open questions** → `openQuestions`. Genuine decisions the user hasn't made.
     These render as `🧠 Decide:` callouts and **block the structural gate** until
     resolved — so only put real, deferred decisions here.
 

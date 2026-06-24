@@ -1,8 +1,29 @@
 import { join } from "node:path";
 import { keywords } from "./util.js";
 import { resolveRepo } from "./clone.js";
-import { SRD_SCHEMA_VERSION, REQUIRED_NFR } from "./types.js";
-import type { Brief, EvidenceItem, Level, Priority, SRD, FR, NFR, ADR, Entity, Interface, CompetitorRow, OssRow, Milestone, TraceRow } from "./types.js";
+import { SRD_SCHEMA_VERSION, REQUIRED_NFR, DESIGN_TOKEN_CATEGORIES, COMPONENT_STATES } from "./types.js";
+import type {
+  Brief,
+  EvidenceItem,
+  Level,
+  Priority,
+  SRD,
+  FR,
+  NFR,
+  ADR,
+  Entity,
+  Interface,
+  CompetitorRow,
+  OssRow,
+  Milestone,
+  TraceRow,
+  DesignSystem,
+  DesignToken,
+  UIComponent,
+  Screen,
+  UserFlow,
+  A11yRequirement,
+} from "./types.js";
 
 export function srdManifestPath(runDir: string): string {
   return join(runDir, "SRD.json");
@@ -309,7 +330,7 @@ function inferInterfaces(brief: Brief, functional: FR[]): Interface[] {
 
 // Build the in-memory SRD model from a brief + the evidence dossier. Pure and
 // deterministic. The caller stamps generatedAt.
-export function buildSRD(brief: Brief, evidence: EvidenceItem[], opts: { level: Level; generatedAt: string }): SRD {
+export function buildSRD(brief: Brief, evidence: EvidenceItem[], opts: { level: Level; generatedAt: string; design?: boolean }): SRD {
   const level = opts.level;
   const productName = brief.product.name || titleFromIdea(brief.idea);
   const compliance = brief.constraints.compliance ?? [];
@@ -471,13 +492,22 @@ export function buildSRD(brief: Brief, evidence: EvidenceItem[], opts: { level: 
   // --- Build plan: milestones grouped by priority, risks from prior art. ----
   const buildPlan = buildMilestones(functional, brief, evidence, evById);
 
+  // --- Design system (optional): seeded UI/UX contract, only when requested
+  // (complex render without --no-design). Absent → light SRDs stay byte-identical.
+  const design = opts.design ? buildDesignSystem(brief, functional) : undefined;
+
   // --- Traceability matrix (per-FR NFRs + the ADRs the FR actually touches). -
   const traceability: TraceRow[] = functional.map((fr) => {
     const text = `${fr.title} ${fr.description}`;
     const adrIds = [stackAdrId];
     if (dataAdr && (PERSIST_RE.test(text) || INTEGRATION_RE.test(text))) adrIds.push(dataAdr.id);
     if (privacyAdr && NFR_SIGNALS.privacy!.test(text)) adrIds.push(privacyAdr.id);
-    return { fr: fr.id, nfrs: fr.nfrs, adrs: adrIds, entities: fr.entities, interfaces: fr.interfaces };
+    const row: TraceRow = { fr: fr.id, nfrs: fr.nfrs, adrs: adrIds, entities: fr.entities, interfaces: fr.interfaces };
+    if (design) {
+      row.components = design.components.filter((c) => c.relatedFRs.includes(fr.id)).map((c) => c.name);
+      row.screens = design.screens.filter((s) => s.relatedFRs.includes(fr.id)).map((s) => s.name);
+    }
+    return row;
   });
 
   // --- Evidence index. -----------------------------------------------------
@@ -514,6 +544,225 @@ export function buildSRD(brief: Brief, evidence: EvidenceItem[], opts: { level: 
     traceability,
     openQuestions: brief.openQuestions,
     evidenceIndex,
+    ...(design ? { design } : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Design system seeding. Pure, deterministic inference over the brief + the
+// already-derived functional requirements / interfaces. Like the data-model and
+// interface inference above, the output is an explicit "seeded — verify" scaffold
+// the author enriches (see references/design-system-authoring.md). Never invents
+// brand values it cannot know; tokens are sensible neutral defaults.
+// ---------------------------------------------------------------------------
+
+// Resolve the accessibility standard to target: an explicit brief override wins,
+// else a recognised standard named in compliance/nfrPriorities, else WCAG 2.2 AA.
+export function deriveA11yStandard(brief: Brief): string {
+  const explicit = brief.design?.accessibilityTarget?.trim();
+  if (explicit) return explicit;
+  const hay = `${(brief.constraints.compliance ?? []).join(" ")} ${brief.nfrPriorities.join(" ")}`.toLowerCase();
+  if (/\brgaa\b/.test(hay)) return "RGAA 4.1 (aligned to WCAG 2.2 AA)";
+  if (/\b508\b|section 508/.test(hay)) return "Section 508 (WCAG 2.0 AA)";
+  if (/en\s?301\s?549/.test(hay)) return "EN 301 549 (WCAG 2.1 AA)";
+  return "WCAG 2.2 AA";
+}
+
+function buildPrinciples(brief: Brief): string[] {
+  const hay = `${brief.idea} ${brief.product.valueProp ?? ""} ${brief.product.problem ?? ""} ${brief.nfrPriorities.join(" ")} ${brief.featureWishlist
+    .map((f) => `${f.title} ${f.notes ?? ""}`)
+    .join(" ")}`;
+  const out: string[] = [];
+  if (/self[- ]?host|privac|gdpr|own (your|the) data|no account/i.test(hay)) {
+    out.push("Privacy by default — the UI never surfaces or transmits data the user did not choose to share.");
+  }
+  if (/fast|speed|sub-?second|latenc|instant|under \d/i.test(hay)) {
+    out.push("Perceived performance first — optimistic UI, skeletons over spinners, immediate feedback on every action.");
+  }
+  out.push("Accessible to everyone — every flow works with the keyboard and assistive technology, by construction.");
+  out.push("Consistency over novelty — reuse tokens and components before inventing new ones.");
+  out.push("Progressive disclosure — show the essential first; reveal complexity only on demand.");
+  out.push("Clear over clever — plain language, obvious affordances, honest empty and error states.");
+  return out.slice(0, 5);
+}
+
+// Sensible, brand-neutral default tokens across every required category. Real
+// values are an authoring task; the scaffold makes the shape concrete.
+function seedTokens(brief: Brief): DesignToken[] {
+  const brand = brief.design?.brandConstraints?.trim();
+  const byCategory: Record<(typeof DESIGN_TOKEN_CATEGORIES)[number], DesignToken[]> = {
+    color: [
+      { category: "color", name: "color.bg", value: "#ffffff", note: brand ? `Adjust to brand: ${brand}` : "Primary surface" },
+      { category: "color", name: "color.fg", value: "#111827", note: "Primary text" },
+      { category: "color", name: "color.primary", value: "#2563eb", note: "Primary action / brand accent" },
+      { category: "color", name: "color.danger", value: "#dc2626", note: "Destructive / error" },
+      { category: "color", name: "color.muted", value: "#6b7280", note: "Secondary text / borders" },
+    ],
+    typography: [
+      { category: "typography", name: "font.sans", value: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" },
+      { category: "typography", name: "font.mono", value: "ui-monospace, SFMono-Regular, Menlo, monospace" },
+      { category: "typography", name: "scale.body", value: "16px / 1.5" },
+      { category: "typography", name: "scale.h1", value: "32px / 1.25" },
+      { category: "typography", name: "scale.small", value: "13px / 1.4" },
+    ],
+    spacing: [
+      { category: "spacing", name: "space.1", value: "4px" },
+      { category: "spacing", name: "space.2", value: "8px" },
+      { category: "spacing", name: "space.3", value: "12px" },
+      { category: "spacing", name: "space.4", value: "16px" },
+      { category: "spacing", name: "space.6", value: "24px" },
+      { category: "spacing", name: "space.8", value: "32px" },
+    ],
+    radius: [
+      { category: "radius", name: "radius.sm", value: "4px" },
+      { category: "radius", name: "radius.md", value: "8px" },
+      { category: "radius", name: "radius.lg", value: "12px" },
+    ],
+    elevation: [
+      { category: "elevation", name: "shadow.sm", value: "0 1px 2px rgba(0,0,0,0.06)" },
+      { category: "elevation", name: "shadow.md", value: "0 4px 12px rgba(0,0,0,0.10)" },
+    ],
+    motion: [
+      { category: "motion", name: "motion.fast", value: "120ms ease-out" },
+      { category: "motion", name: "motion.base", value: "200ms ease-out" },
+    ],
+  };
+  // Emit in the canonical category order so the token set is deterministic.
+  return DESIGN_TOKEN_CATEGORIES.flatMap((c) => byCategory[c]);
+}
+
+// The component inventory: a base set of cross-cutting UI components, each linked
+// to the functional requirements it realises (regex over FR text, so the
+// traceability is real). A `.*` concern links to every FR.
+const COMPONENT_DEFS: { name: string; purpose: string; re: RegExp }[] = [
+  { name: "App Shell & Navigation", purpose: "Overall layout, navigation and routing chrome that frames every screen.", re: /.*/ },
+  { name: "Button & Actions", purpose: "Primary, secondary and destructive action controls with loading/disabled states.", re: /.*/ },
+  {
+    name: "Form & Input",
+    purpose: "Labelled inputs with inline validation and accessible error messaging.",
+    re: /save|add|create|edit|import|tag|organi[sz]e|login|sign|submit|upload|compose|write|configure|invite/i,
+  },
+  {
+    name: "List & Collection",
+    purpose: "Paginated/virtualised lists of saved items with selection and bulk actions.",
+    re: /list|search|browse|organi[sz]e|tag|feed|library|archive|history|result|collection|inbox/i,
+  },
+  { name: "Detail View", purpose: "The focused reading/detail surface for a single item.", re: /read|view|open|detail|article|item|show|preview|document/i },
+  { name: "Search & Filter", purpose: "Query input, filters and ranked results with empty/no-match handling.", re: /search|filter|find|query|sort|facet/i },
+  { name: "Feedback & Notifications", purpose: "Toasts, banners and inline status for success, error and async progress.", re: /.*/ },
+  { name: "Empty & Error States", purpose: "First-run, no-data and failure states that teach the next action.", re: /.*/ },
+];
+
+function buildComponents(functional: FR[]): UIComponent[] {
+  const out: UIComponent[] = [];
+  for (const def of COMPONENT_DEFS) {
+    const relatedFRs = functional.filter((fr) => def.re.test(`${fr.title} ${fr.description}`)).map((fr) => fr.id);
+    if (relatedFRs.length === 0) continue;
+    out.push({ name: def.name, purpose: def.purpose, states: [...COMPONENT_STATES], relatedFRs, evidence: [] });
+  }
+  return out;
+}
+
+// One screen per in-scope (must/should) FR, plus a home and a settings surface.
+function buildScreens(functional: FR[]): Screen[] {
+  const inScope = functional.filter((fr) => fr.priority !== "could");
+  const mustIds = functional.filter((fr) => fr.priority === "must").map((fr) => fr.id);
+  const screens: Screen[] = [
+    { name: "Home / Dashboard", purpose: "The landing surface after sign-in; entry point to the primary tasks.", relatedFRs: mustIds },
+  ];
+  for (const fr of inScope) {
+    screens.push({ name: `${fr.title}`, purpose: `Where a user can ${lowerFirst(fr.title)}.`, relatedFRs: [fr.id] });
+  }
+  screens.push({ name: "Settings & Account", purpose: "Preferences, data export/delete and account management.", relatedFRs: [] });
+  return screens;
+}
+
+// A happy-path flow per must-have FR, plus first-run onboarding.
+function buildFlows(functional: FR[]): UserFlow[] {
+  const must = functional.filter((fr) => fr.priority === "must");
+  const flows: UserFlow[] = [
+    {
+      name: "First-run onboarding",
+      steps: ["Arrive at an empty, explanatory first-run state", "Complete the minimal setup", "Reach the dashboard ready to act"],
+      frIds: must.map((fr) => fr.id),
+    },
+  ];
+  for (const fr of must) {
+    flows.push({
+      name: `${fr.title} — happy path`,
+      steps: ["Navigate to the relevant screen", `Perform: ${lowerFirst(fr.title)}`, "Receive clear confirmation of the outcome"],
+      frIds: [fr.id],
+    });
+  }
+  return flows;
+}
+
+// A fixed, standard-agnostic set of testable accessibility requirements.
+function a11yRequirements(): A11yRequirement[] {
+  const defs: { statement: string; given: string; when: string; then: string }[] = [
+    {
+      statement: "Every interactive control is fully keyboard operable.",
+      given: "a user navigates with the keyboard only",
+      when: "they tab through any flow",
+      then: "every interactive control is reachable, operable and follows a logical focus order",
+    },
+    {
+      statement: "Focus is always visible.",
+      given: "an element receives keyboard focus",
+      when: "the user is navigating",
+      then: "a visible focus indicator is shown and meets the non-text contrast minimum",
+    },
+    {
+      statement: "Colour contrast meets the target standard.",
+      given: "any text or essential UI element",
+      when: "it is rendered in any supported theme",
+      then: "contrast meets the target (≥ 4.5:1 for body text, ≥ 3:1 for large text and UI)",
+    },
+    {
+      statement: "Every control and image exposes an accessible name.",
+      given: "a form control, icon-only button or meaningful image",
+      when: "it is read by assistive technology",
+      then: "it exposes a programmatic label/name and images carry meaningful alt text (decorative images are hidden)",
+    },
+    {
+      statement: "Structure and async changes are conveyed semantically.",
+      given: "a screen is parsed by a screen reader",
+      when: "the user explores it",
+      then: "headings, landmarks and roles convey the structure and live regions announce asynchronous changes",
+    },
+    {
+      statement: "Reduced motion and zoom are respected.",
+      given: "a user prefers reduced motion or zooms to 200%",
+      when: "they use the product",
+      then: "non-essential motion is reduced or disabled and content reflows without loss of content or function",
+    },
+  ];
+  return defs.map((d, i) => ({
+    id: `A11Y-${pad3(i + 1)}`,
+    statement: d.statement,
+    acceptance: [{ given: d.given, when: d.when, then: d.then }],
+  }));
+}
+
+function buildContentVoice(brief: Brief): string[] {
+  const tone = brief.design?.tone?.trim();
+  return [
+    tone ? `Voice & tone: ${tone}.` : "Voice & tone: clear, concise and human — plain language over jargon.",
+    "Label actions with the outcome the user gets, not the system operation behind it.",
+    "Error messages state what happened, why, and the next step — never blame the user.",
+    "Empty states teach the first useful action; success states confirm exactly what changed.",
+  ];
+}
+
+function buildDesignSystem(brief: Brief, functional: FR[]): DesignSystem {
+  return {
+    principles: buildPrinciples(brief),
+    tokens: seedTokens(brief),
+    components: buildComponents(functional),
+    screens: buildScreens(functional),
+    flows: buildFlows(functional),
+    accessibility: { standard: deriveA11yStandard(brief), requirements: a11yRequirements() },
+    contentVoice: buildContentVoice(brief),
   };
 }
 

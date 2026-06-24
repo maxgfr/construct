@@ -82,6 +82,22 @@ describe("normalizeBrief", () => {
     normalizeBrief({ idea: "y", goals: ["a"], featureWishlist: [{ title: "T", priority: "must" }] }, (w) => warnings.push(w));
     expect(warnings).toEqual([]);
   });
+
+  it("keeps a well-formed optional design block (only non-empty fields)", () => {
+    const b = normalizeBrief({
+      idea: "y",
+      design: { platforms: ["web", "ios"], accessibilityTarget: "RGAA 4.1", tone: "  friendly ", brandConstraints: "" },
+    });
+    expect(b.design).toEqual({ platforms: ["web", "ios"], accessibilityTarget: "RGAA 4.1", tone: "friendly" });
+    expect(b.design!.brandConstraints).toBeUndefined();
+  });
+
+  it("drops a non-object design block with a warning and leaves design undefined", () => {
+    const warnings: string[] = [];
+    const b = normalizeBrief({ idea: "y", design: "nope" }, (w) => warnings.push(w));
+    expect(b.design).toBeUndefined();
+    expect(warnings.join(" ")).toMatch(/design is not an object/);
+  });
 });
 
 describe("validateBrief", () => {

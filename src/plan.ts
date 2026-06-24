@@ -90,6 +90,25 @@ export function derivePlan(srd: SRD): BuildPlanDoc {
     });
   });
 
+  // A design system adds one foundation task (design tokens, base components, the
+  // accessibility baseline). Appended AFTER the FR tasks so FR-task ids and the
+  // entity-edge index math are untouched; it depends only on the skeleton, so it
+  // builds in parallel with the M1 features. Absent design → byte-identical plan.
+  if (srd.design) {
+    tasks.push({
+      id: `T-${pad3(ordered.length + 1)}`,
+      title: "Design foundation — design tokens, base components, accessibility baseline",
+      milestone: ordered[0]?.milestone ?? "M1",
+      frIds: [],
+      acceptance: [],
+      dependsOn: ["T-000"],
+      artifacts: [],
+      tests: [],
+      verify: { commands: [] },
+      status: "todo",
+    });
+  }
+
   return {
     schemaVersion: BUILD_PLAN_SCHEMA_VERSION,
     product: srd.product.name,

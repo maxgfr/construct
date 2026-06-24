@@ -15,6 +15,12 @@ import {
   renderBuildPlan,
   renderTraceability,
   renderMergeBundle,
+  renderDesignPrinciples,
+  renderDesignTokens,
+  renderDesignTokensJson,
+  renderComponents,
+  renderScreens,
+  renderAccessibility,
   slugTitle,
 } from "./templates.js";
 import type { Brief, EvidenceItem, Level, SRD } from "./types.js";
@@ -30,6 +36,9 @@ export interface RenderOptions {
   out: string;
   merge: boolean;
   generatedAt: string;
+  // The design-system subtree renders at `complex` unless opted out. Light never
+  // renders it. Default false (off) when unset.
+  noDesign?: boolean;
 }
 
 function writeFile(out: string, rel: string, content: string, files: string[]): void {
@@ -44,7 +53,9 @@ function writeFile(out: string, rel: string, content: string, files: string[]): 
 // Offline and pure apart from the filesystem write — same inputs (and the same
 // injected generatedAt) produce byte-identical output.
 export function renderSRD(brief: Brief, evidence: EvidenceItem[], opts: RenderOptions): RenderResult {
-  const srd = buildSRD(brief, evidence, { level: opts.level, generatedAt: opts.generatedAt });
+  // Design renders at complex unless opted out; light never renders it.
+  const wantDesign = opts.level === "complex" && !opts.noDesign;
+  const srd = buildSRD(brief, evidence, { level: opts.level, generatedAt: opts.generatedAt, design: wantDesign });
   const files: string[] = [];
   const out = opts.out;
 
@@ -52,6 +63,10 @@ export function renderSRD(brief: Brief, evidence: EvidenceItem[], opts: RenderOp
   // self-host ADR is added, the data ADR shifts 0002→0003). Clear the directory
   // first so a re-render never leaves a stale, duplicate-numbered orphan behind.
   rmSync(join(out, "architecture", "decisions"), { recursive: true, force: true });
+  // The design/ subtree can toggle off (light level or --no-design). Clear it
+  // first so a re-render never leaves an orphaned design/ behind — the same
+  // hygiene as the decisions dir and the stale SRD.md below.
+  rmSync(join(out, "design"), { recursive: true, force: true });
 
   writeFile(out, "00-overview/VISION.md", renderVision(srd), files);
   writeFile(out, "00-overview/SCOPE.md", renderScope(srd), files);
@@ -70,6 +85,17 @@ export function renderSRD(brief: Brief, evidence: EvidenceItem[], opts: RenderOp
   writePlan(out, mergePlan(loadPlan(out), derivePlan(srd)));
   files.push("BUILD-PLAN.json");
   writeFile(out, "TRACEABILITY.md", renderTraceability(srd), files);
+
+  // Design system (complex, not opted out): the design/ subtree + a
+  // machine-readable token twin (mirrors SRD.json / BUILD-PLAN.json).
+  if (srd.design) {
+    writeFile(out, "design/PRINCIPLES.md", renderDesignPrinciples(srd.design), files);
+    writeFile(out, "design/DESIGN-TOKENS.md", renderDesignTokens(srd.design), files);
+    writeFile(out, "design/design-tokens.json", renderDesignTokensJson(srd.design), files);
+    writeFile(out, "design/COMPONENTS.md", renderComponents(srd.design), files);
+    writeFile(out, "design/SCREENS.md", renderScreens(srd.design), files);
+    writeFile(out, "design/ACCESSIBILITY.md", renderAccessibility(srd.design), files);
+  }
 
   // Machine-readable manifest (what `check` re-reads).
   writeFileSync(srdManifestPath(out), JSON.stringify(srd, null, 2) + "\n");

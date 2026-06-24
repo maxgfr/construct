@@ -55,9 +55,9 @@ function seeded(): string {
   return run;
 }
 
-function rendered(level: "light" | "complex" = "complex"): string {
+function rendered(level: "light" | "complex" = "complex", extra: string[] = []): string {
   const run = seeded();
-  const r = cli(["render", "--out", run, "--level", level]);
+  const r = cli(["render", "--out", run, "--level", level, ...extra]);
   expect(r.status, r.stderr).toBe(0);
   return run;
 }
@@ -83,7 +83,9 @@ describe("e2e: CLI basics", () => {
 
 describe("e2e: render lifecycle", () => {
   it("renders the SRD tree + BUILD-PLAN (T-000 + one task per FR)", () => {
-    const run = rendered("complex");
+    // --no-design isolates the pure FR→task DAG (the design system would append
+    // an extra FR-less foundation task — covered separately below).
+    const run = rendered("complex", ["--no-design"]);
     for (const f of ["SRD.json", "requirements/FUNCTIONAL.md", "requirements/NON-FUNCTIONAL.md", "BUILD-PLAN.json", "TRACEABILITY.md"]) {
       expect(existsSync(join(run, f)), `${f} should exist`).toBe(true);
     }
@@ -105,6 +107,40 @@ describe("e2e: render lifecycle", () => {
   });
 });
 
+describe("e2e: design system", () => {
+  it("renders the design/ subtree at complex, gates it, and --no-design opts out", () => {
+    const run = rendered("complex");
+    const designFiles = [
+      "design/PRINCIPLES.md",
+      "design/DESIGN-TOKENS.md",
+      "design/design-tokens.json",
+      "design/COMPONENTS.md",
+      "design/SCREENS.md",
+      "design/ACCESSIBILITY.md",
+    ];
+    for (const f of designFiles) expect(existsSync(join(run, f)), `${f} should exist`).toBe(true);
+    // the token twin is valid JSON covering every category
+    const tokens = JSON.parse(readFileSync(join(run, "design/design-tokens.json"), "utf8")) as Record<string, unknown>;
+    for (const c of ["color", "typography", "spacing", "radius", "elevation", "motion"]) expect(tokens[c], c).toBeTruthy();
+    // the SRD manifest carries the design block, and check passes structurally
+    const srd = JSON.parse(readFileSync(join(run, "SRD.json"), "utf8")) as SRD;
+    expect(srd.design?.components.length).toBeGreaterThan(0);
+    expect(srd.design?.accessibility.standard).toBe("WCAG 2.2 AA");
+    expect(cli(["check", "--out", run]).status).toBe(0);
+    // BUILD-PLAN gained the design-foundation task
+    expect(readPlan(run).tasks.some((t) => /design foundation/i.test(t.title))).toBe(true);
+
+    // --no-design opts out entirely
+    const bare = rendered("complex", ["--no-design"]);
+    expect(existsSync(join(bare, "design"))).toBe(false);
+    expect((JSON.parse(readFileSync(join(bare, "SRD.json"), "utf8")) as SRD).design).toBeUndefined();
+    expect(readPlan(bare).tasks.some((t) => /design foundation/i.test(t.title))).toBe(false);
+
+    // light never renders it
+    expect(existsSync(join(rendered("light"), "design"))).toBe(false);
+  });
+});
+
 describe("e2e: status --json ready frontier", () => {
   it("returns null when there is no plan, and stays valid JSON on a corrupt plan", () => {
     const empty = join(tmp(), "empty");
@@ -121,7 +157,7 @@ describe("e2e: status --json ready frontier", () => {
   });
 
   it("gates the frontier on T-000, then opens same-milestone tasks in parallel", () => {
-    const run = rendered();
+    const run = rendered("complex", ["--no-design"]); // isolate the FR→task DAG
     let f = JSON.parse(cli(["status", "--out", run, "--json"]).stdout);
     expect(f.frontier).toEqual(["T-000"]);
     expect(f.done).toBe(0);

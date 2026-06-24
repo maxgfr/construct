@@ -114,8 +114,65 @@ describe("renderSRD", () => {
     const b = freshDir();
     renderSRD(brief, evidence, { level: "complex", out: a, merge: true, generatedAt: "T" });
     renderSRD(brief, evidence, { level: "complex", out: b, merge: true, generatedAt: "T" });
-    for (const f of ["requirements/FUNCTIONAL.md", "SRD.json", "SRD.md", "TRACEABILITY.md"]) {
+    for (const f of ["requirements/FUNCTIONAL.md", "SRD.json", "SRD.md", "TRACEABILITY.md", "design/DESIGN-TOKENS.md", "design/COMPONENTS.md"]) {
       expect(readFileSync(join(a, f), "utf8")).toBe(readFileSync(join(b, f), "utf8"));
     }
+  });
+});
+
+describe("renderSRD design system", () => {
+  const DESIGN_FILES = [
+    "design/PRINCIPLES.md",
+    "design/DESIGN-TOKENS.md",
+    "design/design-tokens.json",
+    "design/COMPONENTS.md",
+    "design/SCREENS.md",
+    "design/ACCESSIBILITY.md",
+  ];
+
+  it("renders the design/ subtree at complex level", () => {
+    const out = freshDir();
+    renderSRD(brief, evidence, { level: "complex", out, merge: false, generatedAt: "T" });
+    for (const f of DESIGN_FILES) expect(existsSync(join(out, f)), f).toBe(true);
+    // the machine-readable token twin parses and covers every category
+    const tokens = JSON.parse(readFileSync(join(out, "design/design-tokens.json"), "utf8")) as Record<string, Record<string, string>>;
+    for (const c of ["color", "typography", "spacing", "radius", "elevation", "motion"]) expect(tokens[c], c).toBeTruthy();
+    // components carry states + FR links; accessibility states the standard
+    const comp = readFileSync(join(out, "design/COMPONENTS.md"), "utf8");
+    expect(comp).toMatch(/\*\*States:\*\*/);
+    expect(comp).toMatch(/\*\*Realises:\*\* FR-\d{3}/);
+    const a11y = readFileSync(join(out, "design/ACCESSIBILITY.md"), "utf8");
+    expect(a11y).toMatch(/Target standard:\*\* WCAG 2\.2 AA/);
+    expect(a11y).toMatch(/\*\*Given\*\* .*\*\*When\*\* .*\*\*Then\*\*/);
+  });
+
+  it("does NOT render the design subtree at light level", () => {
+    const out = freshDir();
+    renderSRD(brief, evidence, { level: "light", out, merge: false, generatedAt: "T" });
+    expect(existsSync(join(out, "design"))).toBe(false);
+  });
+
+  it("skips the design subtree at complex with noDesign", () => {
+    const out = freshDir();
+    renderSRD(brief, evidence, { level: "complex", out, merge: false, generatedAt: "T", noDesign: true });
+    expect(existsSync(join(out, "design"))).toBe(false);
+    // and the traceability matrix keeps its original 5 columns
+    const trace = readFileSync(join(out, "TRACEABILITY.md"), "utf8");
+    expect(trace).not.toContain("Components");
+  });
+
+  it("clears a stale design/ subtree when re-rendering without design", () => {
+    const out = freshDir();
+    renderSRD(brief, evidence, { level: "complex", out, merge: false, generatedAt: "T" });
+    expect(existsSync(join(out, "design/DESIGN-TOKENS.md"))).toBe(true);
+    renderSRD(brief, evidence, { level: "light", out, merge: false, generatedAt: "T" });
+    expect(existsSync(join(out, "design"))).toBe(false);
+  });
+
+  it("adds Components/Screens columns to the traceability matrix at complex", () => {
+    const out = freshDir();
+    renderSRD(brief, evidence, { level: "complex", out, merge: false, generatedAt: "T" });
+    const trace = readFileSync(join(out, "TRACEABILITY.md"), "utf8");
+    expect(trace).toContain("| Requirement | NFRs | ADRs | Entities | Interfaces | Components | Screens |");
   });
 });

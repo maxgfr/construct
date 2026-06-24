@@ -171,6 +171,65 @@ describe("checkRun — renderer-templated criteria nudges", () => {
   });
 });
 
+describe("checkRun — design system gate", () => {
+  it("passes the seeded design at complex and reports no design errors at light", () => {
+    expect(checkRun(renderRun({ level: "complex" })).structural.ok).toBe(true);
+    const light = checkRun(renderRun({ level: "light" }));
+    expect(light.structural.ok).toBe(true);
+    expect(light.structural.errors.join(" ")).not.toMatch(/design/i);
+  });
+
+  it("fails when a component references an unknown requirement", () => {
+    const dir = renderRun({ level: "complex" });
+    mutateSRD(dir, (s) => (s.design!.components[0]!.relatedFRs = ["FR-999"]));
+    const r = checkRun(dir);
+    expect(r.ok).toBe(false);
+    expect(r.structural.errors.join(" ")).toMatch(/references unknown requirement "FR-999"/);
+  });
+
+  it("fails when a required design-token category is missing", () => {
+    const dir = renderRun({ level: "complex" });
+    mutateSRD(dir, (s) => (s.design!.tokens = s.design!.tokens.filter((t) => t.category !== "motion")));
+    const r = checkRun(dir);
+    expect(r.ok).toBe(false);
+    expect(r.structural.errors.join(" ")).toMatch(/missing the required category: motion/);
+  });
+
+  it("fails when the component inventory is empty", () => {
+    const dir = renderRun({ level: "complex" });
+    mutateSRD(dir, (s) => (s.design!.components = []));
+    const r = checkRun(dir);
+    expect(r.ok).toBe(false);
+    expect(r.structural.errors.join(" ")).toMatch(/no components/i);
+  });
+
+  it("fails on a missing accessibility standard or an a11y requirement without criteria", () => {
+    const dir = renderRun({ level: "complex" });
+    mutateSRD(dir, (s) => {
+      s.design!.accessibility.standard = "";
+      s.design!.accessibility.requirements[0]!.acceptance = [];
+    });
+    const r = checkRun(dir);
+    expect(r.ok).toBe(false);
+    expect(r.structural.errors.join(" ")).toMatch(/no accessibility target standard/);
+    expect(r.structural.errors.join(" ")).toMatch(/A11Y-001 has no acceptance criteria/);
+  });
+
+  it("fails when a rendered design file is missing", () => {
+    const dir = renderRun({ level: "complex" });
+    rmSync(join(dir, "design", "COMPONENTS.md"));
+    const r = checkRun(dir);
+    expect(r.ok).toBe(false);
+    expect(r.structural.errors.join(" ")).toMatch(/Missing required design file: design\/COMPONENTS\.md/);
+  });
+
+  it("warns (advisory) while the tokens are still seeded defaults", () => {
+    const r = checkRun(renderRun({ level: "complex" }));
+    expect(r.ok).toBe(true);
+    expect(r.structural.warnings.join(" ")).toMatch(/seeded defaults/i);
+  });
+});
+
 describe("checkRun — placeholder words vs decisions", () => {
   it("does NOT hard-fail when a feature title legitimately contains TODO (advisory only)", () => {
     const r = checkRun(renderRun({ briefOverride: { featureWishlist: [{ title: "Manage a shared TODO list", priority: "must" }] } }));

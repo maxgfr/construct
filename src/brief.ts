@@ -94,6 +94,28 @@ export function normalizeBrief(data: unknown, warn: (msg: string) => void = () =
       features.push({ title, priority, notes: line((f as { notes?: string }).notes) });
     });
   }
+  // Optional design intent — tolerated like everything else: a non-object is
+  // dropped with a warning; only non-empty fields are kept.
+  let design: Brief["design"];
+  if (d.design !== undefined && d.design !== null) {
+    if (typeof d.design !== "object" || Array.isArray(d.design)) {
+      warn("design is not an object — ignored.");
+    } else {
+      const dd = d.design as Record<string, unknown>;
+      const out: NonNullable<Brief["design"]> = {};
+      const platforms = arr(dd.platforms, "design.platforms");
+      const referenceSystems = arr(dd.referenceSystems, "design.referenceSystems");
+      const brand = line(dd.brandConstraints);
+      const a11y = line(dd.accessibilityTarget);
+      const tone = line(dd.tone);
+      if (platforms.length) out.platforms = platforms;
+      if (referenceSystems.length) out.referenceSystems = referenceSystems;
+      if (brand) out.brandConstraints = brand;
+      if (a11y) out.accessibilityTarget = a11y;
+      if (tone) out.tone = tone;
+      if (Object.keys(out).length) design = out;
+    }
+  }
   return {
     schemaVersion: typeof d.schemaVersion === "number" ? d.schemaVersion : BRIEF_SCHEMA_VERSION,
     idea: line(d.idea) ?? "",
@@ -117,6 +139,7 @@ export function normalizeBrief(data: unknown, warn: (msg: string) => void = () =
     featureWishlist: features,
     nfrPriorities: arr(d.nfrPriorities, "nfrPriorities"),
     openQuestions: arr(d.openQuestions, "openQuestions"),
+    ...(design ? { design } : {}),
     createdAt: typeof d.createdAt === "string" ? d.createdAt : "",
   };
 }

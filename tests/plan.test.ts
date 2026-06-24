@@ -58,6 +58,24 @@ describe("derivePlan", () => {
   it("is deterministic", () => {
     expect(JSON.stringify(derivePlan(srd()))).toBe(JSON.stringify(derivePlan(srd())));
   });
+
+  it("appends a design-foundation task only when the SRD has a design system", () => {
+    expect(derivePlan(srd()).tasks.some((t) => /design foundation/i.test(t.title))).toBe(false);
+
+    const withDesign = buildSRD(brief, evidence, { level: "complex", generatedAt: "T", design: true });
+    const plan = derivePlan(withDesign);
+    const design = plan.tasks.find((t) => /design foundation/i.test(t.title))!;
+    expect(design).toBeDefined();
+    expect(design.milestone).toBe("M1");
+    expect(design.dependsOn).toEqual(["T-000"]);
+    expect(design.frIds).toEqual([]);
+    // appended last → FR-task ids are unchanged vs the design-less plan
+    expect(plan.tasks).toHaveLength(withDesign.functional.length + 2); // T-000 + N FR + design
+    expect(design.id).toBe(plan.tasks[plan.tasks.length - 1]!.id);
+    // builds in parallel with the M1 features once the skeleton is done
+    plan.tasks.find((t) => t.id === "T-000")!.status = "done";
+    expect(readyFrontier(plan).frontier).toContain(design.id);
+  });
 });
 
 describe("mergePlan — re-render never loses agent progress", () => {

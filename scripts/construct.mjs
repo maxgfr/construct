@@ -15,6 +15,9 @@ var REQUIRED_NFR = {
   light: ["performance", "security", "reliability"],
   complex: ["performance", "security", "reliability", "usability", "observability", "cost"]
 };
+var DESIGN_TOKEN_CATEGORIES = ["color", "typography", "spacing", "radius", "elevation", "motion"];
+var COMPONENT_STATES = ["default", "hover", "focus", "active", "disabled", "loading", "empty", "error"];
+var DESIGN_TOKENS_SEEDED_BANNER = "Seeded defaults \u2014 replace these with the product's real brand tokens during authoring.";
 var BUILD_PLAN_SCHEMA_VERSION = 1;
 
 // src/util.ts
@@ -274,6 +277,26 @@ function normalizeBrief(data, warn = () => {
       features.push({ title, priority, notes: line(f.notes) });
     });
   }
+  let design;
+  if (d.design !== void 0 && d.design !== null) {
+    if (typeof d.design !== "object" || Array.isArray(d.design)) {
+      warn("design is not an object \u2014 ignored.");
+    } else {
+      const dd = d.design;
+      const out = {};
+      const platforms = arr(dd.platforms, "design.platforms");
+      const referenceSystems = arr(dd.referenceSystems, "design.referenceSystems");
+      const brand = line(dd.brandConstraints);
+      const a11y = line(dd.accessibilityTarget);
+      const tone = line(dd.tone);
+      if (platforms.length) out.platforms = platforms;
+      if (referenceSystems.length) out.referenceSystems = referenceSystems;
+      if (brand) out.brandConstraints = brand;
+      if (a11y) out.accessibilityTarget = a11y;
+      if (tone) out.tone = tone;
+      if (Object.keys(out).length) design = out;
+    }
+  }
   return {
     schemaVersion: typeof d.schemaVersion === "number" ? d.schemaVersion : BRIEF_SCHEMA_VERSION,
     idea: line(d.idea) ?? "",
@@ -297,6 +320,7 @@ function normalizeBrief(data, warn = () => {
     featureWishlist: features,
     nfrPriorities: arr(d.nfrPriorities, "nfrPriorities"),
     openQuestions: arr(d.openQuestions, "openQuestions"),
+    ...design ? { design } : {},
     createdAt: typeof d.createdAt === "string" ? d.createdAt : ""
   };
 }
@@ -1826,12 +1850,18 @@ function buildSRD(brief, evidence, opts) {
   }
   const oss = [...ossByKey.values()];
   const buildPlan = buildMilestones(functional, brief, evidence, evById);
+  const design = opts.design ? buildDesignSystem(brief, functional) : void 0;
   const traceability = functional.map((fr) => {
     const text = `${fr.title} ${fr.description}`;
     const adrIds = [stackAdrId];
     if (dataAdr && (PERSIST_RE.test(text) || INTEGRATION_RE.test(text))) adrIds.push(dataAdr.id);
     if (privacyAdr && NFR_SIGNALS.privacy.test(text)) adrIds.push(privacyAdr.id);
-    return { fr: fr.id, nfrs: fr.nfrs, adrs: adrIds, entities: fr.entities, interfaces: fr.interfaces };
+    const row = { fr: fr.id, nfrs: fr.nfrs, adrs: adrIds, entities: fr.entities, interfaces: fr.interfaces };
+    if (design) {
+      row.components = design.components.filter((c) => c.relatedFRs.includes(fr.id)).map((c) => c.name);
+      row.screens = design.screens.filter((s) => s.relatedFRs.includes(fr.id)).map((s) => s.name);
+    }
+    return row;
   });
   const referenced = /* @__PURE__ */ new Set();
   for (const fr of functional) fr.rationaleEvidence.forEach((id) => referenced.add(id));
@@ -1864,7 +1894,195 @@ function buildSRD(brief, evidence, opts) {
     buildPlan,
     traceability,
     openQuestions: brief.openQuestions,
-    evidenceIndex
+    evidenceIndex,
+    ...design ? { design } : {}
+  };
+}
+function deriveA11yStandard(brief) {
+  const explicit = brief.design?.accessibilityTarget?.trim();
+  if (explicit) return explicit;
+  const hay = `${(brief.constraints.compliance ?? []).join(" ")} ${brief.nfrPriorities.join(" ")}`.toLowerCase();
+  if (/\brgaa\b/.test(hay)) return "RGAA 4.1 (aligned to WCAG 2.2 AA)";
+  if (/\b508\b|section 508/.test(hay)) return "Section 508 (WCAG 2.0 AA)";
+  if (/en\s?301\s?549/.test(hay)) return "EN 301 549 (WCAG 2.1 AA)";
+  return "WCAG 2.2 AA";
+}
+function buildPrinciples(brief) {
+  const hay = `${brief.idea} ${brief.product.valueProp ?? ""} ${brief.product.problem ?? ""} ${brief.nfrPriorities.join(" ")} ${brief.featureWishlist.map((f) => `${f.title} ${f.notes ?? ""}`).join(" ")}`;
+  const out = [];
+  if (/self[- ]?host|privac|gdpr|own (your|the) data|no account/i.test(hay)) {
+    out.push("Privacy by default \u2014 the UI never surfaces or transmits data the user did not choose to share.");
+  }
+  if (/fast|speed|sub-?second|latenc|instant|under \d/i.test(hay)) {
+    out.push("Perceived performance first \u2014 optimistic UI, skeletons over spinners, immediate feedback on every action.");
+  }
+  out.push("Accessible to everyone \u2014 every flow works with the keyboard and assistive technology, by construction.");
+  out.push("Consistency over novelty \u2014 reuse tokens and components before inventing new ones.");
+  out.push("Progressive disclosure \u2014 show the essential first; reveal complexity only on demand.");
+  out.push("Clear over clever \u2014 plain language, obvious affordances, honest empty and error states.");
+  return out.slice(0, 5);
+}
+function seedTokens(brief) {
+  const brand = brief.design?.brandConstraints?.trim();
+  const byCategory = {
+    color: [
+      { category: "color", name: "color.bg", value: "#ffffff", note: brand ? `Adjust to brand: ${brand}` : "Primary surface" },
+      { category: "color", name: "color.fg", value: "#111827", note: "Primary text" },
+      { category: "color", name: "color.primary", value: "#2563eb", note: "Primary action / brand accent" },
+      { category: "color", name: "color.danger", value: "#dc2626", note: "Destructive / error" },
+      { category: "color", name: "color.muted", value: "#6b7280", note: "Secondary text / borders" }
+    ],
+    typography: [
+      { category: "typography", name: "font.sans", value: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" },
+      { category: "typography", name: "font.mono", value: "ui-monospace, SFMono-Regular, Menlo, monospace" },
+      { category: "typography", name: "scale.body", value: "16px / 1.5" },
+      { category: "typography", name: "scale.h1", value: "32px / 1.25" },
+      { category: "typography", name: "scale.small", value: "13px / 1.4" }
+    ],
+    spacing: [
+      { category: "spacing", name: "space.1", value: "4px" },
+      { category: "spacing", name: "space.2", value: "8px" },
+      { category: "spacing", name: "space.3", value: "12px" },
+      { category: "spacing", name: "space.4", value: "16px" },
+      { category: "spacing", name: "space.6", value: "24px" },
+      { category: "spacing", name: "space.8", value: "32px" }
+    ],
+    radius: [
+      { category: "radius", name: "radius.sm", value: "4px" },
+      { category: "radius", name: "radius.md", value: "8px" },
+      { category: "radius", name: "radius.lg", value: "12px" }
+    ],
+    elevation: [
+      { category: "elevation", name: "shadow.sm", value: "0 1px 2px rgba(0,0,0,0.06)" },
+      { category: "elevation", name: "shadow.md", value: "0 4px 12px rgba(0,0,0,0.10)" }
+    ],
+    motion: [
+      { category: "motion", name: "motion.fast", value: "120ms ease-out" },
+      { category: "motion", name: "motion.base", value: "200ms ease-out" }
+    ]
+  };
+  return DESIGN_TOKEN_CATEGORIES.flatMap((c) => byCategory[c]);
+}
+var COMPONENT_DEFS = [
+  { name: "App Shell & Navigation", purpose: "Overall layout, navigation and routing chrome that frames every screen.", re: /.*/ },
+  { name: "Button & Actions", purpose: "Primary, secondary and destructive action controls with loading/disabled states.", re: /.*/ },
+  {
+    name: "Form & Input",
+    purpose: "Labelled inputs with inline validation and accessible error messaging.",
+    re: /save|add|create|edit|import|tag|organi[sz]e|login|sign|submit|upload|compose|write|configure|invite/i
+  },
+  {
+    name: "List & Collection",
+    purpose: "Paginated/virtualised lists of saved items with selection and bulk actions.",
+    re: /list|search|browse|organi[sz]e|tag|feed|library|archive|history|result|collection|inbox/i
+  },
+  { name: "Detail View", purpose: "The focused reading/detail surface for a single item.", re: /read|view|open|detail|article|item|show|preview|document/i },
+  { name: "Search & Filter", purpose: "Query input, filters and ranked results with empty/no-match handling.", re: /search|filter|find|query|sort|facet/i },
+  { name: "Feedback & Notifications", purpose: "Toasts, banners and inline status for success, error and async progress.", re: /.*/ },
+  { name: "Empty & Error States", purpose: "First-run, no-data and failure states that teach the next action.", re: /.*/ }
+];
+function buildComponents(functional) {
+  const out = [];
+  for (const def of COMPONENT_DEFS) {
+    const relatedFRs = functional.filter((fr) => def.re.test(`${fr.title} ${fr.description}`)).map((fr) => fr.id);
+    if (relatedFRs.length === 0) continue;
+    out.push({ name: def.name, purpose: def.purpose, states: [...COMPONENT_STATES], relatedFRs, evidence: [] });
+  }
+  return out;
+}
+function buildScreens(functional) {
+  const inScope = functional.filter((fr) => fr.priority !== "could");
+  const mustIds = functional.filter((fr) => fr.priority === "must").map((fr) => fr.id);
+  const screens = [
+    { name: "Home / Dashboard", purpose: "The landing surface after sign-in; entry point to the primary tasks.", relatedFRs: mustIds }
+  ];
+  for (const fr of inScope) {
+    screens.push({ name: `${fr.title}`, purpose: `Where a user can ${lowerFirst(fr.title)}.`, relatedFRs: [fr.id] });
+  }
+  screens.push({ name: "Settings & Account", purpose: "Preferences, data export/delete and account management.", relatedFRs: [] });
+  return screens;
+}
+function buildFlows(functional) {
+  const must = functional.filter((fr) => fr.priority === "must");
+  const flows = [
+    {
+      name: "First-run onboarding",
+      steps: ["Arrive at an empty, explanatory first-run state", "Complete the minimal setup", "Reach the dashboard ready to act"],
+      frIds: must.map((fr) => fr.id)
+    }
+  ];
+  for (const fr of must) {
+    flows.push({
+      name: `${fr.title} \u2014 happy path`,
+      steps: ["Navigate to the relevant screen", `Perform: ${lowerFirst(fr.title)}`, "Receive clear confirmation of the outcome"],
+      frIds: [fr.id]
+    });
+  }
+  return flows;
+}
+function a11yRequirements() {
+  const defs = [
+    {
+      statement: "Every interactive control is fully keyboard operable.",
+      given: "a user navigates with the keyboard only",
+      when: "they tab through any flow",
+      then: "every interactive control is reachable, operable and follows a logical focus order"
+    },
+    {
+      statement: "Focus is always visible.",
+      given: "an element receives keyboard focus",
+      when: "the user is navigating",
+      then: "a visible focus indicator is shown and meets the non-text contrast minimum"
+    },
+    {
+      statement: "Colour contrast meets the target standard.",
+      given: "any text or essential UI element",
+      when: "it is rendered in any supported theme",
+      then: "contrast meets the target (\u2265 4.5:1 for body text, \u2265 3:1 for large text and UI)"
+    },
+    {
+      statement: "Every control and image exposes an accessible name.",
+      given: "a form control, icon-only button or meaningful image",
+      when: "it is read by assistive technology",
+      then: "it exposes a programmatic label/name and images carry meaningful alt text (decorative images are hidden)"
+    },
+    {
+      statement: "Structure and async changes are conveyed semantically.",
+      given: "a screen is parsed by a screen reader",
+      when: "the user explores it",
+      then: "headings, landmarks and roles convey the structure and live regions announce asynchronous changes"
+    },
+    {
+      statement: "Reduced motion and zoom are respected.",
+      given: "a user prefers reduced motion or zooms to 200%",
+      when: "they use the product",
+      then: "non-essential motion is reduced or disabled and content reflows without loss of content or function"
+    }
+  ];
+  return defs.map((d, i) => ({
+    id: `A11Y-${pad3(i + 1)}`,
+    statement: d.statement,
+    acceptance: [{ given: d.given, when: d.when, then: d.then }]
+  }));
+}
+function buildContentVoice(brief) {
+  const tone = brief.design?.tone?.trim();
+  return [
+    tone ? `Voice & tone: ${tone}.` : "Voice & tone: clear, concise and human \u2014 plain language over jargon.",
+    "Label actions with the outcome the user gets, not the system operation behind it.",
+    "Error messages state what happened, why, and the next step \u2014 never blame the user.",
+    "Empty states teach the first useful action; success states confirm exactly what changed."
+  ];
+}
+function buildDesignSystem(brief, functional) {
+  return {
+    principles: buildPrinciples(brief),
+    tokens: seedTokens(brief),
+    components: buildComponents(functional),
+    screens: buildScreens(functional),
+    flows: buildFlows(functional),
+    accessibility: { standard: deriveA11yStandard(brief), requirements: a11yRequirements() },
+    contentVoice: buildContentVoice(brief)
   };
 }
 function concreteOutcome(title, notes) {
@@ -2065,6 +2283,20 @@ function derivePlan(srd) {
       status: "todo"
     });
   });
+  if (srd.design) {
+    tasks.push({
+      id: `T-${pad32(ordered.length + 1)}`,
+      title: "Design foundation \u2014 design tokens, base components, accessibility baseline",
+      milestone: ordered[0]?.milestone ?? "M1",
+      frIds: [],
+      acceptance: [],
+      dependsOn: ["T-000"],
+      artifacts: [],
+      tests: [],
+      verify: { commands: [] },
+      status: "todo"
+    });
+  }
   return {
     schemaVersion: BUILD_PLAN_SCHEMA_VERSION,
     product: srd.product.name,
@@ -2319,11 +2551,100 @@ function renderBuildPlan(srd) {
   return out.join("\n");
 }
 function renderTraceability(srd) {
-  const out = [`# Traceability matrix`, ``, `| Requirement | NFRs | ADRs | Entities | Interfaces |`, `|---|---|---|---|---|`];
+  const design = !!srd.design;
+  const header = design ? `| Requirement | NFRs | ADRs | Entities | Interfaces | Components | Screens |` : `| Requirement | NFRs | ADRs | Entities | Interfaces |`;
+  const sep3 = design ? `|---|---|---|---|---|---|---|` : `|---|---|---|---|---|`;
+  const out = [`# Traceability matrix`, ``, header, sep3];
   for (const r of srd.traceability) {
-    out.push(`| ${r.fr} | ${r.nfrs.join(", ") || "\u2014"} | ${r.adrs.join(", ") || "\u2014"} | ${r.entities.join(", ") || "\u2014"} | ${r.interfaces.join(", ") || "\u2014"} |`);
+    const base = `| ${r.fr} | ${r.nfrs.join(", ") || "\u2014"} | ${r.adrs.join(", ") || "\u2014"} | ${r.entities.join(", ") || "\u2014"} | ${r.interfaces.join(", ") || "\u2014"}`;
+    if (design) {
+      const comps = (r.components ?? []).map(cell).join(", ") || "\u2014";
+      const screens = (r.screens ?? []).map(cell).join(", ") || "\u2014";
+      out.push(`${base} | ${comps} | ${screens} |`);
+    } else {
+      out.push(`${base} |`);
+    }
   }
   out.push(``);
+  return out.join("\n");
+}
+function renderDesignPrinciples(ds) {
+  return [
+    `# Design principles`,
+    ``,
+    bullets(ds.principles, "No design principles captured."),
+    ``,
+    `## Content & voice`,
+    ``,
+    bullets(ds.contentVoice, "No content guidelines captured."),
+    ``
+  ].join("\n");
+}
+function renderDesignTokens(ds) {
+  const out = [`# Design tokens`, ``, `_${DESIGN_TOKENS_SEEDED_BANNER}_`, ``];
+  const cats = [...new Set(ds.tokens.map((t) => t.category))];
+  for (const cat of cats) {
+    const toks = ds.tokens.filter((t) => t.category === cat);
+    out.push(`## ${cell(cat)}`, ``, `| Token | Value | Notes |`, `|---|---|---|`);
+    for (const t of toks) out.push(`| ${cell(t.name)} | ${cell(t.value)} | ${cell(t.note ?? "")} |`);
+    out.push(``);
+  }
+  out.push("> The machine-readable token set is in `design/design-tokens.json`.", ``);
+  return out.join("\n");
+}
+function renderDesignTokensJson(ds) {
+  const obj = {};
+  for (const t of ds.tokens) {
+    (obj[t.category] ??= {})[t.name] = t.value;
+  }
+  return JSON.stringify(obj, null, 2);
+}
+function renderComponents(ds) {
+  const out = [`# Components`, ``];
+  if (!ds.components.length) {
+    out.push(`_No components defined yet. Enrich during authoring: name each component, its states and the requirements it realises._`, ``);
+    return out.join("\n");
+  }
+  out.push(`_Seeded from the functional requirements \u2014 verify each component and its states during authoring._`, ``);
+  for (const c of ds.components) {
+    out.push(`## ${c.name}${cite(c.evidence)}`, ``, c.purpose, ``);
+    out.push(`- **States:** ${c.states.join(", ") || "\u2014"}`);
+    out.push(`- **Realises:** ${c.relatedFRs.length ? c.relatedFRs.join(", ") : "\u2014"}`, ``);
+  }
+  return out.join("\n");
+}
+function renderScreens(ds) {
+  const out = [`# Screens & flows`, ``, `## Screens`, ``];
+  if (ds.screens.length) {
+    out.push(`| Screen | Purpose | Requirements |`, `|---|---|---|`);
+    for (const s of ds.screens) out.push(`| ${cell(s.name)} | ${cell(s.purpose)} | ${s.relatedFRs.join(", ") || "\u2014"} |`);
+  } else {
+    out.push(`_No screens defined._`);
+  }
+  out.push(``, `## User flows`, ``);
+  if (ds.flows.length) {
+    for (const f of ds.flows) {
+      out.push(`### ${f.name}${f.frIds.length ? ` _(${f.frIds.join(", ")})_` : ""}`, ``);
+      f.steps.forEach((step, i) => out.push(`${i + 1}. ${step}`));
+      out.push(``);
+    }
+  } else {
+    out.push(`_No user flows defined._`);
+  }
+  return out.join("\n");
+}
+function renderAccessibility(ds) {
+  const a = ds.accessibility;
+  const out = [`# Accessibility`, ``, `**Target standard:** ${a.standard}`, ``];
+  if (!a.requirements.length) {
+    out.push(`_No accessibility requirements defined._`, ``);
+    return out.join("\n");
+  }
+  for (const r of a.requirements) {
+    out.push(`## ${r.id} \u2014 ${r.statement}`, ``, `**Acceptance criteria:**`);
+    for (const c of r.acceptance) out.push(`- **Given** ${c.given} **When** ${c.when} **Then** ${c.then}`);
+    out.push(``);
+  }
   return out.join("\n");
 }
 function renderMergeBundle(srd) {
@@ -2342,6 +2663,15 @@ function renderMergeBundle(srd) {
     `# Architecture decisions`,
     ``,
     ...srd.architecture.adrs.map(renderADR),
+    ...srd.design ? [
+      `# Design system`,
+      ``,
+      renderDesignPrinciples(srd.design),
+      renderDesignTokens(srd.design),
+      renderComponents(srd.design),
+      renderScreens(srd.design),
+      renderAccessibility(srd.design)
+    ] : [],
     renderLandscape(srd),
     renderBuildPlan(srd),
     renderTraceability(srd)
@@ -2357,10 +2687,12 @@ function writeFile(out, rel, content, files) {
   files.push(rel);
 }
 function renderSRD(brief, evidence, opts) {
-  const srd = buildSRD(brief, evidence, { level: opts.level, generatedAt: opts.generatedAt });
+  const wantDesign = opts.level === "complex" && !opts.noDesign;
+  const srd = buildSRD(brief, evidence, { level: opts.level, generatedAt: opts.generatedAt, design: wantDesign });
   const files = [];
   const out = opts.out;
   rmSync2(join9(out, "architecture", "decisions"), { recursive: true, force: true });
+  rmSync2(join9(out, "design"), { recursive: true, force: true });
   writeFile(out, "00-overview/VISION.md", renderVision(srd), files);
   writeFile(out, "00-overview/SCOPE.md", renderScope(srd), files);
   writeFile(out, "requirements/FUNCTIONAL.md", renderFunctional(srd), files);
@@ -2376,6 +2708,14 @@ function renderSRD(brief, evidence, opts) {
   writePlan(out, mergePlan(loadPlan(out), derivePlan(srd)));
   files.push("BUILD-PLAN.json");
   writeFile(out, "TRACEABILITY.md", renderTraceability(srd), files);
+  if (srd.design) {
+    writeFile(out, "design/PRINCIPLES.md", renderDesignPrinciples(srd.design), files);
+    writeFile(out, "design/DESIGN-TOKENS.md", renderDesignTokens(srd.design), files);
+    writeFile(out, "design/design-tokens.json", renderDesignTokensJson(srd.design), files);
+    writeFile(out, "design/COMPONENTS.md", renderComponents(srd.design), files);
+    writeFile(out, "design/SCREENS.md", renderScreens(srd.design), files);
+    writeFile(out, "design/ACCESSIBILITY.md", renderAccessibility(srd.design), files);
+  }
   writeFileSync4(srdManifestPath(out), JSON.stringify(srd, null, 2) + "\n");
   files.push("SRD.json");
   if (opts.merge) {
@@ -2389,6 +2729,14 @@ function renderSRD(brief, evidence, opts) {
 // src/check.ts
 import { existsSync as existsSync5, readFileSync as readFileSync4, readdirSync as readdirSync3, statSync as statSync2 } from "fs";
 import { join as join10, relative as relative2, sep as sep2 } from "path";
+var DESIGN_REQUIRED_FILES = [
+  "design/PRINCIPLES.md",
+  "design/DESIGN-TOKENS.md",
+  "design/design-tokens.json",
+  "design/COMPONENTS.md",
+  "design/SCREENS.md",
+  "design/ACCESSIBILITY.md"
+];
 var REQUIRED_FILES = [
   "00-overview/VISION.md",
   "00-overview/SCOPE.md",
@@ -2500,6 +2848,37 @@ function applySemantic(runDir, result) {
     result.structural.warnings.push(`--semantic: VERIFY.json is unreadable (${e.message}).`);
   }
 }
+function checkDesign(runDir, srd, errors, warnings) {
+  const ds = srd.design;
+  if (!ds) return;
+  for (const f of DESIGN_REQUIRED_FILES) {
+    if (!existsSync5(join10(runDir, f))) errors.push(`Missing required design file: ${f} (re-render at --level complex).`);
+  }
+  const frIds = new Set(srd.functional.map((f) => f.id));
+  if (ds.components.length === 0) errors.push("Design system has no components \u2014 a complex SRD's design must name its UI components.");
+  for (const c of ds.components) {
+    for (const id of c.relatedFRs) if (!frIds.has(id)) errors.push(`Component "${c.name}" references unknown requirement "${id}".`);
+  }
+  for (const s of ds.screens) {
+    for (const id of s.relatedFRs) if (!frIds.has(id)) errors.push(`Screen "${s.name}" references unknown requirement "${id}".`);
+  }
+  for (const fl of ds.flows) {
+    for (const id of fl.frIds) if (!frIds.has(id)) errors.push(`User flow "${fl.name}" references unknown requirement "${id}".`);
+  }
+  const tokenCats = new Set(ds.tokens.map((t) => t.category.toLowerCase()));
+  for (const cat of DESIGN_TOKEN_CATEGORIES) {
+    if (!tokenCats.has(cat)) errors.push(`Design tokens are missing the required category: ${cat}.`);
+  }
+  if (!ds.accessibility.standard.trim()) errors.push("Design system has no accessibility target standard.");
+  if (ds.accessibility.requirements.length === 0) errors.push("Design system has no accessibility requirements.");
+  for (const r of ds.accessibility.requirements) {
+    if (!r.acceptance.length) errors.push(`Accessibility requirement ${r.id} has no acceptance criteria.`);
+  }
+  const tokenDoc = join10(runDir, "design", "DESIGN-TOKENS.md");
+  if (existsSync5(tokenDoc) && readFileSync4(tokenDoc, "utf8").includes(DESIGN_TOKENS_SEEDED_BANNER)) {
+    warnings.push("Design tokens are still seeded defaults \u2014 replace them with the product's real brand values (see references/design-system-authoring.md).");
+  }
+}
 function checkRun(runDir, opts = {}) {
   const errors = [];
   const warnings = [];
@@ -2571,6 +2950,7 @@ function checkRun(runDir, opts = {}) {
       errors.push(`ADR ${a.id} has invalid status "${a.status}".`);
     }
   }
+  checkDesign(runDir, srd, errors, warnings);
   const templatedThen = srd.functional.reduce((n, fr) => n + fr.acceptance.filter((a) => TEMPLATED_THEN_RE.test(a.then)).length, 0);
   if (templatedThen) {
     warnings.push(
@@ -3120,7 +3500,7 @@ Usage:
   construct research --out <run> [--angles market,oss,tech,semantic] [--q "<focus>"] [--semantic]
   construct analyze  --out <run> [--json]
   construct web|oss|tech|so --out <run> [--q "<focus>"] [--url <u,...>] [--seeds <u,...>]
-  construct render   --out <run> [--level light|complex] [--merge]
+  construct render   --out <run> [--level light|complex] [--merge] [--no-design]
   construct check    --out <run> [--min-grounding <0-100>] [--semantic] [--json]
   construct review   --out <run> [--apply <verdicts.json>] [--max-review N] [--json]
   construct verify   --out <run> [--app <dir>] [--run-tests] [--strict] [--json]
@@ -3134,6 +3514,9 @@ Commands:
   web        Drill the market/web angle.       oss   Drill OSS prior-art mining.
   tech       Drill tech docs + StackOverflow.   so    Drill StackOverflow only.
   render     Render the SRD tree + SRD.json from brief.json + the dossier.
+             At --level complex this also renders a design-system subtree
+             (design/: principles, tokens, components, screens, accessibility);
+             --no-design opts out.
   check      Hard structural gate + advisory grounding-coverage report.
              --semantic also folds in the review verdicts (fails on a claim its
              cited evidence does not support).
@@ -3163,6 +3546,7 @@ Options:
   --web-engine <e>     auto | searxng | ddg | claude             (default: auto)
   --per-source <n>     Max evidence items kept per source        (default: 6)
   --merge              Also emit a single-file SRD.md bundle
+  --no-design          For 'render': skip the design-system subtree (complex only)
   --semantic           Rescore evidence with the local embedding model
   --refresh            Force re-clone of mined OSS repos
   --json               Machine-readable output
@@ -3195,7 +3579,7 @@ var VALUE_FLAGS = /* @__PURE__ */ new Set([
   "apply",
   "max-review"
 ]);
-var BOOL_FLAGS = /* @__PURE__ */ new Set(["semantic", "merge", "json", "refresh", "run-tests", "strict"]);
+var BOOL_FLAGS = /* @__PURE__ */ new Set(["semantic", "merge", "json", "refresh", "run-tests", "strict", "no-design"]);
 function fail(message) {
   process.stderr.write(`construct: ${message}
 `);
@@ -3407,12 +3791,15 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
         level,
         out,
         merge: p.bools.has("merge"),
+        noDesign: p.bools.has("no-design"),
         generatedAt: (/* @__PURE__ */ new Date()).toISOString()
       });
+      const design = r.srd.design;
       process.stderr.write(
         [
           `construct: rendered the ${level} SRD for "${brief.idea}"`,
           `  files:    ${r.files.length} (${r.srd.functional.length} FR \xB7 ${r.srd.nonFunctional.length} NFR \xB7 ${r.srd.architecture.adrs.length} ADR)`,
+          ...design ? [`  design:   ${design.components.length} components \xB7 ${design.tokens.length} tokens \xB7 a11y ${design.accessibility.standard}`] : [],
           `  manifest: ${join14(out, "SRD.json")}`,
           `  next:     construct check --out ${out}`
         ].join("\n") + "\n"

@@ -56,6 +56,14 @@ NFRs for the level, an *inferred* data model and interface set (recurring nouns
 + boundary detection, FR references closed symmetrically), ADRs from the
 candidate stack, a competitive table, a build plan and a traceability matrix.
 Evidence `[E#]` hooks are auto-attached by keyword overlap (`matchEvidence`).
+At `complex` (unless `--no-design`), `buildSRD` also seeds an optional `design`
+block — design principles, a brand-neutral token scaffold across the required
+categories, a component inventory (linked to the FRs it realises), a screen/flow
+map and an accessibility contract whose target standard is derived from the brief
+(default WCAG 2.2 AA). `render.ts` writes it as the `design/` subtree plus a
+machine-readable `design-tokens.json`; the traceability matrix gains
+component/screen columns. `srd.design` is absent at `light`/`--no-design`, so
+those outputs stay byte-identical.
 `templates.ts` turns each model slice into Markdown (pure, golden-testable);
 `render.ts` writes the tree + `SRD.json` + `BUILD-PLAN.json` (`src/plan.ts`:
 `derivePlan` builds the task DAG from the SRD; `mergePlan` preserves the
@@ -71,6 +79,10 @@ Two independent passes:
 - **Structural gate (hard, exit ≠ 0):** no leftover `🧠`/TODO; every FR has
   acceptance criteria and resolving entity/interface/NFR references; required
   NFR categories present for the level; ADRs well-formed; required files present.
+  When a `design` block is present it also checks the design files exist, every
+  component/screen/flow resolves to an FR, all token categories are present, the
+  inventory is non-empty and the accessibility block names a standard with
+  testable criteria (advisory nudge while the tokens are still seeded defaults).
 - **Grounding coverage (advisory):** per-section grounded fraction, dangling
   `[E#]`, uncited evidence, renderer-templated criteria nudges. Never changes
   the exit code — unless the caller opts into `--min-grounding <0-100>`, which

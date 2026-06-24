@@ -2,8 +2,20 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import type { Stats } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { srdManifestPath } from "./srd.js";
-import { REQUIRED_NFR } from "./types.js";
+import { REQUIRED_NFR, DESIGN_TOKEN_CATEGORIES, DESIGN_TOKENS_SEEDED_BANNER } from "./types.js";
 import type { CheckResult, SRD, EvidenceItem, CoverageReport, ClaimVerifyResult } from "./types.js";
+
+// The design-system files render.ts writes when a design system is present.
+// `check` requires them only when `srd.design` is set — a light/no-design SRD
+// legitimately has none, so they stay out of the unconditional REQUIRED_FILES.
+const DESIGN_REQUIRED_FILES = [
+  "design/PRINCIPLES.md",
+  "design/DESIGN-TOKENS.md",
+  "design/design-tokens.json",
+  "design/COMPONENTS.md",
+  "design/SCREENS.md",
+  "design/ACCESSIBILITY.md",
+];
 
 const REQUIRED_FILES = [
   "00-overview/VISION.md",
@@ -146,6 +158,49 @@ function applySemantic(runDir: string, result: CheckResult): void {
   }
 }
 
+// Structural validation for the optional design system. Additive: it only runs
+// when `srd.design` is present, so a light/no-design SRD is validated exactly as
+// before. Mirrors the FR/NFR/ADR rules: references must resolve, the required
+// token categories must be present, and the accessibility contract must be real.
+function checkDesign(runDir: string, srd: SRD, errors: string[], warnings: string[]): void {
+  const ds = srd.design;
+  if (!ds) return;
+
+  for (const f of DESIGN_REQUIRED_FILES) {
+    if (!existsSync(join(runDir, f))) errors.push(`Missing required design file: ${f} (re-render at --level complex).`);
+  }
+
+  const frIds = new Set(srd.functional.map((f) => f.id));
+  if (ds.components.length === 0) errors.push("Design system has no components — a complex SRD's design must name its UI components.");
+  for (const c of ds.components) {
+    for (const id of c.relatedFRs) if (!frIds.has(id)) errors.push(`Component "${c.name}" references unknown requirement "${id}".`);
+  }
+  for (const s of ds.screens) {
+    for (const id of s.relatedFRs) if (!frIds.has(id)) errors.push(`Screen "${s.name}" references unknown requirement "${id}".`);
+  }
+  for (const fl of ds.flows) {
+    for (const id of fl.frIds) if (!frIds.has(id)) errors.push(`User flow "${fl.name}" references unknown requirement "${id}".`);
+  }
+
+  const tokenCats = new Set(ds.tokens.map((t) => t.category.toLowerCase()));
+  for (const cat of DESIGN_TOKEN_CATEGORIES) {
+    if (!tokenCats.has(cat)) errors.push(`Design tokens are missing the required category: ${cat}.`);
+  }
+
+  if (!ds.accessibility.standard.trim()) errors.push("Design system has no accessibility target standard.");
+  if (ds.accessibility.requirements.length === 0) errors.push("Design system has no accessibility requirements.");
+  for (const r of ds.accessibility.requirements) {
+    if (!r.acceptance.length) errors.push(`Accessibility requirement ${r.id} has no acceptance criteria.`);
+  }
+
+  // Advisory: tokens still carry the renderer's seeded-default banner — complete
+  // but not yet tuned to the brand. Renderer-only string → zero false positives.
+  const tokenDoc = join(runDir, "design", "DESIGN-TOKENS.md");
+  if (existsSync(tokenDoc) && readFileSync(tokenDoc, "utf8").includes(DESIGN_TOKENS_SEEDED_BANNER)) {
+    warnings.push("Design tokens are still seeded defaults — replace them with the product's real brand values (see references/design-system-authoring.md).");
+  }
+}
+
 // The dual gate. `ok` reflects the hard structural/buildability gate, AND the
 // opt-in grounding threshold when the caller passes `minGrounding` (the
 // advisory coverage report itself never flips `ok`). With `opts.semantic`, ALSO
@@ -244,6 +299,9 @@ export function checkRun(runDir: string, opts: { minGrounding?: number; semantic
       errors.push(`ADR ${a.id} has invalid status "${a.status}".`);
     }
   }
+
+  // Design system (only when present) — additive structural gate.
+  checkDesign(runDir, srd, errors, warnings);
 
   // Advisory: criteria/metrics still carrying the renderer's own template
   // phrasing — complete but not yet sharpened into something testable.

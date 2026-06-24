@@ -123,7 +123,18 @@ export interface Brief {
   featureWishlist: FeatureWish[];
   nfrPriorities: string[]; // e.g. ["performance","security","a11y"]
   openQuestions: string[]; // become 🧠 callouts at render time
+  design?: DesignInput; // optional design-system intent captured in the interview
   createdAt: string;
+}
+
+// Optional design intent captured during the interview. All fields optional —
+// the renderer derives sensible defaults from the rest of the brief when absent.
+export interface DesignInput {
+  platforms?: string[]; // web, ios, android, desktop, …
+  brandConstraints?: string; // existing brand/colours/typography, or "greenfield"
+  referenceSystems?: string[]; // design systems to emulate (Material, shadcn, …)
+  accessibilityTarget?: string; // explicit standard override (e.g. "RGAA 4.1")
+  tone?: string; // voice & tone for content
 }
 
 // ---------------------------------------------------------------------------
@@ -140,6 +151,20 @@ export const REQUIRED_NFR: Record<Level, string[]> = {
   light: ["performance", "security", "reliability"],
   complex: ["performance", "security", "reliability", "usability", "observability", "cost"],
 };
+
+// The design-token categories a complete design system must cover. buildSRD
+// seeds one group per category; the hard `check` enforces they are all present
+// (the design analog of REQUIRED_NFR). Single definition so the two can't drift.
+export const DESIGN_TOKEN_CATEGORIES = ["color", "typography", "spacing", "radius", "elevation", "motion"] as const;
+
+// The interaction states a UI component spec should account for. Seeded onto
+// every inferred component so a design spec covers real states, not just a name.
+export const COMPONENT_STATES = ["default", "hover", "focus", "active", "disabled", "loading", "empty", "error"] as const;
+
+// Banner the design-token renderer emits while the values are still the seeded
+// defaults; `check` flags it as an advisory authoring nudge (renderer-only, so
+// zero false positives — same rule as the 🧠 and templated-criteria phrasings).
+export const DESIGN_TOKENS_SEEDED_BANNER = "Seeded defaults — replace these with the product's real brand tokens during authoring.";
 
 export interface AcceptanceCriterion {
   given: string;
@@ -218,6 +243,69 @@ export interface TraceRow {
   adrs: string[];
   entities: string[];
   interfaces: string[];
+  // Design traceability — the components/screens that realise each FR. Optional
+  // so a light/no-design SRD's matrix is byte-identical to before.
+  components?: string[];
+  screens?: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Design system — the optional UI/UX contract rendered at `complex` level (the
+// `design/` subtree). Seeded deterministically by inference from the brief +
+// functional requirements, then enriched by the author (see
+// references/design-system-authoring.md). Absent at `light` / with --no-design.
+// ---------------------------------------------------------------------------
+
+// A single design token (a named value the UI consumes). `category` is one of
+// DESIGN_TOKEN_CATEGORIES; `value` is a sensible seeded default the author tunes.
+export interface DesignToken {
+  category: string;
+  name: string;
+  value: string;
+  note?: string;
+}
+
+// A UI component in the inventory. `states` is the interaction-state checklist
+// (COMPONENT_STATES); `relatedFRs` must resolve to functional-requirement ids.
+export interface UIComponent {
+  name: string;
+  purpose: string;
+  states: string[];
+  relatedFRs: string[];
+  evidence: string[]; // [E#] ids grounding the component (empty until authored)
+}
+
+// A screen/route in the product, mapped to the FRs it serves.
+export interface Screen {
+  name: string;
+  purpose: string;
+  relatedFRs: string[];
+}
+
+// A primary user flow — an ordered path through the product realising some FRs.
+export interface UserFlow {
+  name: string;
+  steps: string[];
+  frIds: string[];
+}
+
+// An accessibility requirement with testable Given/When/Then criteria. The
+// `standard` (WCAG/RGAA/…) is derived from the brief; `check` enforces each
+// requirement carries at least one acceptance criterion.
+export interface A11yRequirement {
+  id: string; // A11Y-001 …
+  statement: string;
+  acceptance: AcceptanceCriterion[];
+}
+
+export interface DesignSystem {
+  principles: string[];
+  tokens: DesignToken[];
+  components: UIComponent[];
+  screens: Screen[];
+  flows: UserFlow[];
+  accessibility: { standard: string; requirements: A11yRequirement[] };
+  contentVoice: string[];
 }
 
 // Advisory grounding coverage — never fails the build, just reports.
@@ -257,6 +345,9 @@ export interface SRD {
   traceability: TraceRow[];
   openQuestions: string[]; // unresolved decisions, surfaced as 🧠 callouts
   evidenceIndex: string[]; // every [E#] referenced by the SRD
+  // The design-system contract. Present only at `complex` level without
+  // --no-design; absent (undefined) otherwise — keeps light SRDs byte-identical.
+  design?: DesignSystem;
   coverage?: CoverageReport; // filled by `check` (advisory)
 }
 

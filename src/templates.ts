@@ -1,4 +1,5 @@
-import type { SRD, ADR } from "./types.js";
+import { DESIGN_TOKENS_SEEDED_BANNER } from "./types.js";
+import type { SRD, ADR, DesignSystem } from "./types.js";
 
 // Markdown rendering for every SRD section. Each function is pure (model slice →
 // string) so it is trivially golden-testable offline.
@@ -215,11 +216,118 @@ export function renderBuildPlan(srd: SRD): string {
 }
 
 export function renderTraceability(srd: SRD): string {
-  const out = [`# Traceability matrix`, ``, `| Requirement | NFRs | ADRs | Entities | Interfaces |`, `|---|---|---|---|---|`];
+  // Two extra columns (Components, Screens) appear only when a design system is
+  // present, so a light/no-design matrix is byte-identical to before.
+  const design = !!srd.design;
+  const header = design
+    ? `| Requirement | NFRs | ADRs | Entities | Interfaces | Components | Screens |`
+    : `| Requirement | NFRs | ADRs | Entities | Interfaces |`;
+  const sep = design ? `|---|---|---|---|---|---|---|` : `|---|---|---|---|---|`;
+  const out = [`# Traceability matrix`, ``, header, sep];
   for (const r of srd.traceability) {
-    out.push(`| ${r.fr} | ${r.nfrs.join(", ") || "—"} | ${r.adrs.join(", ") || "—"} | ${r.entities.join(", ") || "—"} | ${r.interfaces.join(", ") || "—"} |`);
+    const base = `| ${r.fr} | ${r.nfrs.join(", ") || "—"} | ${r.adrs.join(", ") || "—"} | ${r.entities.join(", ") || "—"} | ${r.interfaces.join(", ") || "—"}`;
+    if (design) {
+      const comps = (r.components ?? []).map(cell).join(", ") || "—";
+      const screens = (r.screens ?? []).map(cell).join(", ") || "—";
+      out.push(`${base} | ${comps} | ${screens} |`);
+    } else {
+      out.push(`${base} |`);
+    }
   }
   out.push(``);
+  return out.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Design-system renderers (the `design/` subtree). Each is pure (DesignSystem
+// slice → string) and golden-testable, mirroring the SRD section renderers above.
+// ---------------------------------------------------------------------------
+
+export function renderDesignPrinciples(ds: DesignSystem): string {
+  return [
+    `# Design principles`,
+    ``,
+    bullets(ds.principles, "No design principles captured."),
+    ``,
+    `## Content & voice`,
+    ``,
+    bullets(ds.contentVoice, "No content guidelines captured."),
+    ``,
+  ].join("\n");
+}
+
+export function renderDesignTokens(ds: DesignSystem): string {
+  const out = [`# Design tokens`, ``, `_${DESIGN_TOKENS_SEEDED_BANNER}_`, ``];
+  // Distinct categories in insertion order (canonical first, then any added).
+  const cats = [...new Set(ds.tokens.map((t) => t.category))];
+  for (const cat of cats) {
+    const toks = ds.tokens.filter((t) => t.category === cat);
+    out.push(`## ${cell(cat)}`, ``, `| Token | Value | Notes |`, `|---|---|---|`);
+    for (const t of toks) out.push(`| ${cell(t.name)} | ${cell(t.value)} | ${cell(t.note ?? "")} |`);
+    out.push(``);
+  }
+  out.push("> The machine-readable token set is in `design/design-tokens.json`.", ``);
+  return out.join("\n");
+}
+
+// Machine-readable token twin (mirrors SRD.json / BUILD-PLAN.json): a build step
+// can import { category: { token: value } } directly.
+export function renderDesignTokensJson(ds: DesignSystem): string {
+  const obj: Record<string, Record<string, string>> = {};
+  for (const t of ds.tokens) {
+    (obj[t.category] ??= {})[t.name] = t.value;
+  }
+  return JSON.stringify(obj, null, 2);
+}
+
+export function renderComponents(ds: DesignSystem): string {
+  const out = [`# Components`, ``];
+  if (!ds.components.length) {
+    out.push(`_No components defined yet. Enrich during authoring: name each component, its states and the requirements it realises._`, ``);
+    return out.join("\n");
+  }
+  out.push(`_Seeded from the functional requirements — verify each component and its states during authoring._`, ``);
+  for (const c of ds.components) {
+    out.push(`## ${c.name}${cite(c.evidence)}`, ``, c.purpose, ``);
+    out.push(`- **States:** ${c.states.join(", ") || "—"}`);
+    out.push(`- **Realises:** ${c.relatedFRs.length ? c.relatedFRs.join(", ") : "—"}`, ``);
+  }
+  return out.join("\n");
+}
+
+export function renderScreens(ds: DesignSystem): string {
+  const out = [`# Screens & flows`, ``, `## Screens`, ``];
+  if (ds.screens.length) {
+    out.push(`| Screen | Purpose | Requirements |`, `|---|---|---|`);
+    for (const s of ds.screens) out.push(`| ${cell(s.name)} | ${cell(s.purpose)} | ${s.relatedFRs.join(", ") || "—"} |`);
+  } else {
+    out.push(`_No screens defined._`);
+  }
+  out.push(``, `## User flows`, ``);
+  if (ds.flows.length) {
+    for (const f of ds.flows) {
+      out.push(`### ${f.name}${f.frIds.length ? ` _(${f.frIds.join(", ")})_` : ""}`, ``);
+      f.steps.forEach((step, i) => out.push(`${i + 1}. ${step}`));
+      out.push(``);
+    }
+  } else {
+    out.push(`_No user flows defined._`);
+  }
+  return out.join("\n");
+}
+
+export function renderAccessibility(ds: DesignSystem): string {
+  const a = ds.accessibility;
+  const out = [`# Accessibility`, ``, `**Target standard:** ${a.standard}`, ``];
+  if (!a.requirements.length) {
+    out.push(`_No accessibility requirements defined._`, ``);
+    return out.join("\n");
+  }
+  for (const r of a.requirements) {
+    out.push(`## ${r.id} — ${r.statement}`, ``, `**Acceptance criteria:**`);
+    for (const c of r.acceptance) out.push(`- **Given** ${c.given} **When** ${c.when} **Then** ${c.then}`);
+    out.push(``);
+  }
   return out.join("\n");
 }
 
@@ -241,6 +349,17 @@ export function renderMergeBundle(srd: SRD): string {
     `# Architecture decisions`,
     ``,
     ...srd.architecture.adrs.map(renderADR),
+    ...(srd.design
+      ? [
+          `# Design system`,
+          ``,
+          renderDesignPrinciples(srd.design),
+          renderDesignTokens(srd.design),
+          renderComponents(srd.design),
+          renderScreens(srd.design),
+          renderAccessibility(srd.design),
+        ]
+      : []),
     renderLandscape(srd),
     renderBuildPlan(srd),
     renderTraceability(srd),

@@ -112,6 +112,11 @@ loop to completion; only pause to ask the user a real decision.
    templated), correct/extend the data model and interfaces, and add `[E#]`
    citations from the dossier to the requirements and decisions they rest on.
    See `references/srd-authoring.md` and `references/citation-format.md`.
+   At `complex`, also enrich the **design system** (`design/`): replace the
+   seeded design tokens with the product's real brand values, verify the
+   component and screen/flow inventory, and sharpen the accessibility criteria
+   to the target standard (derived from the brief, default WCAG 2.2 AA). See
+   `references/design-system-authoring.md`.
 
 5. **Adversarial review — let fresh eyes break it.** Spawn one reviewer
    subagent with NO context beyond the run folder path and
@@ -179,15 +184,19 @@ requirements/  FUNCTIONAL.md (FR-NNN · priority · Given/When/Then · [E#])
                NON-FUNCTIONAL.md (NFR-NNN by category · metric · [E#])
 architecture/  SYSTEM-CONTEXT.md · DATA-MODEL.md · INTERFACES.md
                decisions/NNNN-*.md  (ADRs)
+design/        PRINCIPLES.md · DESIGN-TOKENS.md (+ design-tokens.json) · COMPONENTS.md
+               SCREENS.md · ACCESSIBILITY.md      (complex only; --no-design to skip)
 competitive/   LANDSCAPE.md (competitors + OSS prior art)
 BUILD-PLAN.md · BUILD-PLAN.json (task DAG for the build phase)
-TRACEABILITY.md (FR ↔ NFR ↔ ADR ↔ entity ↔ interface)
+TRACEABILITY.md (FR ↔ NFR ↔ ADR ↔ entity ↔ interface ↔ component ↔ screen)
 evidence/      EVIDENCE.md · evidence.json · meta.json   ·   brief.json · SRD.json
 ```
 
 `light` keeps it lean; `complex` adds the full NFR set, a second ADR, failure-
-path acceptance criteria and the full traceability matrix. Add `--merge` for a
-single-file `SRD.md`.
+path acceptance criteria, the full traceability matrix and a **design-system
+subtree** (`design/`: principles, tokens, components, screens/flows, an
+accessibility contract — `--no-design` opts out). Add `--merge` for a single-file
+`SRD.md`.
 
 ## Optional semantic mode (fully local, no API key)
 
@@ -210,6 +219,7 @@ See `references/semantic-setup.md`.
 - `references/orchestration.md` — the three-tier dynamic-workflow model and the subagent patterns: research fan-out, red team, judge panel, claim-support review fan-out, build fan-out (and the one-writer rule).
 - `references/adversarial-review.md` — the red-team checklist and its findings contract.
 - `references/srd-authoring.md` — resolving 🧠 callouts, writing testable requirements and ADRs.
+- `references/design-system-authoring.md` — enriching the `complex` design system: tokens, components, screens/flows and the accessibility contract.
 - `references/acceptance-criteria.md` — bad→good Given/When/Then rewrites and measurable NFR metric patterns.
 - `references/citation-format.md` — the `[E#]` grounding convention.
 - `references/grounding-coverage.md` — what the advisory coverage report means and how to raise it.

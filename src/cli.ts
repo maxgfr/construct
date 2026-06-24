@@ -31,7 +31,7 @@ Usage:
   construct research --out <run> [--angles market,oss,tech,semantic] [--q "<focus>"] [--semantic]
   construct analyze  --out <run> [--json]
   construct web|oss|tech|so --out <run> [--q "<focus>"] [--url <u,...>] [--seeds <u,...>]
-  construct render   --out <run> [--level light|complex] [--merge]
+  construct render   --out <run> [--level light|complex] [--merge] [--no-design]
   construct check    --out <run> [--min-grounding <0-100>] [--semantic] [--json]
   construct review   --out <run> [--apply <verdicts.json>] [--max-review N] [--json]
   construct verify   --out <run> [--app <dir>] [--run-tests] [--strict] [--json]
@@ -45,6 +45,9 @@ Commands:
   web        Drill the market/web angle.       oss   Drill OSS prior-art mining.
   tech       Drill tech docs + StackOverflow.   so    Drill StackOverflow only.
   render     Render the SRD tree + SRD.json from brief.json + the dossier.
+             At --level complex this also renders a design-system subtree
+             (design/: principles, tokens, components, screens, accessibility);
+             --no-design opts out.
   check      Hard structural gate + advisory grounding-coverage report.
              --semantic also folds in the review verdicts (fails on a claim its
              cited evidence does not support).
@@ -74,6 +77,7 @@ Options:
   --web-engine <e>     auto | searxng | ddg | claude             (default: auto)
   --per-source <n>     Max evidence items kept per source        (default: 6)
   --merge              Also emit a single-file SRD.md bundle
+  --no-design          For 'render': skip the design-system subtree (complex only)
   --semantic           Rescore evidence with the local embedding model
   --refresh            Force re-clone of mined OSS repos
   --json               Machine-readable output
@@ -107,7 +111,7 @@ const VALUE_FLAGS = new Set([
   "apply",
   "max-review",
 ]);
-const BOOL_FLAGS = new Set(["semantic", "merge", "json", "refresh", "run-tests", "strict"]);
+const BOOL_FLAGS = new Set(["semantic", "merge", "json", "refresh", "run-tests", "strict", "no-design"]);
 
 function fail(message: string): never {
   process.stderr.write(`construct: ${message}\n`);
@@ -349,12 +353,15 @@ async function main(): Promise<void> {
         level,
         out,
         merge: p.bools.has("merge"),
+        noDesign: p.bools.has("no-design"),
         generatedAt: new Date().toISOString(),
       });
+      const design = r.srd.design;
       process.stderr.write(
         [
           `construct: rendered the ${level} SRD for "${brief.idea}"`,
           `  files:    ${r.files.length} (${r.srd.functional.length} FR · ${r.srd.nonFunctional.length} NFR · ${r.srd.architecture.adrs.length} ADR)`,
+          ...(design ? [`  design:   ${design.components.length} components · ${design.tokens.length} tokens · a11y ${design.accessibility.standard}`] : []),
           `  manifest: ${join(out, "SRD.json")}`,
           `  next:     construct check --out ${out}`,
         ].join("\n") + "\n",
