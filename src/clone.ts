@@ -146,17 +146,3 @@ export function ensureClone(ref: RepoRef, opts: { refresh?: boolean; branch?: st
   }
   return dir;
 }
-
-// The short HEAD commit of a working tree, when it is a git repo. Recorded in
-// the dossier so an answer is pinned to an exact revision.
-export function headCommit(dir: string): string | undefined {
-  const res = sh("git", ["-C", dir, "rev-parse", "--short", "HEAD"]);
-  return res.ok ? res.stdout.trim() : undefined;
-}
-
-// The `origin` remote URL of a working tree, if any. Lets a question asked
-// against a LOCAL checkout still resolve the host's issues/PRs API.
-export function originUrl(dir: string): string | undefined {
-  const res = sh("git", ["-C", dir, "remote", "get-url", "origin"]);
-  return res.ok && res.stdout.trim() ? res.stdout.trim() : undefined;
-}

@@ -60,17 +60,6 @@ export function slugify(input: string): string {
     .slice(0, 120);
 }
 
-// Truncate a string to a max length with an ellipsis marker, for snippets.
-export function clip(s: string, max: number): string {
-  if (s.length <= max) return s;
-  return s.slice(0, max) + `\n… [truncated ${s.length - max} chars]`;
-}
-
-// Escape a string for safe inclusion as a literal inside a RegExp.
-export function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 // Pull the meaningful keywords out of a natural-language question: lowercase,
 // split on non-word chars, drop stopwords and very short tokens, dedupe. Used
 // to drive lexical search and symbol ranking deterministically (no LLM).
@@ -210,18 +199,4 @@ export function rankedKeywords(question: string): string[] {
     .map((k, i) => ({ k, s: score(k), i }))
     .sort((a, b) => b.s - a.s || a.i - b.i)
     .map((x) => x.k);
-}
-
-// Reciprocal Rank Fusion: merge several ranked lists into one robust ranking
-// without needing comparable scores across lists. `k` damps the contribution of
-// low ranks. Returns keys ordered best-first with a fused score.
-export function rrf<T>(lists: T[][], keyOf: (item: T) => string, k = 60): Map<string, number> {
-  const score = new Map<string, number>();
-  for (const list of lists) {
-    list.forEach((item, idx) => {
-      const key = keyOf(item);
-      score.set(key, (score.get(key) ?? 0) + 1 / (k + idx + 1));
-    });
-  }
-  return score;
 }

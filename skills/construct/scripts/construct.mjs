@@ -864,7 +864,7 @@ function readText(abs) {
 
 // src/providers/github.ts
 function toItems(raw, kind) {
-  return (raw ?? []).map((it) => {
+  return (raw ?? []).filter((it) => it && typeof it === "object").map((it) => {
     const body = String(it.body ?? "").replace(/\r/g, "").trim().slice(0, 1200);
     const labels = (it.labels ?? []).map((l) => typeof l === "string" ? l : l.name).filter(Boolean).join(", ");
     const state = it.draft ? "draft" : it.state;
@@ -1014,7 +1014,7 @@ var gitlab = {
       const arr = JSON.parse(r.body);
       if (!Array.isArray(arr)) return { items: [], notes: [`GitLab ${kind} search returned no array.`] };
       const marker = kind === "issue" ? "#" : "!";
-      const items = arr.map((it) => {
+      const items = arr.filter((it) => it && typeof it === "object").map((it) => {
         const num = it.iid ?? it.id;
         const body = String(it.description ?? "").replace(/\r/g, "").trim().slice(0, 1200);
         return {
