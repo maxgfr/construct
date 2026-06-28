@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [1.6.0](https://github.com/maxgfr/construct/compare/v1.5.2...v1.6.0) (2026-06-28)
+
+
+### Features
+
+* harden providers, prune dead helpers, gate releases on lint ([0ffb339](https://github.com/maxgfr/construct/commit/0ffb33992493f6497ac9ce7dc17f4448f624bd84))
+
 ## [1.5.2](https://github.com/maxgfr/construct/compare/v1.5.1...v1.5.2) (2026-06-28)
 
 
