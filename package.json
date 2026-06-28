@@ -8,9 +8,8 @@
     "construct": "scripts/construct.mjs"
   },
   "files": [
-    "SKILL.md",
+    "skills",
     "scripts",
-    "references",
     "src",
     "docker-compose.yml",
     "docker"
@@ -19,7 +18,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && node scripts/copy-bundle.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -27,7 +26,8 @@
     "lint": "biome ci .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
-    "check:build": "tsup && git diff --exit-code -- scripts/construct.mjs",
+    "verify:bundle": "node scripts/verify-skill-bundle.mjs",
+    "check:build": "tsup && node scripts/copy-bundle.mjs && git diff --exit-code -- scripts/construct.mjs skills/construct/scripts/construct.mjs && node scripts/verify-skill-bundle.mjs",
     "demo": "rm -rf /tmp/construct-demo && mkdir -p /tmp/construct-demo/evidence && cp tests/fixtures/sample-brief.json /tmp/construct-demo/brief.json && cp tests/fixtures/sample-evidence.json /tmp/construct-demo/evidence/evidence.json && node scripts/construct.mjs render --out /tmp/construct-demo --level complex --merge && node scripts/construct.mjs check --out /tmp/construct-demo",
     "release": "semantic-release"
   },

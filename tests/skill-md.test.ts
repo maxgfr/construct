@@ -10,10 +10,14 @@ import { VERSION } from "../src/types.js";
 // frontmatter with this exact regex and `parse()`-ing it with `yaml`. If that
 // parse throws — or name/description are missing — it SILENTLY drops the skill.
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+// The skill is packaged under skills/construct/ (not at the repo root) so that
+// `npx skills add` bundles the engine + references with the SKILL.md — a root
+// SKILL.md would be installed alone. See scripts/verify-skill-bundle.mjs.
+const SKILL_DIR = join(ROOT, "skills", "construct");
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 
 describe("SKILL.md is installable by the `skills` CLI", () => {
-  const raw = readFileSync(join(ROOT, "SKILL.md"), "utf8");
+  const raw = readFileSync(join(SKILL_DIR, "SKILL.md"), "utf8");
   const match = raw.match(FRONTMATTER_RE);
   const frontmatter = match?.[1] ?? "";
 
@@ -44,11 +48,11 @@ describe("SKILL.md is installable by the `skills` CLI", () => {
   it("only references playbooks that exist on disk", () => {
     const mentioned = [...new Set(raw.match(/references\/[a-z0-9-]+\.md/g) ?? [])];
     expect(mentioned.length).toBeGreaterThan(0);
-    for (const ref of mentioned) expect(existsSync(join(ROOT, ref)), `${ref} is mentioned in SKILL.md but missing`).toBe(true);
+    for (const ref of mentioned) expect(existsSync(join(SKILL_DIR, ref)), `${ref} is mentioned in SKILL.md but missing`).toBe(true);
   });
 
   it("mentions every references/*.md playbook", () => {
-    const files = readdirSync(join(ROOT, "references")).filter((f) => f.endsWith(".md"));
+    const files = readdirSync(join(SKILL_DIR, "references")).filter((f) => f.endsWith(".md"));
     expect(files.length).toBeGreaterThan(0);
     for (const f of files) expect(raw.includes(`references/${f}`), `references/${f} exists but SKILL.md never mentions it`).toBe(true);
   });

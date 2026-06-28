@@ -32,6 +32,6 @@ edit("package.json", (s) => s.replace(/("version":\s*")[^"]+(")/, `$1${version}$
 edit("src/types.ts", (s) => s.replace(/(export const VERSION = ")[^"]+(";)/, `$1${version}$2`));
 
 // SKILL.md — the indented `version:` under the frontmatter `metadata:` block.
-edit("SKILL.md", (s) => s.replace(/(\n[ \t]+version:[ \t]*)[^\n]+/, `$1${version}`));
+edit("skills/construct/SKILL.md", (s) => s.replace(/(\n[ \t]+version:[ \t]*)[^\n]+/, `$1${version}`));
 
-console.log(`sync-version: set ${version} in package.json, src/types.ts, SKILL.md`);
+console.log(`sync-version: set ${version} in package.json, src/types.ts, skills/construct/SKILL.md`);

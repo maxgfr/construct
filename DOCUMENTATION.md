@@ -134,5 +134,5 @@ tags after an id shift are flagged). `--run-tests` opts into executing
 
 Conventional Commits → semantic-release (GitHub release only, no npm registry).
 `scripts/sync-version.mjs` keeps the version in lockstep across `package.json`,
-`src/types.ts` (`VERSION`) and `SKILL.md`. CI runs a Node 24 build-test job and a
+`src/types.ts` (`VERSION`) and `skills/construct/SKILL.md`. CI runs a Node 24 build-test job and a
 Node 18 zero-dep floor job (the committed bundle renders + checks with no install).

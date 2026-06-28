@@ -61,7 +61,7 @@ node scripts/construct.mjs verify   --out ./readpile --app ./readpile-app --run-
 ```
 
 Add `--merge` to also emit a single-file `SRD.md`. Run `--help` for the full
-surface, or see [`SKILL.md`](SKILL.md) for the agent playbook and
+surface, or see [`SKILL.md`](skills/construct/SKILL.md) for the agent playbook and
 [`DOCUMENTATION.md`](DOCUMENTATION.md) for internals.
 
 ## Output
@@ -100,7 +100,7 @@ claim.
 node scripts/construct.mjs semantic up   # Qdrant + Ollama + SearXNG, fully local, no key
 ```
 
-See [`references/semantic-setup.md`](references/semantic-setup.md).
+See [`references/semantic-setup.md`](skills/construct/references/semantic-setup.md).
 
 ## License
 
