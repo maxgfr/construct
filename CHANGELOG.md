@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+## [1.5.2](https://github.com/maxgfr/construct/compare/v1.5.1...v1.5.2) (2026-06-28)
+
+
+### Bug Fixes
+
+* **skill:** package skill under skills/construct so `npx skills add` bundles the engine ([ea9cf71](https://github.com/maxgfr/construct/commit/ea9cf7124f5970a3fe3f854959abd515aa4d77e8))
+
 ## [1.5.1](https://github.com/maxgfr/construct/compare/v1.5.0...v1.5.1) (2026-06-24)
 
 
