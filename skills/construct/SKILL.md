@@ -101,8 +101,12 @@ loop to completion; only pause to ask the user a real decision.
    WebSearch, and returns a ≤5-line summary plus URLs worth grounding. Subagents
    MUST NOT write into the run folder — drills print to stdout; only
    `construct research` writes the dossier, and only YOU run it. Fold findings
-   in serially: `construct web --url <u,...> --out <run>` → re-run `research` →
-   re-run `analyze`. (No subagents? Work the gaps yourself, one drill at a
+   in with a single research re-run that PINS the proven URLs:
+   `construct research --out <run> --angles market,oss,tech --url <u,...>
+   [--docs-url <d,...>]` → re-run `analyze`. **A research run rebuilds the
+   dossier from exactly the angles/URLs it is given** — always pass every angle
+   (and raise `--per-source` if pins would exceed the budget), or evidence from
+   earlier runs is lost. (No subagents? Work the gaps yourself, one drill at a
    time.) Tell the user what you found and **let them steer** — prioritise
    must-have features and load-bearing decisions, stop when they say it's
    enough. See `references/orchestration.md` and

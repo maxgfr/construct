@@ -663,19 +663,30 @@ function labelFor(source) {
 async function marketAngle(ctx) {
   const b = ctx.brief;
   const query2 = ctx.query || [b.idea, b.competitors.join(" "), "competitors alternatives market"].filter(Boolean).join(" ").trim();
-  if (!query2) return [{ source: "market", items: [], notes: ["No idea/competitors to search the market for."] }];
-  const { urls, via, notes } = await discover(query2, ctx.webEngine, ctx.perSource);
-  if (urls.length === 0) {
-    return [{ source: "market", items: [], notes: [`Market discovery via ${via}.`, ...notes] }];
+  const items = [];
+  const notes = [];
+  const pinned = ctx.marketUrls ?? [];
+  if (pinned.length) {
+    const f = await webFetchUrls(pinned, query2 || pinned.join(" "), ctx.perSource, "market", true);
+    items.push(...f.items.slice(0, ctx.perSource));
+    notes.push(`Pinned ${pinned.length} market URL(s) via --url.`, ...f.notes);
   }
-  const fetched = await webFetchUrls(urls, query2, ctx.perSource, "market");
-  return [
-    {
-      source: "market",
-      items: fetched.items,
-      notes: [`Market discovery via ${via} for "${query2}".`, ...notes, ...fetched.notes]
+  if (!query2) {
+    if (items.length) return [{ source: "market", items, notes }];
+    return [{ source: "market", items: [], notes: ["No idea/competitors to search the market for."] }];
+  }
+  const budget = ctx.perSource - items.length;
+  if (budget > 0) {
+    const { urls, via, notes: discoveryNotes } = await discover(query2, ctx.webEngine, budget);
+    if (urls.length === 0) {
+      notes.push(`Market discovery via ${via}.`, ...discoveryNotes);
+    } else {
+      const fetched = await webFetchUrls(urls, query2, budget, "market");
+      items.push(...fetched.items);
+      notes.push(`Market discovery via ${via} for "${query2}".`, ...discoveryNotes, ...fetched.notes);
     }
-  ];
+  }
+  return [{ source: "market", items, notes }];
 }
 
 // src/clone.ts
@@ -3756,7 +3767,7 @@ check. Grounding is advisory; structural completeness is enforced.
 
 Usage:
   construct init     --idea "<one-liner>" [--out <dir>]
-  construct research --out <run> [--angles market,oss,tech,semantic] [--q "<focus>"] [--semantic]
+  construct research --out <run> [--angles market,oss,tech,semantic] [--q "<focus>"] [--url <u,...>] [--semantic]
   construct analyze  --out <run> [--json]
   construct web|oss|tech|so --out <run> [--q "<focus>"] [--url <u,...>] [--seeds <u,...>]
   construct render   --out <run> [--level light|complex] [--merge] [--no-design] [--prd]
@@ -3794,6 +3805,7 @@ Options:
   --angles <list>      market,oss,tech,semantic   (default: market,oss,tech)
   --q, --question <s>  Focus the research/drill on a sub-question
   --url <u,...>        For 'web': specific page(s) to fetch + ground
+                       For 'research': pin page(s) into the dossier (market angle)
   --seeds <u,...>      OSS repo URLs to mine (overrides brief.ossSeeds)
   --docs-url <u,...>   For 'tech'/'research': docs page(s) to fetch + ground directly
   --level <l>          light | complex                           (default: light)
@@ -3947,7 +3959,8 @@ function buildResearchContext(p, runDir, angles) {
     semantic: p.bools.has("semantic"),
     perSource,
     refresh: p.bools.has("refresh"),
-    docsUrls: p.values["docs-url"] ? csv(p.values["docs-url"]) : void 0
+    docsUrls: p.values["docs-url"] ? csv(p.values["docs-url"]) : void 0,
+    marketUrls: p.values.url ? csv(p.values.url) : void 0
   };
 }
 function printDrill(p, results, idea, angles) {

@@ -73,6 +73,7 @@ export interface ResearchContext {
   perSource: number;
   refresh: boolean;
   docsUrls?: string[]; // --docs-url: docs pages to ground directly (tech angle)
+  marketUrls?: string[]; // --url: market pages to pin into the dossier (market angle)
 }
 
 export interface DossierMeta {

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { discover, webFetchUrls } from "../src/research/web.js";
+import { marketAngle } from "../src/research/market.js";
 
 // Build a minimal Response-like object for the global fetch mock.
 function res(body: string, opts: { ok?: boolean; status?: number; contentType?: string } = {}) {
@@ -83,5 +84,62 @@ describe("webFetchUrls", () => {
     const { items } = await webFetchUrls(urls, "search", 2, "docs", true);
     expect(fetched.length).toBe(4); // all four, despite perSource=2
     expect(items.every((i) => i.source === "docs")).toBe(true);
+  });
+});
+
+describe("marketAngle — pinned URLs (research --url)", () => {
+  it("fetches pinned URLs into the market evidence even when discovery finds nothing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const u = String(url);
+        if (u.includes("pinned.example.com")) return res("<p>A creator marketplace with campaign briefs and escrow payments.</p>");
+        return res("", { ok: false, status: 404 }); // discovery engines down
+      }),
+    );
+    const ctx = {
+      brief: { idea: "a creator marketplace", competitors: [], featureWishlist: [] },
+      runDir: "/tmp/none",
+      angles: ["market"],
+      query: "",
+      webEngine: "auto",
+      semantic: false,
+      perSource: 6,
+      refresh: false,
+      marketUrls: ["https://pinned.example.com/features"],
+    } as never;
+    const [r] = await marketAngle(ctx);
+    expect(r!.items.length).toBeGreaterThan(0);
+    expect(r!.items[0]!.ref).toContain("pinned.example.com");
+    expect(r!.notes.join(" ")).toMatch(/pinned/i);
+  });
+
+  it("keeps every pinned page and fills the remaining budget with discovered ones", async () => {
+    const ddg = (urls: string[]) => urls.map((u) => `<a class="result__a" href="//duckduckgo.com/l/?uddg=${encodeURIComponent(u)}&rut=x">t</a>`).join("\n");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const u = String(url);
+        if (u.includes("8888")) return res("", { ok: false, status: 0 });
+        if (u.includes("duckduckgo")) return res(ddg(["https://found-1.com", "https://found-2.com", "https://found-3.com"]));
+        return res(`<p>marketplace content at ${u}</p>`);
+      }),
+    );
+    const ctx = {
+      brief: { idea: "a creator marketplace", competitors: [], featureWishlist: [] },
+      runDir: "/tmp/none",
+      angles: ["market"],
+      query: "marketplace",
+      webEngine: "auto",
+      semantic: false,
+      perSource: 3,
+      refresh: false,
+      marketUrls: ["https://pin-1.com", "https://pin-2.com"],
+    } as never;
+    const [r] = await marketAngle(ctx);
+    const refs = r!.items.map((i) => i.ref).join(" ");
+    expect(refs).toContain("pin-1.com");
+    expect(refs).toContain("pin-2.com");
+    expect(r!.items.length).toBeLessThanOrEqual(3); // stays within the per-source budget
   });
 });

@@ -1,4 +1,4 @@
-import type { ResearchContext, SourceResult } from "../types.js";
+import type { RawItem, ResearchContext, SourceResult } from "../types.js";
 import { discover, webFetchUrls } from "./web.js";
 
 // The `market` angle: discover competitor / market pages on the open web
@@ -8,18 +8,37 @@ import { discover, webFetchUrls } from "./web.js";
 export async function marketAngle(ctx: ResearchContext): Promise<SourceResult[]> {
   const b = ctx.brief;
   const query = ctx.query || [b.idea, b.competitors.join(" "), "competitors alternatives market"].filter(Boolean).join(" ").trim();
-  if (!query) return [{ source: "market", items: [], notes: ["No idea/competitors to search the market for."] }];
+  const items: RawItem[] = [];
+  const notes: string[] = [];
 
-  const { urls, via, notes } = await discover(query, ctx.webEngine, ctx.perSource);
-  if (urls.length === 0) {
-    return [{ source: "market", items: [], notes: [`Market discovery via ${via}.`, ...notes] }];
+  // Pinned pages (`research --url`): the caller named these explicitly, so fetch
+  // them ALL and keep them ahead of anything discovery finds. This is how drill
+  // findings are folded into the dossier deterministically — discovery alone
+  // cannot be relied on to re-surface a page a drill already proved useful.
+  const pinned = ctx.marketUrls ?? [];
+  if (pinned.length) {
+    const f = await webFetchUrls(pinned, query || pinned.join(" "), ctx.perSource, "market", true);
+    items.push(...f.items.slice(0, ctx.perSource));
+    notes.push(`Pinned ${pinned.length} market URL(s) via --url.`, ...f.notes);
   }
-  const fetched = await webFetchUrls(urls, query, ctx.perSource, "market");
-  return [
-    {
-      source: "market",
-      items: fetched.items,
-      notes: [`Market discovery via ${via} for "${query}".`, ...notes, ...fetched.notes],
-    },
-  ];
+
+  if (!query) {
+    if (items.length) return [{ source: "market", items, notes }];
+    return [{ source: "market", items: [], notes: ["No idea/competitors to search the market for."] }];
+  }
+
+  // Fill the remaining per-source budget from open-web discovery.
+  const budget = ctx.perSource - items.length;
+  if (budget > 0) {
+    const { urls, via, notes: discoveryNotes } = await discover(query, ctx.webEngine, budget);
+    if (urls.length === 0) {
+      notes.push(`Market discovery via ${via}.`, ...discoveryNotes);
+    } else {
+      const fetched = await webFetchUrls(urls, query, budget, "market");
+      items.push(...fetched.items);
+      notes.push(`Market discovery via ${via} for "${query}".`, ...discoveryNotes, ...fetched.notes);
+    }
+  }
+
+  return [{ source: "market", items, notes }];
 }

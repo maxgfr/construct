@@ -28,7 +28,7 @@ check. Grounding is advisory; structural completeness is enforced.
 
 Usage:
   construct init     --idea "<one-liner>" [--out <dir>]
-  construct research --out <run> [--angles market,oss,tech,semantic] [--q "<focus>"] [--semantic]
+  construct research --out <run> [--angles market,oss,tech,semantic] [--q "<focus>"] [--url <u,...>] [--semantic]
   construct analyze  --out <run> [--json]
   construct web|oss|tech|so --out <run> [--q "<focus>"] [--url <u,...>] [--seeds <u,...>]
   construct render   --out <run> [--level light|complex] [--merge] [--no-design] [--prd]
@@ -66,6 +66,7 @@ Options:
   --angles <list>      market,oss,tech,semantic   (default: market,oss,tech)
   --q, --question <s>  Focus the research/drill on a sub-question
   --url <u,...>        For 'web': specific page(s) to fetch + ground
+                       For 'research': pin page(s) into the dossier (market angle)
   --seeds <u,...>      OSS repo URLs to mine (overrides brief.ossSeeds)
   --docs-url <u,...>   For 'tech'/'research': docs page(s) to fetch + ground directly
   --level <l>          light | complex                           (default: light)
@@ -245,6 +246,7 @@ function buildResearchContext(p: Parsed, runDir: string, angles: Angle[]): Resea
     perSource,
     refresh: p.bools.has("refresh"),
     docsUrls: p.values["docs-url"] ? csv(p.values["docs-url"]) : undefined,
+    marketUrls: p.values.url ? csv(p.values.url) : undefined,
   };
 }
 
