@@ -2446,6 +2446,44 @@ function renderFunctional(srd) {
   }
   return out.join("\n");
 }
+function renderFeaturePRD(fr, srd) {
+  const out = [`# PRD ${fr.id} \u2014 ${fr.title}${cite(fr.rationaleEvidence)}`, ``];
+  out.push(`_Priority: ${fr.priority}_ \xB7 _Product: ${srd.product.name}_`, ``);
+  out.push(`## Context`, ``, srd.product.problem, ``);
+  out.push(`## Feature`, ``, fr.description, ``);
+  out.push(`## Acceptance criteria`, ``);
+  for (const a of fr.acceptance) {
+    out.push(`- **Given** ${a.given} **When** ${a.when} **Then** ${a.then}`);
+  }
+  out.push(``, `## Non-functional requirements`, ``);
+  if (!fr.nfrs.length) out.push(`_None linked._`);
+  for (const id of fr.nfrs) {
+    const nfr = srd.nonFunctional.find((n) => n.id === id);
+    out.push(nfr ? `- **${nfr.id}** (${nfr.category}): ${nfr.statement}${nfr.metric ? ` \u2014 metric: ${nfr.metric}` : ""}` : `- **${id}**`);
+  }
+  out.push(``, `## Data & interfaces`, ``);
+  out.push(`- Entities: ${fr.entities.length ? fr.entities.join(", ") : "\u2014"}`);
+  out.push(`- Interfaces: ${fr.interfaces.length ? fr.interfaces.join(", ") : "\u2014"}`);
+  out.push(``, `## Grounding`, ``);
+  out.push(
+    fr.rationaleEvidence.length ? `Evidence:${cite(fr.rationaleEvidence)} \u2014 see ../../evidence/EVIDENCE.md.` : `_Ungrounded \u2014 see the grounding report (construct check)._`
+  );
+  out.push(``);
+  return out.join("\n");
+}
+function renderPRDIndex(srd) {
+  const out = [`# PRDs \u2014 one per functional requirement`, ``];
+  out.push(`Rendered from SRD.json by \`construct render --prd\`. The canonical, always-current`);
+  out.push(`requirement list is [../FUNCTIONAL.md](../FUNCTIONAL.md); re-render after editing.`, ``);
+  out.push(`| PRD | Priority | Title |`);
+  out.push(`|---|---|---|`);
+  for (const fr of srd.functional) {
+    const file = `PRD-${fr.id}-${slugTitle(fr.title)}.md`;
+    out.push(`| [${file}](${file}) | ${cell(fr.priority)} | ${cell(fr.title)} |`);
+  }
+  out.push(``);
+  return out.join("\n");
+}
 function renderNonFunctional(srd) {
   const out = [`# Non-functional requirements`, ``];
   if (!srd.nonFunctional.length) out.push(`_No non-functional requirements defined._`, ``);
@@ -2696,6 +2734,13 @@ function renderSRD(brief, evidence, opts) {
   writeFile(out, "00-overview/VISION.md", renderVision(srd), files);
   writeFile(out, "00-overview/SCOPE.md", renderScope(srd), files);
   writeFile(out, "requirements/FUNCTIONAL.md", renderFunctional(srd), files);
+  rmSync2(join9(out, "requirements", "prd"), { recursive: true, force: true });
+  if (opts.prd) {
+    for (const fr of srd.functional) {
+      writeFile(out, `requirements/prd/PRD-${fr.id}-${slugTitle(fr.title)}.md`, renderFeaturePRD(fr, srd), files);
+    }
+    writeFile(out, "requirements/prd/README.md", renderPRDIndex(srd), files);
+  }
   writeFile(out, "requirements/NON-FUNCTIONAL.md", renderNonFunctional(srd), files);
   writeFile(out, "architecture/SYSTEM-CONTEXT.md", renderSystemContext(srd), files);
   writeFile(out, "architecture/DATA-MODEL.md", renderDataModel(srd), files);
@@ -3500,7 +3545,7 @@ Usage:
   construct research --out <run> [--angles market,oss,tech,semantic] [--q "<focus>"] [--semantic]
   construct analyze  --out <run> [--json]
   construct web|oss|tech|so --out <run> [--q "<focus>"] [--url <u,...>] [--seeds <u,...>]
-  construct render   --out <run> [--level light|complex] [--merge] [--no-design]
+  construct render   --out <run> [--level light|complex] [--merge] [--no-design] [--prd]
   construct check    --out <run> [--min-grounding <0-100>] [--semantic] [--json]
   construct review   --out <run> [--apply <verdicts.json>] [--max-review N] [--json]
   construct verify   --out <run> [--app <dir>] [--run-tests] [--strict] [--json]
@@ -3516,7 +3561,8 @@ Commands:
   render     Render the SRD tree + SRD.json from brief.json + the dossier.
              At --level complex this also renders a design-system subtree
              (design/: principles, tokens, components, screens, accessibility);
-             --no-design opts out.
+             --no-design opts out. --prd also emits requirements/prd/ \u2014 one
+             standalone PRD per functional requirement + an index.
   check      Hard structural gate + advisory grounding-coverage report.
              --semantic also folds in the review verdicts (fails on a claim its
              cited evidence does not support).
@@ -3547,6 +3593,7 @@ Options:
   --per-source <n>     Max evidence items kept per source        (default: 6)
   --merge              Also emit a single-file SRD.md bundle
   --no-design          For 'render': skip the design-system subtree (complex only)
+  --prd                For 'render': also emit one PRD file per FR (requirements/prd/)
   --semantic           Rescore evidence with the local embedding model
   --refresh            Force re-clone of mined OSS repos
   --json               Machine-readable output
@@ -3579,7 +3626,7 @@ var VALUE_FLAGS = /* @__PURE__ */ new Set([
   "apply",
   "max-review"
 ]);
-var BOOL_FLAGS = /* @__PURE__ */ new Set(["semantic", "merge", "json", "refresh", "run-tests", "strict", "no-design"]);
+var BOOL_FLAGS = /* @__PURE__ */ new Set(["semantic", "merge", "json", "refresh", "run-tests", "strict", "no-design", "prd"]);
 function fail(message) {
   process.stderr.write(`construct: ${message}
 `);
@@ -3792,6 +3839,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
         out,
         merge: p.bools.has("merge"),
         noDesign: p.bools.has("no-design"),
+        prd: p.bools.has("prd"),
         generatedAt: (/* @__PURE__ */ new Date()).toISOString()
       });
       const design = r.srd.design;

@@ -36,8 +36,11 @@ No `npm install`, no API keys. Run `--help` for the full surface. Key commands:
 - `web|oss|tech|so --out <run> [--q "<focus>"] [--url ...] [--seeds ...]
   [--docs-url <u,...>]` — drill ONE angle to stdout (no dossier). Use these to
   dig deeper on a thin thread; `--docs-url` grounds known docs pages directly.
-- `render --out <run> [--level light|complex] [--merge]` — render the SRD tree +
-  `SRD.json` from `brief.json` + the dossier.
+- `render --out <run> [--level light|complex] [--merge] [--prd]` — render the
+  SRD tree + `SRD.json` from `brief.json` + the dossier. `--prd` also emits
+  `requirements/prd/` — one standalone PRD file per functional requirement
+  (context, acceptance criteria, linked NFRs resolved, [E#] citations) plus an
+  index, for handing single features to a tracker or an implementation agent.
 - `check --out <run> [--min-grounding <0-100>] [--semantic] [--json]` — the HARD
   structural gate (exit ≠ 0 on an incomplete SRD) plus the ADVISORY grounding-
   coverage report. `--min-grounding N` opts into a second gate that fails below
@@ -182,6 +185,7 @@ loop to completion; only pause to ask the user a real decision.
 00-overview/   VISION.md · SCOPE.md (+ 🧠 open decisions)
 requirements/  FUNCTIONAL.md (FR-NNN · priority · Given/When/Then · [E#])
                NON-FUNCTIONAL.md (NFR-NNN by category · metric · [E#])
+               prd/PRD-FR-NNN-*.md + README.md index   (--prd only)
 architecture/  SYSTEM-CONTEXT.md · DATA-MODEL.md · INTERFACES.md
                decisions/NNNN-*.md  (ADRs)
 design/        PRINCIPLES.md · DESIGN-TOKENS.md (+ design-tokens.json) · COMPONENTS.md

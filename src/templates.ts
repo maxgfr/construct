@@ -1,5 +1,5 @@
 import { DESIGN_TOKENS_SEEDED_BANNER } from "./types.js";
-import type { SRD, ADR, DesignSystem } from "./types.js";
+import type { SRD, ADR, DesignSystem, FR } from "./types.js";
 
 // Markdown rendering for every SRD section. Each function is pure (model slice →
 // string) so it is trivially golden-testable offline.
@@ -101,6 +101,53 @@ export function renderFunctional(srd: SRD): string {
     out.push(`_Traceability — ${trace}_`);
     out.push(``);
   }
+  return out.join("\n");
+}
+
+// One standalone PRD per functional requirement (`render --prd`). A per-feature
+// cut of the SAME SRD.json data — FUNCTIONAL.md stays the canonical list — so a
+// single feature can be handed to a tracker or an implementation agent whole:
+// product context, linked NFRs resolved to their statements, touched entities/
+// interfaces, and the grounding citations.
+export function renderFeaturePRD(fr: FR, srd: SRD): string {
+  const out = [`# PRD ${fr.id} — ${fr.title}${cite(fr.rationaleEvidence)}`, ``];
+  out.push(`_Priority: ${fr.priority}_ · _Product: ${srd.product.name}_`, ``);
+  out.push(`## Context`, ``, srd.product.problem, ``);
+  out.push(`## Feature`, ``, fr.description, ``);
+  out.push(`## Acceptance criteria`, ``);
+  for (const a of fr.acceptance) {
+    out.push(`- **Given** ${a.given} **When** ${a.when} **Then** ${a.then}`);
+  }
+  out.push(``, `## Non-functional requirements`, ``);
+  if (!fr.nfrs.length) out.push(`_None linked._`);
+  for (const id of fr.nfrs) {
+    const nfr = srd.nonFunctional.find((n) => n.id === id);
+    out.push(nfr ? `- **${nfr.id}** (${nfr.category}): ${nfr.statement}${nfr.metric ? ` — metric: ${nfr.metric}` : ""}` : `- **${id}**`);
+  }
+  out.push(``, `## Data & interfaces`, ``);
+  out.push(`- Entities: ${fr.entities.length ? fr.entities.join(", ") : "—"}`);
+  out.push(`- Interfaces: ${fr.interfaces.length ? fr.interfaces.join(", ") : "—"}`);
+  out.push(``, `## Grounding`, ``);
+  out.push(
+    fr.rationaleEvidence.length
+      ? `Evidence:${cite(fr.rationaleEvidence)} — see ../../evidence/EVIDENCE.md.`
+      : `_Ungrounded — see the grounding report (construct check)._`,
+  );
+  out.push(``);
+  return out.join("\n");
+}
+
+export function renderPRDIndex(srd: SRD): string {
+  const out = [`# PRDs — one per functional requirement`, ``];
+  out.push(`Rendered from SRD.json by \`construct render --prd\`. The canonical, always-current`);
+  out.push(`requirement list is [../FUNCTIONAL.md](../FUNCTIONAL.md); re-render after editing.`, ``);
+  out.push(`| PRD | Priority | Title |`);
+  out.push(`|---|---|---|`);
+  for (const fr of srd.functional) {
+    const file = `PRD-${fr.id}-${slugTitle(fr.title)}.md`;
+    out.push(`| [${file}](${file}) | ${cell(fr.priority)} | ${cell(fr.title)} |`);
+  }
+  out.push(``);
   return out.join("\n");
 }
 

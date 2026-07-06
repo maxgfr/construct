@@ -79,6 +79,12 @@ describe("parseArgs", () => {
     expect(p.bools.has("no-design")).toBe(true);
   });
 
+  it("parses render with --prd as a boolean flag", () => {
+    const p = parseArgs(["render", "--out", "run", "--level", "complex", "--prd"]);
+    expect(p.command).toBe("render");
+    expect(p.bools.has("prd")).toBe(true);
+  });
+
   it("exits on an unknown command", () => {
     expect(trapExit(() => parseArgs(["frobnicate"])).code).toBe(1);
   });

@@ -15,6 +15,8 @@ import {
   renderBuildPlan,
   renderTraceability,
   renderMergeBundle,
+  renderFeaturePRD,
+  renderPRDIndex,
   renderDesignPrinciples,
   renderDesignTokens,
   renderDesignTokensJson,
@@ -39,6 +41,9 @@ export interface RenderOptions {
   // The design-system subtree renders at `complex` unless opted out. Light never
   // renders it. Default false (off) when unset.
   noDesign?: boolean;
+  // Also emit requirements/prd/ — one standalone PRD per FR + an index. Default
+  // false (off) when unset.
+  prd?: boolean;
 }
 
 function writeFile(out: string, rel: string, content: string, files: string[]): void {
@@ -71,6 +76,16 @@ export function renderSRD(brief: Brief, evidence: EvidenceItem[], opts: RenderOp
   writeFile(out, "00-overview/VISION.md", renderVision(srd), files);
   writeFile(out, "00-overview/SCOPE.md", renderScope(srd), files);
   writeFile(out, "requirements/FUNCTIONAL.md", renderFunctional(srd), files);
+  // PRD filenames are id+title-derived and the subtree can toggle off. Clear it
+  // first — same hygiene as the decisions and design dirs — so a re-render never
+  // leaves a stale per-feature PRD behind.
+  rmSync(join(out, "requirements", "prd"), { recursive: true, force: true });
+  if (opts.prd) {
+    for (const fr of srd.functional) {
+      writeFile(out, `requirements/prd/PRD-${fr.id}-${slugTitle(fr.title)}.md`, renderFeaturePRD(fr, srd), files);
+    }
+    writeFile(out, "requirements/prd/README.md", renderPRDIndex(srd), files);
+  }
   writeFile(out, "requirements/NON-FUNCTIONAL.md", renderNonFunctional(srd), files);
   writeFile(out, "architecture/SYSTEM-CONTEXT.md", renderSystemContext(srd), files);
   writeFile(out, "architecture/DATA-MODEL.md", renderDataModel(srd), files);

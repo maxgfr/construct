@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { renderSRD } from "../src/render.js";
+import { slugTitle } from "../src/templates.js";
 import type { Brief, EvidenceItem, SRD } from "../src/types.js";
 
 const FIX = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
@@ -174,5 +175,47 @@ describe("renderSRD design system", () => {
     renderSRD(brief, evidence, { level: "complex", out, merge: false, generatedAt: "T" });
     const trace = readFileSync(join(out, "TRACEABILITY.md"), "utf8");
     expect(trace).toContain("| Requirement | NFRs | ADRs | Entities | Interfaces | Components | Screens |");
+  });
+});
+
+describe("renderSRD --prd export", () => {
+  it("writes one PRD file per FR plus an index listing them when prd is set", () => {
+    const out = freshDir();
+    const r = renderSRD(brief, evidence, { level: "complex", out, merge: false, generatedAt: "T", prd: true });
+    const manifest = JSON.parse(readFileSync(join(out, "SRD.json"), "utf8")) as SRD;
+    expect(manifest.functional.length).toBeGreaterThan(0);
+    const index = readFileSync(join(out, "requirements/prd/README.md"), "utf8");
+    for (const fr of manifest.functional) {
+      const rel = `requirements/prd/PRD-${fr.id}-${slugTitle(fr.title)}.md`;
+      expect(existsSync(join(out, rel)), rel).toBe(true);
+      expect(r.files).toContain(rel);
+      expect(index).toContain(`PRD-${fr.id}-${slugTitle(fr.title)}.md`);
+    }
+    expect(r.files).toContain("requirements/prd/README.md");
+  });
+
+  it("renders priority, Given/When/Then, citations and resolved NFR statements in a PRD", () => {
+    const out = freshDir();
+    renderSRD(brief, evidence, { level: "complex", out, merge: false, generatedAt: "T", prd: true });
+    const manifest = JSON.parse(readFileSync(join(out, "SRD.json"), "utf8")) as SRD;
+    const all = manifest.functional.map((fr) => readFileSync(join(out, `requirements/prd/PRD-${fr.id}-${slugTitle(fr.title)}.md`), "utf8")).join("\n");
+    expect(all).toMatch(/_Priority: (must|should|could)_/);
+    expect(all).toMatch(/\*\*Given\*\* .*\*\*When\*\* .*\*\*Then\*\*/);
+    expect(all).toMatch(/\[E\d+\]/); // grounding citations survive into the PRDs
+    // Linked NFRs are resolved to their statements, not left as bare ids.
+    const withNfr = manifest.functional.find((fr) => fr.nfrs.length > 0);
+    expect(withNfr, "fixture should yield at least one FR with linked NFRs at complex").toBeDefined();
+    const prd = readFileSync(join(out, `requirements/prd/PRD-${withNfr!.id}-${slugTitle(withNfr!.title)}.md`), "utf8");
+    const nfr = manifest.nonFunctional.find((n) => n.id === withNfr!.nfrs[0])!;
+    expect(prd).toContain(nfr.id);
+    expect(prd).toContain(nfr.statement.slice(0, 40));
+  });
+
+  it("does not write the prd/ subtree by default and clears a stale one on re-render", () => {
+    const out = freshDir();
+    renderSRD(brief, evidence, { level: "complex", out, merge: false, generatedAt: "T", prd: true });
+    expect(existsSync(join(out, "requirements/prd/README.md"))).toBe(true);
+    renderSRD(brief, evidence, { level: "complex", out, merge: false, generatedAt: "T" });
+    expect(existsSync(join(out, "requirements/prd"))).toBe(false);
   });
 });
