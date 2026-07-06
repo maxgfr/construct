@@ -168,3 +168,22 @@ describe("check --semantic composition (additive)", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 });
+
+describe("claim-focused digest", () => {
+  it("windows a long snippet around the claim's keywords instead of head-truncating", () => {
+    const dir = scratch();
+    const filler = "Introductory marketing filler sentence about the product. ".repeat(20); // > 600 chars
+    const support = "The FR-001 title does a thing exactly as documented here.";
+    run(
+      dir,
+      [{ id: "FR-001", ev: ["E9"] }],
+      [{ id: "E9", source: "market", title: "How it works", ref: "u", url: "https://x/how", score: 5, snippet: filler + support }],
+    );
+    const wl = runReview(dir);
+    const pair = wl.pairs.find((p) => p.evidenceId === "E9")!;
+    expect(pair).toBeDefined();
+    expect(pair.digest).toContain("does a thing exactly as documented");
+    expect(pair.digest.length).toBeLessThanOrEqual(650);
+    rmSync(dir, { recursive: true, force: true });
+  });
+});

@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { keywords } from "./util.js";
 import { srdManifestPath } from "./srd.js";
 import type { ClaimEvidencePair, ClaimVerdict, ClaimVerifyResult, EvidenceItem, SRD, VerdictKind } from "./types.js";
 
@@ -33,6 +34,30 @@ function srdClaims(srd: SRD): { id: string; kind: ClaimEvidencePair["kind"]; tex
   return out;
 }
 
+// The ~600-char window of the snippet that best covers the claim's keywords.
+// A head slice can truncate away exactly the sentence that supports (or
+// refutes) the claim, which would make the judge's verdict meaningless.
+function claimDigest(snippet: string, claim: string, cap = 600): string {
+  if (snippet.length <= cap) return snippet;
+  const kws = keywords(claim).map((k) => k.toLowerCase());
+  if (!kws.length) return snippet.slice(0, cap);
+  const step = 150;
+  let best = 0;
+  let bestCov = -1;
+  for (let start = 0; start === 0 || start + cap / 2 < snippet.length; start += step) {
+    const w = snippet.slice(start, start + cap).toLowerCase();
+    let cov = 0;
+    for (const kw of kws) if (w.includes(kw)) cov++;
+    // >= : at equal coverage prefer the LATER window, so the digest ends after
+    // the keyword cluster instead of cutting the supporting sentence mid-way.
+    if (cov >= bestCov) {
+      bestCov = cov;
+      best = start;
+    }
+  }
+  return (best > 0 ? "… " : "") + snippet.slice(best, best + cap).trim();
+}
+
 // Phase A — build the claim↔evidence review worklist. For every grounded SRD
 // claim, emit one pair per cited evidence item (that resolves) with the item's
 // snippet as the digest, so a skeptic agent judges whether the evidence actually
@@ -64,7 +89,7 @@ export function runReview(runDir: string, opts: { maxReview?: number } = {}): Re
         claim: c.text.trim().slice(0, 400),
         evidenceId: id,
         source: e.source,
-        digest: (e.snippet || e.title || e.ref).slice(0, 600),
+        digest: claimDigest(e.snippet || e.title || e.ref, c.text),
         score: e.score,
       });
     }

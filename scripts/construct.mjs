@@ -3604,6 +3604,24 @@ function srdClaims(srd) {
   srd.competitive.oss.forEach((o, i) => out.push({ id: `OSS-${i + 1}`, kind: "oss", text: `${o.name}: ${o.note}`, ev: o.evidence }));
   return out;
 }
+function claimDigest(snippet, claim, cap = 600) {
+  if (snippet.length <= cap) return snippet;
+  const kws = keywords(claim).map((k) => k.toLowerCase());
+  if (!kws.length) return snippet.slice(0, cap);
+  const step = 150;
+  let best = 0;
+  let bestCov = -1;
+  for (let start = 0; start === 0 || start + cap / 2 < snippet.length; start += step) {
+    const w = snippet.slice(start, start + cap).toLowerCase();
+    let cov = 0;
+    for (const kw of kws) if (w.includes(kw)) cov++;
+    if (cov >= bestCov) {
+      bestCov = cov;
+      best = start;
+    }
+  }
+  return (best > 0 ? "\u2026 " : "") + snippet.slice(best, best + cap).trim();
+}
 function runReview(runDir, opts = {}) {
   const manifest = srdManifestPath(runDir);
   if (!existsSync8(manifest)) throw new Error(`No SRD.json in ${runDir} \u2014 render the SRD first (construct render).`);
@@ -3627,7 +3645,7 @@ function runReview(runDir, opts = {}) {
         claim: c.text.trim().slice(0, 400),
         evidenceId: id,
         source: e.source,
-        digest: (e.snippet || e.title || e.ref).slice(0, 600),
+        digest: claimDigest(e.snippet || e.title || e.ref, c.text),
         score: e.score
       });
     }
