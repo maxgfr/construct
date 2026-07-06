@@ -8,6 +8,7 @@ import type { Brief, EvidenceItem } from "../src/types.js";
 
 const FIX = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
 const brief = JSON.parse(readFileSync(join(FIX, "sample-brief.json"), "utf8")) as Brief;
+const modulesBrief = JSON.parse(readFileSync(join(FIX, "sample-brief-modules.json"), "utf8")) as Brief;
 const evidence = JSON.parse(readFileSync(join(FIX, "sample-evidence.json"), "utf8")) as EvidenceItem[];
 
 describe("matchEvidence", () => {
@@ -278,5 +279,38 @@ describe("buildSRD design system", () => {
     const a = buildSRD(brief, evidence, { level: "complex", generatedAt: "T", design: true });
     const b = buildSRD(brief, evidence, { level: "complex", generatedAt: "T", design: true });
     expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+  });
+});
+
+describe("buildSRD — modules mode", () => {
+  const srd = () => buildSRD(modulesBrief, evidence, { level: "complex", generatedAt: "T" });
+
+  it("carries each feature's module onto its FR", () => {
+    expect(srd().functional.map((f) => f.module)).toEqual(["capture", "search", "library", "capture", "library"]);
+  });
+
+  it("computes srd.modules with per-module frIds and dependsOn", () => {
+    const mods = srd().modules!;
+    expect(mods.map((m) => m.id)).toEqual(["capture", "search", "library"]);
+    expect(mods.find((m) => m.id === "capture")).toEqual({
+      id: "capture",
+      name: "Capture",
+      description: "Getting content into the archive: saving, extraction, imports.",
+      frIds: ["FR-001", "FR-004"],
+      dependsOn: [],
+    });
+    expect(mods.find((m) => m.id === "search")!.dependsOn).toEqual(["capture"]);
+    expect(mods.find((m) => m.id === "library")!.frIds).toEqual(["FR-003", "FR-005"]);
+  });
+
+  it("keeps srd.modules and FR.module absent without declared modules (byte-identical)", () => {
+    const plain = buildSRD(brief, evidence, { level: "complex", generatedAt: "T" });
+    expect(plain.modules).toBeUndefined();
+    expect("module" in plain.functional[0]!).toBe(false);
+    expect(plain.traceability[0]!.module).toBeUndefined();
+  });
+
+  it("sets the module on each traceability row", () => {
+    expect(srd().traceability.map((r) => r.module)).toEqual(["capture", "search", "library", "capture", "library"]);
   });
 });

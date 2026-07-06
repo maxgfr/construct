@@ -115,3 +115,105 @@ describe("validateBrief", () => {
     expect(v.warnings.join(" ")).toMatch(/featureWishlist/);
   });
 });
+
+describe("normalizeBrief — modules", () => {
+  const declared = {
+    idea: "y",
+    modules: [
+      { id: "capture", name: "Capture" },
+      { id: "search", name: "Search", dependsOn: ["capture"] },
+    ],
+  };
+
+  it("keeps declared modules and per-feature module assignments", () => {
+    const b = normalizeBrief({
+      ...declared,
+      featureWishlist: [
+        { title: "Save an article", priority: "must", module: "capture" },
+        { title: "Find it again", priority: "must", module: "search" },
+      ],
+    });
+    expect(b.modules).toEqual([
+      { id: "capture", name: "Capture" },
+      { id: "search", name: "Search", dependsOn: ["capture"] },
+    ]);
+    expect(b.featureWishlist.map((f) => f.module)).toEqual(["capture", "search"]);
+  });
+
+  it("omits the modules field entirely when none are declared", () => {
+    const b = normalizeBrief({ idea: "y" });
+    expect("modules" in b).toBe(false);
+  });
+
+  it("slugifies module ids and feature module refs", () => {
+    const b = normalizeBrief({
+      idea: "y",
+      modules: [{ id: "User Auth", name: "User Auth" }],
+      featureWishlist: [{ title: "Log in", module: "User Auth" }],
+    });
+    expect(b.modules![0]!.id).toBe("user-auth");
+    expect(b.featureWishlist[0]!.module).toBe("user-auth");
+  });
+
+  it("falls back to the slugged name when a module has no id, and drops one with neither", () => {
+    const warnings: string[] = [];
+    const b = normalizeBrief({ idea: "y", modules: [{ name: "Deal Flow" }, { description: "nameless" }] }, (w) => warnings.push(w));
+    expect(b.modules).toEqual([{ id: "deal-flow", name: "Deal Flow" }]);
+    expect(warnings.join(" ")).toMatch(/modules\[1\] has no usable id or name — dropped/);
+  });
+
+  it("drops a duplicate module id with a warning", () => {
+    const warnings: string[] = [];
+    const b = normalizeBrief({ idea: "y", modules: [{ id: "auth" }, { id: "auth", name: "Auth again" }] }, (w) => warnings.push(w));
+    expect(b.modules!.length).toBe(1);
+    expect(warnings.join(" ")).toMatch(/duplicate module id "auth" — dropped/);
+  });
+
+  it("drops an unknown or self dependsOn ref with a warning", () => {
+    const warnings: string[] = [];
+    const b = normalizeBrief({ idea: "y", modules: [{ id: "a" }, { id: "b", dependsOn: ["a", "ghost", "b"] }] }, (w) => warnings.push(w));
+    expect(b.modules![1]!.dependsOn).toEqual(["a"]);
+    expect(warnings.join(" ")).toMatch(/module "b": dependsOn "ghost" names no declared module — dropped/);
+    expect(warnings.join(" ")).toMatch(/module "b": dependsOn cannot reference itself — dropped/);
+  });
+
+  it("drops a feature module ref that names no declared module, keeping the feature", () => {
+    const warnings: string[] = [];
+    const b = normalizeBrief({ ...declared, featureWishlist: [{ title: "Orphan thing", module: "ghost" }] }, (w) => warnings.push(w));
+    expect(b.featureWishlist[0]!.title).toBe("Orphan thing");
+    expect(b.featureWishlist[0]!.module).toBeUndefined();
+    expect(warnings.join(" ")).toMatch(/featureWishlist\[0\]\.module "ghost" names no declared module — dropped/);
+  });
+
+  it("warns and ignores a modules value that is not an array", () => {
+    const warnings: string[] = [];
+    const b = normalizeBrief({ idea: "y", modules: "nope" }, (w) => warnings.push(w));
+    expect(b.modules).toBeUndefined();
+    expect(warnings.join(" ")).toMatch(/modules is not an array — ignored/);
+  });
+});
+
+describe("validateBrief — modules", () => {
+  it("warns when modules are declared but some features are unassigned", () => {
+    const b = normalizeBrief({
+      idea: "y",
+      goals: ["ship"],
+      modules: [{ id: "capture" }],
+      featureWishlist: [{ title: "Assigned", module: "capture" }, { title: "Unassigned" }],
+    });
+    const v = validateBrief(b);
+    expect(v.ok).toBe(true);
+    expect(v.warnings.join(" ")).toMatch(/1 feature\(s\) have no module/);
+  });
+
+  it("warns when a declared module has no features", () => {
+    const b = normalizeBrief({
+      idea: "y",
+      goals: ["ship"],
+      modules: [{ id: "capture" }, { id: "empty-one" }],
+      featureWishlist: [{ title: "Assigned", module: "capture" }],
+    });
+    const v = validateBrief(b);
+    expect(v.warnings.join(" ")).toMatch(/module "empty-one" has no features/);
+  });
+});

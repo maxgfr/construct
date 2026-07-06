@@ -80,6 +80,7 @@ export function derivePlan(srd: SRD): BuildPlanDoc {
       id: `T-${pad3(i + 1)}`,
       title: `${fr.id} — ${fr.title}`,
       milestone,
+      ...(fr.module ? { module: fr.module } : {}),
       frIds: [fr.id],
       acceptance: fr.acceptance.map((_, idx) => ({ frId: fr.id, index: idx })),
       dependsOn,

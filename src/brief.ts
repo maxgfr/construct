@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { BRIEF_SCHEMA_VERSION } from "./types.js";
-import type { Brief } from "./types.js";
+import type { Brief, ModuleDef } from "./types.js";
 
 // The brief is the captured product idea — the bridge between the AI-driven
 // interview (SKILL.md playbook) and the deterministic renderer. The engine only
@@ -55,6 +55,16 @@ export function loadBrief(runDir: string, warn: (msg: string) => void = () => {}
 
 const PRIORITIES = ["must", "should", "could"] as const;
 
+// Module ids are slugs so they can name a prd/<id>/ directory and (later) a
+// src/modules/<id>/ folder verbatim.
+function slugId(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+}
+
 // Coerce a parsed object into a Brief, tolerating missing arrays/objects so a
 // hand-edited brief never crashes the renderer. Tolerance must not mean silent
 // loss: anything dropped or rewritten is reported through `warn`.
@@ -76,6 +86,56 @@ export function normalizeBrief(data: unknown, warn: (msg: string) => void = () =
     if (kept.length < v.length) warn(`${field}: dropped ${v.length - kept.length} non-string/empty entr${v.length - kept.length === 1 ? "y" : "ies"}.`);
     return kept;
   };
+  // Modules first: feature `module` refs are validated against the declared ids.
+  let modules: ModuleDef[] | undefined;
+  if (d.modules !== undefined && d.modules !== null) {
+    if (!Array.isArray(d.modules)) {
+      warn("modules is not an array — ignored.");
+    } else {
+      const out: ModuleDef[] = [];
+      const seen = new Set<string>();
+      d.modules.forEach((m, i) => {
+        const rawId = line((m as { id?: unknown } | null)?.id);
+        const rawName = line((m as { name?: unknown } | null)?.name);
+        const id = slugId(rawId || rawName || "");
+        if (!id) {
+          warn(`modules[${i}] has no usable id or name — dropped.`);
+          return;
+        }
+        if (seen.has(id)) {
+          warn(`modules[${i}]: duplicate module id "${id}" — dropped.`);
+          return;
+        }
+        seen.add(id);
+        const def: ModuleDef = { id, name: rawName || id };
+        const description = line((m as { description?: unknown }).description);
+        if (description) def.description = description;
+        const deps = arr((m as { dependsOn?: unknown }).dependsOn, `modules[${i}].dependsOn`).map(slugId);
+        if (deps.length) def.dependsOn = deps;
+        out.push(def);
+      });
+      // dependsOn closure: refs must name another declared module.
+      for (const m of out) {
+        if (!m.dependsOn) continue;
+        const kept = m.dependsOn.filter((dep) => {
+          if (dep === m.id) {
+            warn(`module "${m.id}": dependsOn cannot reference itself — dropped.`);
+            return false;
+          }
+          if (!seen.has(dep)) {
+            warn(`module "${m.id}": dependsOn "${dep}" names no declared module — dropped.`);
+            return false;
+          }
+          return true;
+        });
+        if (kept.length) m.dependsOn = kept;
+        else delete m.dependsOn;
+      }
+      if (out.length) modules = out;
+    }
+  }
+  const moduleIds = new Set((modules ?? []).map((m) => m.id));
+
   const features: Brief["featureWishlist"] = [];
   if (d.featureWishlist !== undefined && !Array.isArray(d.featureWishlist)) {
     warn("featureWishlist is not an array — ignored.");
@@ -91,7 +151,14 @@ export function normalizeBrief(data: unknown, warn: (msg: string) => void = () =
         warn(`featureWishlist[${i}].priority "${priority}" is not must|should|could — treated as should.`);
         priority = undefined;
       }
-      features.push({ title, priority, notes: line((f as { notes?: string }).notes) });
+      let module: string | undefined;
+      const rawModule = line((f as { module?: unknown }).module);
+      if (rawModule) {
+        const slug = slugId(rawModule);
+        if (moduleIds.has(slug)) module = slug;
+        else warn(`featureWishlist[${i}].module "${rawModule}" names no declared module — dropped.`);
+      }
+      features.push({ title, priority, notes: line((f as { notes?: string }).notes), ...(module ? { module } : {}) });
     });
   }
   // Optional design intent — tolerated like everything else: a non-object is
@@ -136,6 +203,7 @@ export function normalizeBrief(data: unknown, warn: (msg: string) => void = () =
     candidateTech: arr(d.candidateTech, "candidateTech"),
     competitors: arr(d.competitors, "competitors"),
     ossSeeds: arr(d.ossSeeds, "ossSeeds"),
+    ...(modules ? { modules } : {}),
     featureWishlist: features,
     nfrPriorities: arr(d.nfrPriorities, "nfrPriorities"),
     openQuestions: arr(d.openQuestions, "openQuestions"),
@@ -172,6 +240,17 @@ export function validateBrief(brief: Brief): BriefValidation {
   }
   if (brief.nfrPriorities.length === 0) {
     warnings.push("no nfrPriorities — non-functional requirements will use defaults for the level.");
+  }
+  if (brief.modules?.length) {
+    const unassigned = brief.featureWishlist.filter((f) => !f.module).length;
+    if (unassigned) {
+      warnings.push(`modules are declared but ${unassigned} feature(s) have no module — assign every feature (check fails an FR without one).`);
+    }
+    for (const m of brief.modules) {
+      if (!brief.featureWishlist.some((f) => f.module === m.id)) {
+        warnings.push(`module "${m.id}" has no features — its PRD will be empty (assign features or drop the module).`);
+      }
+    }
   }
   return { ok: errors.length === 0, errors, warnings };
 }

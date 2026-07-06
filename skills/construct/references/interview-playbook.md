@@ -42,21 +42,30 @@ Check the fit before question 1; a wrong fit wastes the whole loop.
    in seconds", "1,000 installs in year one").
 5. **Features** → `featureWishlist`. Each `{title, priority: must|should|could,
    notes}`. Push for must vs. should vs. could — it drives the build plan.
-6. **Non-goals** → `nonGoals`. What you're explicitly *not* building.
-7. **Constraints** → `constraints` (budget, timeline, team, compliance).
-8. **Candidate technologies** → `candidateTech`. Stacks/services to evaluate;
+   Keep titles unique across the wishlist: BUILD-PLAN progress is merged across
+   re-renders by feature title, so two identical titles would share one task.
+6. **Modules** → `modules` (optional — *modules mode*). When the product is
+   naturally modular (>~6 features, or the user names a modular target like
+   `src/modules/…`), propose a decomposition: each `{id, name, description?,
+   dependsOn?}`, and set `module: "<id>"` on **every** feature (the gate is
+   all-or-nothing). Ids are slugs and become `prd/<id>/` folder names — mirror
+   the intended code layout so a module's PRD maps 1:1 to its future folder.
+   Render then emits one PRD per module and tags BUILD-PLAN tasks with it.
+7. **Non-goals** → `nonGoals`. What you're explicitly *not* building.
+8. **Constraints** → `constraints` (budget, timeline, team, compliance).
+9. **Candidate technologies** → `candidateTech`. Stacks/services to evaluate;
    the `tech` angle grounds these against docs + StackOverflow.
-9. **Competitors** → `competitors`. Named alternatives; seed the `market` angle.
-10. **OSS seeds** → `ossSeeds`. Known comparable repos to mine (optional; the
+10. **Competitors** → `competitors`. Named alternatives; seed the `market` angle.
+11. **OSS seeds** → `ossSeeds`. Known comparable repos to mine (optional; the
     `oss` angle can also discover them).
-11. **NFR priorities** → `nfrPriorities` (performance, security, privacy, a11y…).
-12. **Design intent** → `design` (optional, all fields optional). Target
+12. **NFR priorities** → `nfrPriorities` (performance, security, privacy, a11y…).
+13. **Design intent** → `design` (optional, all fields optional). Target
     `platforms` (web/iOS/Android/desktop), `brandConstraints` (existing brand or
     greenfield), `referenceSystems` to emulate (Material, shadcn…), an explicit
     `accessibilityTarget` (e.g. RGAA 4.1 — otherwise derived from compliance /
     nfrPriorities, default WCAG 2.2 AA) and a `tone`. Drives the `complex`
     design system (`design/`). Skip it for a `light`/non-UI spec.
-13. **Open questions** → `openQuestions`. Genuine decisions the user hasn't made.
+14. **Open questions** → `openQuestions`. Genuine decisions the user hasn't made.
     These render as `🧠 Decide:` callouts and **block the structural gate** until
     resolved — so only put real, deferred decisions here.
 

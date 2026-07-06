@@ -15,6 +15,10 @@ import {
   renderBuildPlan,
   renderTraceability,
   renderMergeBundle,
+  renderFeaturePRD,
+  renderPRDIndex,
+  renderModulePRD,
+  renderModulePrdIndex,
   renderDesignPrinciples,
   renderDesignTokens,
   renderDesignTokensJson,
@@ -39,6 +43,9 @@ export interface RenderOptions {
   // The design-system subtree renders at `complex` unless opted out. Light never
   // renders it. Default false (off) when unset.
   noDesign?: boolean;
+  // Also emit requirements/prd/ — one standalone PRD per FR + an index. Default
+  // false (off) when unset.
+  prd?: boolean;
 }
 
 function writeFile(out: string, rel: string, content: string, files: string[]): void {
@@ -67,10 +74,23 @@ export function renderSRD(brief: Brief, evidence: EvidenceItem[], opts: RenderOp
   // first so a re-render never leaves an orphaned design/ behind — the same
   // hygiene as the decisions dir and the stale SRD.md below.
   rmSync(join(out, "design"), { recursive: true, force: true });
+  // Same for the module-PRD tree: module ids can change between renders and the
+  // brief can stop declaring modules altogether.
+  rmSync(join(out, "prd"), { recursive: true, force: true });
 
   writeFile(out, "00-overview/VISION.md", renderVision(srd), files);
   writeFile(out, "00-overview/SCOPE.md", renderScope(srd), files);
   writeFile(out, "requirements/FUNCTIONAL.md", renderFunctional(srd), files);
+  // PRD filenames are id+title-derived and the subtree can toggle off. Clear it
+  // first — same hygiene as the decisions and design dirs — so a re-render never
+  // leaves a stale per-feature PRD behind.
+  rmSync(join(out, "requirements", "prd"), { recursive: true, force: true });
+  if (opts.prd) {
+    for (const fr of srd.functional) {
+      writeFile(out, `requirements/prd/PRD-${fr.id}-${slugTitle(fr.title)}.md`, renderFeaturePRD(fr, srd), files);
+    }
+    writeFile(out, "requirements/prd/README.md", renderPRDIndex(srd), files);
+  }
   writeFile(out, "requirements/NON-FUNCTIONAL.md", renderNonFunctional(srd), files);
   writeFile(out, "architecture/SYSTEM-CONTEXT.md", renderSystemContext(srd), files);
   writeFile(out, "architecture/DATA-MODEL.md", renderDataModel(srd), files);
@@ -85,6 +105,15 @@ export function renderSRD(brief: Brief, evidence: EvidenceItem[], opts: RenderOp
   writePlan(out, mergePlan(loadPlan(out), derivePlan(srd)));
   files.push("BUILD-PLAN.json");
   writeFile(out, "TRACEABILITY.md", renderTraceability(srd), files);
+
+  // Module PRDs (modules mode): one PRD per declared module + an index. The
+  // full FR blocks live here — FUNCTIONAL.md is the cross-module index.
+  if (srd.modules?.length) {
+    for (const m of srd.modules) {
+      writeFile(out, `prd/${m.id}/PRD.md`, renderModulePRD(srd, m), files);
+    }
+    writeFile(out, "prd/README.md", renderModulePrdIndex(srd), files);
+  }
 
   // Design system (complex, not opted out): the design/ subtree + a
   // machine-readable token twin (mirrors SRD.json / BUILD-PLAN.json).

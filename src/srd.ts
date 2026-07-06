@@ -440,8 +440,22 @@ export function buildSRD(brief: Brief, evidence: EvidenceItem[], opts: { level: 
       interfaces: [],
       nfrs,
       unresolved: false,
+      ...(f.module ? { module: f.module } : {}),
     };
   });
+
+  // --- Module partition (modules mode): the brief's declarations plus the
+  // computed FR grouping. Absent without declared modules — same pattern as
+  // `design`, so a plain brief renders byte-identically.
+  const modules = brief.modules?.length
+    ? brief.modules.map((m) => ({
+        id: m.id,
+        name: m.name,
+        ...(m.description ? { description: m.description } : {}),
+        frIds: functional.filter((f) => f.module === m.id).map((f) => f.id),
+        dependsOn: m.dependsOn ?? [],
+      }))
+    : undefined;
 
   // --- Data model + interfaces: inferred seeds (agent verifies during
   // authoring). Sets FR.entities / FR.interfaces symmetrically so the reference
@@ -507,6 +521,7 @@ export function buildSRD(brief: Brief, evidence: EvidenceItem[], opts: { level: 
       row.components = design.components.filter((c) => c.relatedFRs.includes(fr.id)).map((c) => c.name);
       row.screens = design.screens.filter((s) => s.relatedFRs.includes(fr.id)).map((s) => s.name);
     }
+    if (fr.module) row.module = fr.module;
     return row;
   });
 
@@ -537,6 +552,7 @@ export function buildSRD(brief: Brief, evidence: EvidenceItem[], opts: { level: 
       assumptions: deriveAssumptions(brief),
     },
     functional,
+    ...(modules ? { modules } : {}),
     nonFunctional,
     architecture: { context: contextProse(productName, brief), dataModel, interfaces, adrs },
     competitive: { competitors, oss },

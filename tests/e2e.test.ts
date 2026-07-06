@@ -107,6 +107,57 @@ describe("e2e: render lifecycle", () => {
   });
 });
 
+describe("e2e: modules mode (per-module PRDs)", () => {
+  // A seeded run whose brief declares modules — render must emit prd/<id>/PRD.md
+  // per module and the whole lifecycle (render → check) must pass the gate.
+  function seededModules(): string {
+    const run = join(tmp(), "run");
+    mkdirSync(join(run, "evidence"), { recursive: true });
+    cpSync(join(FIX, "sample-brief-modules.json"), join(run, "brief.json"));
+    cpSync(join(FIX, "sample-evidence.json"), join(run, "evidence", "evidence.json"));
+    return run;
+  }
+
+  it("render emits one PRD per module + index, FUNCTIONAL.md as index, tagged BUILD-PLAN, and check passes", () => {
+    const run = seededModules();
+    const r = cli(["render", "--out", run, "--level", "complex"]);
+    expect(r.status, r.stderr).toBe(0);
+
+    const srd = JSON.parse(readFileSync(join(run, "SRD.json"), "utf8")) as SRD;
+    expect(srd.modules!.length).toBe(3);
+    for (const m of srd.modules!) {
+      expect(existsSync(join(run, "prd", m.id, "PRD.md")), m.id).toBe(true);
+    }
+    expect(existsSync(join(run, "prd", "README.md"))).toBe(true);
+
+    // FUNCTIONAL.md is the index; the full blocks live in the module PRDs.
+    const fn = readFileSync(join(run, "requirements/FUNCTIONAL.md"), "utf8");
+    expect(fn).toContain("../prd/capture/PRD.md");
+    expect(fn).not.toContain("**Acceptance criteria:**");
+    const capture = readFileSync(join(run, "prd/capture/PRD.md"), "utf8");
+    expect(capture).toContain("**Acceptance criteria:**");
+
+    // Every FR task in the plan carries its module.
+    const plan = readPlan(run);
+    const frTasks = plan.tasks.filter((t) => t.frIds.length);
+    expect(frTasks.length).toBeGreaterThan(0);
+    for (const t of frTasks) expect(t.module, t.id).toBeTruthy();
+
+    // The hard gate passes end to end.
+    const c = cli(["check", "--out", run]);
+    expect(c.status, c.stdout + c.stderr).toBe(0);
+  });
+
+  it("check fails (exit 1) when a module PRD is deleted", () => {
+    const run = seededModules();
+    expect(cli(["render", "--out", run, "--level", "complex"]).status).toBe(0);
+    rmSync(join(run, "prd", "search"), { recursive: true, force: true });
+    const c = cli(["check", "--out", run]);
+    expect(c.status).toBe(1);
+    expect(c.stdout + c.stderr).toMatch(/prd\/search\/PRD\.md/);
+  });
+});
+
 describe("e2e: design system", () => {
   it("renders the design/ subtree at complex, gates it, and --no-design opts out", () => {
     const run = rendered("complex");

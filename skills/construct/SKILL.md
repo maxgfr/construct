@@ -1,6 +1,6 @@
 ---
 name: construct
-description: "Use when the user wants to turn a product idea into a serious, buildable requirements document (an SRD/PRD) — or build the app from one. Triggers: write an SRD or PRD, spec out a product, write requirements, define requirements, product specification, software requirements document, turn an idea into requirements, greenfield product spec, idea to spec, build from spec, implement the SRD. construct interviews the user, grounds every major decision in real research — competitors and market signal, comparable open-source projects and their issues/PRs, candidate-technology docs and StackOverflow pitfalls — then renders a complete SRD suite: vision, scope, numbered functional requirements with Given/When/Then acceptance criteria, NFRs, data model, interfaces, ADRs, competitive landscape, build plan, traceability. A hard structural gate plus an advisory grounding report validate it; for building, it emits a BUILD-PLAN.json task DAG and `construct verify` referees the app against the SRD."
+description: "Use when the user wants to turn a product idea into a serious, buildable requirements document (an SRD/PRD) — or build the app from one. Triggers: write an SRD or PRD, spec out a product, write/define requirements, product specification, idea to spec, build from spec, one PRD per module, PRD folder. construct interviews the user, grounds every major decision in real research — competitors and market signal, comparable open-source projects and their issues/PRs, candidate-tech docs and StackOverflow pitfalls — then renders a complete SRD suite: vision, scope, functional requirements with Given/When/Then acceptance criteria, NFRs, data model, interfaces, ADRs, competitive landscape, build plan, traceability. Modules mode renders one PRD per module (prd/<module>/PRD.md); render --prd emits one PRD per requirement. A hard structural gate plus an advisory grounding report validate it; for building, it emits a BUILD-PLAN.json task DAG and construct verify referees the app against the SRD."
 license: MIT
 metadata:
   version: 1.6.0
@@ -36,8 +36,11 @@ No `npm install`, no API keys. Run `--help` for the full surface. Key commands:
 - `web|oss|tech|so --out <run> [--q "<focus>"] [--url ...] [--seeds ...]
   [--docs-url <u,...>]` — drill ONE angle to stdout (no dossier). Use these to
   dig deeper on a thin thread; `--docs-url` grounds known docs pages directly.
-- `render --out <run> [--level light|complex] [--merge]` — render the SRD tree +
-  `SRD.json` from `brief.json` + the dossier.
+- `render --out <run> [--level light|complex] [--merge] [--prd]` — render the
+  SRD tree + `SRD.json` from `brief.json` + the dossier. When the brief declares
+  `modules`, also renders **one PRD per module** (`prd/<module>/PRD.md` + index)
+  and FUNCTIONAL.md becomes the cross-module index. `--prd` additionally emits
+  one standalone PRD per requirement under `requirements/prd/`.
 - `check --out <run> [--min-grounding <0-100>] [--semantic] [--json]` — the HARD
   structural gate (exit ≠ 0 on an incomplete SRD) plus the ADVISORY grounding-
   coverage report. `--min-grounding N` opts into a second gate that fails below
@@ -71,6 +74,13 @@ loop to completion; only pause to ask the user a real decision.
    team, compliance), candidate technologies, and any competitor / OSS seeds.
    Recommend an answer with each question; don't dump a questionnaire. Write the
    answers into `brief.json` (start it with `construct init`).
+   **Module decomposition:** when the product is naturally modular (roughly >6
+   features, or the user names a modular architecture like `src/modules/…`),
+   propose a module split and record it — `brief.modules` (id/name/description/
+   dependsOn) plus a `module` on every feature. Render then emits **one PRD per
+   module** and `check` enforces the partition (all-or-nothing: every feature
+   assigned). Module ids become folder names — keep them slug-like, and keep
+   feature titles unique across modules (BUILD-PLAN progress is keyed by title).
 
 2. **Research — ground the idea.** Run:
    ```
@@ -180,15 +190,20 @@ loop to completion; only pause to ask the user a real decision.
 
 ```
 00-overview/   VISION.md · SCOPE.md (+ 🧠 open decisions)
-requirements/  FUNCTIONAL.md (FR-NNN · priority · Given/When/Then · [E#])
+requirements/  FUNCTIONAL.md (FR-NNN · priority · Given/When/Then · [E#];
+               an index linking each FR to its module PRD in modules mode)
                NON-FUNCTIONAL.md (NFR-NNN by category · metric · [E#])
+               prd/PRD-FR-NNN-*.md (+ README index — only with --prd)
+prd/           README.md · <module>/PRD.md   (modules mode only: one PRD per
+               module — full FR blocks, NFR refs, data/interface slices, deps)
 architecture/  SYSTEM-CONTEXT.md · DATA-MODEL.md · INTERFACES.md
                decisions/NNNN-*.md  (ADRs)
 design/        PRINCIPLES.md · DESIGN-TOKENS.md (+ design-tokens.json) · COMPONENTS.md
                SCREENS.md · ACCESSIBILITY.md      (complex only; --no-design to skip)
 competitive/   LANDSCAPE.md (competitors + OSS prior art)
-BUILD-PLAN.md · BUILD-PLAN.json (task DAG for the build phase)
-TRACEABILITY.md (FR ↔ NFR ↔ ADR ↔ entity ↔ interface ↔ component ↔ screen)
+BUILD-PLAN.md · BUILD-PLAN.json (task DAG for the build phase; tasks carry their
+               module in modules mode)
+TRACEABILITY.md (FR ↔ module ↔ NFR ↔ ADR ↔ entity ↔ interface ↔ component ↔ screen)
 evidence/      EVIDENCE.md · evidence.json · meta.json   ·   brief.json · SRD.json
 ```
 
@@ -196,7 +211,7 @@ evidence/      EVIDENCE.md · evidence.json · meta.json   ·   brief.json · SR
 path acceptance criteria, the full traceability matrix and a **design-system
 subtree** (`design/`: principles, tokens, components, screens/flows, an
 accessibility contract — `--no-design` opts out). Add `--merge` for a single-file
-`SRD.md`.
+`SRD.md` (always the full FR blocks, even in modules mode).
 
 ## Optional semantic mode (fully local, no API key)
 

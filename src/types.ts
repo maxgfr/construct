@@ -98,6 +98,18 @@ export interface FeatureWish {
   title: string;
   priority?: "must" | "should" | "could";
   notes?: string;
+  module?: string; // a declared Brief.modules id (modules mode)
+}
+
+// A product module declared in the brief (modules mode). When any are declared,
+// render emits one PRD per module under prd/<id>/ and the hard `check` enforces
+// every FR is assigned to one. `id` is a slug; `dependsOn` references other
+// declared module ids.
+export interface ModuleDef {
+  id: string;
+  name: string;
+  description?: string;
+  dependsOn?: string[];
 }
 
 export interface Brief {
@@ -120,6 +132,7 @@ export interface Brief {
   candidateTech: string[]; // technologies to ground against docs/SO
   competitors: string[]; // seed names for the market angle
   ossSeeds: string[]; // optional GitHub/GitLab URLs to mine
+  modules?: ModuleDef[]; // optional module decomposition (modules mode)
   featureWishlist: FeatureWish[];
   nfrPriorities: string[]; // e.g. ["performance","security","a11y"]
   openQuestions: string[]; // become 🧠 callouts at render time
@@ -183,6 +196,18 @@ export interface FR {
   interfaces: string[]; // interfaces this FR uses (must resolve)
   nfrs: string[]; // NFR ids this FR relates to (must resolve)
   unresolved: boolean; // true when an open decision (🧠) remains
+  module?: string; // owning module id (modules mode; must resolve in srd.modules)
+}
+
+// A module in the rendered SRD (modules mode): the brief's ModuleDef plus the
+// computed FR partition. Present only when the brief declares modules — same
+// absent-means-identical pattern as `design`.
+export interface SRDModule {
+  id: string;
+  name: string;
+  description?: string;
+  frIds: string[];
+  dependsOn: string[];
 }
 
 export interface NFR {
@@ -247,6 +272,8 @@ export interface TraceRow {
   // so a light/no-design SRD's matrix is byte-identical to before.
   components?: string[];
   screens?: string[];
+  // Owning module (modules mode) — optional for the same reason.
+  module?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -333,6 +360,9 @@ export interface SRD {
   };
   scope: { inScope: string[]; outOfScope: string[]; assumptions: string[] };
   functional: FR[];
+  // The module partition (modules mode). Present only when the brief declares
+  // modules; render then emits prd/<id>/PRD.md per entry and `check` gates it.
+  modules?: SRDModule[];
   nonFunctional: NFR[];
   architecture: {
     context: string;
@@ -441,6 +471,7 @@ export interface BuildTask {
   id: string; // T-000 …
   title: string;
   milestone: string; // M1 | M2 | M3
+  module?: string; // owning module id (modules mode; from the task's FR)
   frIds: string[];
   acceptance: AcceptanceRef[];
   dependsOn: string[];

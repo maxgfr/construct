@@ -1,5 +1,5 @@
 import { DESIGN_TOKENS_SEEDED_BANNER } from "./types.js";
-import type { SRD, ADR, DesignSystem } from "./types.js";
+import type { SRD, ADR, DesignSystem, FR, SRDModule } from "./types.js";
 
 // Markdown rendering for every SRD section. Each function is pure (model slice →
 // string) so it is trivially golden-testable offline.
@@ -80,27 +80,195 @@ export function renderScope(srd: SRD): string {
   return lines.join("\n");
 }
 
+// One full FR block (heading, description, acceptance criteria, traceability
+// line). Shared by FUNCTIONAL.md, the module PRDs and the merge bundle so the
+// block format can never drift between the three.
+export function renderFRBlock(fr: FR): string[] {
+  const out = [`## ${fr.id} — ${fr.title} _(${fr.priority})_${cite(fr.rationaleEvidence)}`, ``];
+  out.push(fr.description);
+  out.push(``);
+  out.push(`**Acceptance criteria:**`);
+  for (const a of fr.acceptance) {
+    out.push(`- **Given** ${a.given} **When** ${a.when} **Then** ${a.then}`);
+  }
+  out.push(``);
+  const trace = [
+    `NFRs: ${fr.nfrs.length ? fr.nfrs.join(", ") : "—"}`,
+    `entities: ${fr.entities.length ? fr.entities.join(", ") : "—"}`,
+    `interfaces: ${fr.interfaces.length ? fr.interfaces.join(", ") : "—"}`,
+  ].join(" · ");
+  out.push(`_Traceability — ${trace}_`);
+  out.push(``);
+  return out;
+}
+
+// In modules mode the full FR blocks live in each module's PRD; FUNCTIONAL.md
+// becomes the cross-module index so the same block never exists in two places
+// to drift apart during authoring. Without modules: the full list, unchanged.
 export function renderFunctional(srd: SRD): string {
+  if (srd.modules?.length) return renderFunctionalIndex(srd);
+  return renderFunctionalFull(srd);
+}
+
+export function renderFunctionalFull(srd: SRD): string {
   const out = [`# Functional requirements`, ``];
   if (!srd.functional.length) out.push(`_No functional requirements defined._`, ``);
+  for (const fr of srd.functional) out.push(...renderFRBlock(fr));
+  return out.join("\n");
+}
+
+function renderFunctionalIndex(srd: SRD): string {
+  const out = [`# Functional requirements`, ``];
+  out.push(`_This SRD is partitioned into module PRDs — the full requirement blocks (description,`);
+  out.push(`acceptance criteria, traceability) live in each module's PRD under [../prd/](../prd/README.md)._`, ``);
+  out.push(`| Requirement | Title | Priority | Module | PRD |`);
+  out.push(`|---|---|---|---|---|`);
   for (const fr of srd.functional) {
-    out.push(`## ${fr.id} — ${fr.title} _(${fr.priority})_${cite(fr.rationaleEvidence)}`);
-    out.push(``);
-    out.push(fr.description);
-    out.push(``);
-    out.push(`**Acceptance criteria:**`);
-    for (const a of fr.acceptance) {
-      out.push(`- **Given** ${a.given} **When** ${a.when} **Then** ${a.then}`);
-    }
-    out.push(``);
-    const trace = [
-      `NFRs: ${fr.nfrs.length ? fr.nfrs.join(", ") : "—"}`,
-      `entities: ${fr.entities.length ? fr.entities.join(", ") : "—"}`,
-      `interfaces: ${fr.interfaces.length ? fr.interfaces.join(", ") : "—"}`,
-    ].join(" · ");
-    out.push(`_Traceability — ${trace}_`);
-    out.push(``);
+    const link = fr.module ? `[../prd/${fr.module}/PRD.md](../prd/${fr.module}/PRD.md)` : "—";
+    out.push(`| ${fr.id} | ${cell(fr.title)} | ${fr.priority} | ${fr.module ?? "—"} | ${link} |`);
   }
+  out.push(``);
+  return out.join("\n");
+}
+
+// One PRD per module (modules mode): the module's slice of the SRD, complete
+// enough to hand to an implementation agent — full FR blocks, the NFRs those
+// FRs reference, the data-model/interface slices they touch, and the module's
+// dependencies (declared in the brief + derived from shared entities). Global
+// docs stay at the SRD root and are linked, never duplicated.
+export function renderModulePRD(srd: SRD, m: SRDModule): string {
+  const frs = srd.functional.filter((f) => f.module === m.id);
+  const others = (srd.modules ?? []).filter((o) => o.id !== m.id);
+  const frIdSet = new Set(frs.map((f) => f.id));
+
+  const out = [`# PRD — ${m.name}`, ``];
+  out.push(`_Module \`${m.id}\` · ${srd.product.name} · ${frs.length} requirement(s)_`, ``);
+  if (m.description) out.push(m.description, ``);
+  out.push(
+    `**Global context:** [Vision](../../00-overview/VISION.md) · [Scope](../../00-overview/SCOPE.md) · ` +
+      `[Non-functional requirements](../../requirements/NON-FUNCTIONAL.md) · [Data model](../../architecture/DATA-MODEL.md) · ` +
+      `[Interfaces](../../architecture/INTERFACES.md) · [Traceability](../../TRACEABILITY.md)`,
+    ``,
+  );
+
+  out.push(`## Scope`, ``);
+  out.push(`**In scope:** ${frs.length ? frs.map((f) => f.id).join(", ") : "—"}.`, ``);
+  if (others.length) {
+    out.push(`**Out of scope** (owned by other modules): ${others.map((o) => `[${o.name}](../${o.id}/PRD.md)`).join(", ")}.`, ``);
+  }
+
+  out.push(`## Requirements`, ``);
+  if (!frs.length) out.push(`_No requirements assigned to this module._`, ``);
+  for (const fr of frs) out.push(...renderFRBlock(fr));
+
+  const nfrIds = new Set(frs.flatMap((f) => f.nfrs));
+  const nfrs = srd.nonFunctional.filter((n) => nfrIds.has(n.id));
+  out.push(`## Non-functional requirements`, ``);
+  if (nfrs.length) {
+    out.push(`_Applying to this module's requirements — full statements in [NON-FUNCTIONAL.md](../../requirements/NON-FUNCTIONAL.md)._`, ``);
+    out.push(`| NFR | Category | Metric |`, `|---|---|---|`);
+    for (const n of nfrs) out.push(`| ${n.id} | ${cell(n.category)} | ${cell(n.metric ?? "—")} |`);
+  } else {
+    out.push(`_None linked._`);
+  }
+  out.push(``);
+
+  const entities = srd.architecture.dataModel.filter((e) => e.referencedByFRs.some((id) => frIdSet.has(id)));
+  out.push(`## Data model (module slice)`, ``);
+  if (entities.length) {
+    out.push(`| Entity | Referenced by |`, `|---|---|`);
+    for (const e of entities) out.push(`| ${cell(e.name)} | ${e.referencedByFRs.filter((id) => frIdSet.has(id)).join(", ")} |`);
+  } else {
+    out.push(`_No entities touch this module yet._`);
+  }
+  out.push(``);
+
+  const ifaces = srd.architecture.interfaces.filter((i) => i.relatedFRs.some((id) => frIdSet.has(id)));
+  out.push(`## Interfaces (module slice)`, ``);
+  if (ifaces.length) {
+    out.push(`| Interface | Kind | Related |`, `|---|---|---|`);
+    for (const i of ifaces) out.push(`| ${cell(i.name)} | ${i.kind} | ${i.relatedFRs.filter((id) => frIdSet.has(id)).join(", ")} |`);
+  } else {
+    out.push(`_No interfaces touch this module yet._`);
+  }
+  out.push(``);
+
+  out.push(`## Dependencies`, ``);
+  const declared = m.dependsOn.map((dep) => {
+    const d = others.find((o) => o.id === dep);
+    return d ? `[${d.name}](../${d.id}/PRD.md)` : dep;
+  });
+  const shared: string[] = [];
+  for (const o of others) {
+    const oSet = new Set(o.frIds);
+    const names = entities.filter((e) => e.referencedByFRs.some((id) => oSet.has(id))).map((e) => e.name);
+    if (names.length) shared.push(`shares ${names.join(", ")} with [${o.name}](../${o.id}/PRD.md)`);
+  }
+  if (!declared.length && !shared.length) out.push(`_None._`);
+  if (declared.length) out.push(`- **Declared:** depends on ${declared.join(", ")}.`);
+  for (const s of shared) out.push(`- **Derived (shared data):** ${s}.`);
+  out.push(``);
+  return out.join("\n");
+}
+
+export function renderModulePrdIndex(srd: SRD): string {
+  const out = [`# Module PRDs`, ``];
+  out.push(`One PRD per product module, rendered from SRD.json. Cross-module docs (vision, scope,`);
+  out.push(`NFRs, architecture, ADRs, traceability) live at the SRD root; the cross-module requirement`);
+  out.push(`index is [../requirements/FUNCTIONAL.md](../requirements/FUNCTIONAL.md).`, ``);
+  out.push(`| Module | PRD | Requirements | Depends on |`);
+  out.push(`|---|---|---|---|`);
+  for (const m of srd.modules ?? []) {
+    out.push(`| ${cell(m.name)} | [${m.id}/PRD.md](${m.id}/PRD.md) | ${m.frIds.join(", ") || "—"} | ${m.dependsOn.join(", ") || "—"} |`);
+  }
+  out.push(``);
+  return out.join("\n");
+}
+
+// One standalone PRD per functional requirement (`render --prd`). A per-feature
+// cut of the SAME SRD.json data — FUNCTIONAL.md stays the canonical list — so a
+// single feature can be handed to a tracker or an implementation agent whole:
+// product context, linked NFRs resolved to their statements, touched entities/
+// interfaces, and the grounding citations.
+export function renderFeaturePRD(fr: FR, srd: SRD): string {
+  const out = [`# PRD ${fr.id} — ${fr.title}${cite(fr.rationaleEvidence)}`, ``];
+  out.push(`_Priority: ${fr.priority}_ · _Product: ${srd.product.name}_`, ``);
+  out.push(`## Context`, ``, srd.product.problem, ``);
+  out.push(`## Feature`, ``, fr.description, ``);
+  out.push(`## Acceptance criteria`, ``);
+  for (const a of fr.acceptance) {
+    out.push(`- **Given** ${a.given} **When** ${a.when} **Then** ${a.then}`);
+  }
+  out.push(``, `## Non-functional requirements`, ``);
+  if (!fr.nfrs.length) out.push(`_None linked._`);
+  for (const id of fr.nfrs) {
+    const nfr = srd.nonFunctional.find((n) => n.id === id);
+    out.push(nfr ? `- **${nfr.id}** (${nfr.category}): ${nfr.statement}${nfr.metric ? ` — metric: ${nfr.metric}` : ""}` : `- **${id}**`);
+  }
+  out.push(``, `## Data & interfaces`, ``);
+  out.push(`- Entities: ${fr.entities.length ? fr.entities.join(", ") : "—"}`);
+  out.push(`- Interfaces: ${fr.interfaces.length ? fr.interfaces.join(", ") : "—"}`);
+  out.push(``, `## Grounding`, ``);
+  out.push(
+    fr.rationaleEvidence.length
+      ? `Evidence:${cite(fr.rationaleEvidence)} — see ../../evidence/EVIDENCE.md.`
+      : `_Ungrounded — see the grounding report (construct check)._`,
+  );
+  out.push(``);
+  return out.join("\n");
+}
+
+export function renderPRDIndex(srd: SRD): string {
+  const out = [`# PRDs — one per functional requirement`, ``];
+  out.push(`Rendered from SRD.json by \`construct render --prd\`. The canonical, always-current`);
+  out.push(`requirement list is [../FUNCTIONAL.md](../FUNCTIONAL.md); re-render after editing.`, ``);
+  out.push(`| PRD | Priority | Title |`);
+  out.push(`|---|---|---|`);
+  for (const fr of srd.functional) {
+    const file = `PRD-${fr.id}-${slugTitle(fr.title)}.md`;
+    out.push(`| [${file}](${file}) | ${cell(fr.priority)} | ${cell(fr.title)} |`);
+  }
+  out.push(``);
   return out.join("\n");
 }
 
@@ -216,23 +384,27 @@ export function renderBuildPlan(srd: SRD): string {
 }
 
 export function renderTraceability(srd: SRD): string {
-  // Two extra columns (Components, Screens) appear only when a design system is
-  // present, so a light/no-design matrix is byte-identical to before.
+  // Extra columns appear only when their feature is present — Module in modules
+  // mode, Components/Screens with a design system — so a plain SRD's matrix is
+  // byte-identical to before.
   const design = !!srd.design;
-  const header = design
-    ? `| Requirement | NFRs | ADRs | Entities | Interfaces | Components | Screens |`
-    : `| Requirement | NFRs | ADRs | Entities | Interfaces |`;
-  const sep = design ? `|---|---|---|---|---|---|---|` : `|---|---|---|---|---|`;
-  const out = [`# Traceability matrix`, ``, header, sep];
+  const modules = !!srd.modules?.length;
+  const cols = ["Requirement", ...(modules ? ["Module"] : []), "NFRs", "ADRs", "Entities", "Interfaces", ...(design ? ["Components", "Screens"] : [])];
+  const out = [`# Traceability matrix`, ``, `| ${cols.join(" | ")} |`, `|${cols.map(() => "---").join("|")}|`];
   for (const r of srd.traceability) {
-    const base = `| ${r.fr} | ${r.nfrs.join(", ") || "—"} | ${r.adrs.join(", ") || "—"} | ${r.entities.join(", ") || "—"} | ${r.interfaces.join(", ") || "—"}`;
+    const cells = [
+      r.fr,
+      ...(modules ? [r.module ?? "—"] : []),
+      r.nfrs.join(", ") || "—",
+      r.adrs.join(", ") || "—",
+      r.entities.join(", ") || "—",
+      r.interfaces.join(", ") || "—",
+    ];
     if (design) {
-      const comps = (r.components ?? []).map(cell).join(", ") || "—";
-      const screens = (r.screens ?? []).map(cell).join(", ") || "—";
-      out.push(`${base} | ${comps} | ${screens} |`);
-    } else {
-      out.push(`${base} |`);
+      cells.push((r.components ?? []).map(cell).join(", ") || "—");
+      cells.push((r.screens ?? []).map(cell).join(", ") || "—");
     }
+    out.push(`| ${cells.join(" | ")} |`);
   }
   out.push(``);
   return out.join("\n");
@@ -341,7 +513,9 @@ export function renderMergeBundle(srd: SRD): string {
     ``,
     renderVision(srd),
     renderScope(srd),
-    renderFunctional(srd),
+    // Always the full FR blocks: the bundle is the one-file reading copy, so it
+    // must stay complete even when FUNCTIONAL.md is an index (modules mode).
+    renderFunctionalFull(srd),
     renderNonFunctional(srd),
     renderSystemContext(srd),
     renderDataModel(srd),

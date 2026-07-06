@@ -203,6 +203,36 @@ function checkDesign(runDir: string, srd: SRD, errors: string[], warnings: strin
   }
 }
 
+// Structural validation for the module partition (modules mode). Additive: it
+// only runs when `srd.modules` is present, so a plain SRD is validated exactly
+// as before. Modules mode is all-or-nothing — every FR must belong to a declared
+// module, every declared module must have its rendered PRD, and the dependency
+// graph must resolve.
+function checkModules(runDir: string, srd: SRD, errors: string[], warnings: string[]): void {
+  const mods = srd.modules;
+  if (!mods?.length) return;
+
+  const moduleIds = new Set(mods.map((m) => m.id));
+  if (!existsSync(join(runDir, "prd", "README.md"))) {
+    errors.push(`Missing required module-PRD index: prd/README.md (re-render).`);
+  }
+  for (const m of mods) {
+    if (!existsSync(join(runDir, "prd", m.id, "PRD.md"))) {
+      errors.push(`Missing required module PRD: prd/${m.id}/PRD.md (re-render).`);
+    }
+    for (const dep of m.dependsOn) {
+      if (!moduleIds.has(dep)) errors.push(`module "${m.id}" depends on unknown module "${dep}".`);
+    }
+    if (!srd.functional.some((f) => f.module === m.id)) {
+      warnings.push(`module "${m.id}" has no requirements — its PRD is empty (assign features or drop the module).`);
+    }
+  }
+  for (const fr of srd.functional) {
+    if (!fr.module) errors.push(`${fr.id} has no module — modules mode is all-or-nothing (assign every feature to a module).`);
+    else if (!moduleIds.has(fr.module)) errors.push(`${fr.id} references unknown module "${fr.module}".`);
+  }
+}
+
 // The dual gate. `ok` reflects the hard structural/buildability gate, AND the
 // opt-in grounding threshold when the caller passes `minGrounding` (the
 // advisory coverage report itself never flips `ok`). With `opts.semantic`, ALSO
@@ -304,6 +334,9 @@ export function checkRun(runDir: string, opts: { minGrounding?: number; semantic
 
   // Design system (only when present) — additive structural gate.
   checkDesign(runDir, srd, errors, warnings);
+
+  // Module partition (only when present) — additive structural gate.
+  checkModules(runDir, srd, errors, warnings);
 
   // Advisory: criteria/metrics still carrying the renderer's own template
   // phrasing — complete but not yet sharpened into something testable.

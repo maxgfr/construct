@@ -47,6 +47,16 @@ rendered `.md` by hand (e.g. add entities), mirror the change into `SRD.json`
 (or re-render from an enriched brief). The structural gate verifies references
 close: every `FR.entities/interfaces/nfrs` must name something that exists.
 
+**Modules mode.** When the brief declares `modules`, the full FR blocks live in
+`prd/<module>/PRD.md` and `requirements/FUNCTIONAL.md` is only the cross-module
+index — enrich acceptance criteria **in the module PRD and in `SRD.json`
+together** (or, better, in the brief + re-render). The gate additionally
+enforces the partition: every FR carries a `module` that resolves, every module
+has its rendered PRD, and `dependsOn` closes over declared ids. A module with
+zero FRs only warns. Prefer amending the brief and re-rendering over hand-
+editing the PRD tree — module ids drive folder names and the `prd/` tree is
+cleared on every render.
+
 ## Levels
 
 - `light` — lean: core NFRs, one ADR, one acceptance criterion per FR.

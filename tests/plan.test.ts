@@ -59,6 +59,20 @@ describe("derivePlan", () => {
     expect(JSON.stringify(derivePlan(srd()))).toBe(JSON.stringify(derivePlan(srd())));
   });
 
+  it("tags each FR task with its module in modules mode, and omits the field otherwise", () => {
+    const modulesBrief = JSON.parse(readFileSync(join(FIX, "sample-brief-modules.json"), "utf8")) as Brief;
+    const s = buildSRD(modulesBrief, evidence, { level: "complex", generatedAt: "T" });
+    const plan = derivePlan(s);
+    const t1 = plan.tasks.find((t) => t.frIds.includes("FR-001"))!;
+    expect(t1.module).toBe("capture");
+    const t2 = plan.tasks.find((t) => t.frIds.includes("FR-002"))!;
+    expect(t2.module).toBe("search");
+    expect("module" in plan.tasks[0]!).toBe(false); // T-000 skeleton has no module
+
+    const plain = derivePlan(srd());
+    for (const t of plain.tasks) expect("module" in t).toBe(false);
+  });
+
   it("appends a design-foundation task only when the SRD has a design system", () => {
     expect(derivePlan(srd()).tasks.some((t) => /design foundation/i.test(t.title))).toBe(false);
 

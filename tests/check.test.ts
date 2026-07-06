@@ -89,6 +89,69 @@ describe("checkRun — hard structural gate", () => {
   });
 });
 
+describe("checkRun — modules mode", () => {
+  const modulesBrief = JSON.parse(readFileSync(join(FIX, "sample-brief-modules.json"), "utf8")) as Brief;
+  const modulesRun = () => renderRun({ briefOverride: modulesBrief });
+
+  it("passes a complete modules-mode render", () => {
+    const r = checkRun(modulesRun());
+    expect(r.structural.errors).toEqual([]);
+    expect(r.ok).toBe(true);
+  });
+
+  it("fails when a module's PRD file is missing", () => {
+    const dir = modulesRun();
+    rmSync(join(dir, "prd", "capture"), { recursive: true, force: true });
+    const r = checkRun(dir);
+    expect(r.ok).toBe(false);
+    expect(r.structural.errors.join(" ")).toMatch(/Missing required module PRD: prd\/capture\/PRD\.md/);
+  });
+
+  it("fails when the PRD index is missing", () => {
+    const dir = modulesRun();
+    rmSync(join(dir, "prd", "README.md"), { force: true });
+    const r = checkRun(dir);
+    expect(r.ok).toBe(false);
+    expect(r.structural.errors.join(" ")).toMatch(/prd\/README\.md/);
+  });
+
+  it("fails an FR without a module (modules mode is all-or-nothing)", () => {
+    const dir = modulesRun();
+    mutateSRD(dir, (s) => delete s.functional[0]!.module);
+    const r = checkRun(dir);
+    expect(r.ok).toBe(false);
+    expect(r.structural.errors.join(" ")).toMatch(/FR-001 has no module/);
+  });
+
+  it("fails an FR whose module is not declared", () => {
+    const dir = modulesRun();
+    mutateSRD(dir, (s) => (s.functional[0]!.module = "ghost"));
+    const r = checkRun(dir);
+    expect(r.ok).toBe(false);
+    expect(r.structural.errors.join(" ")).toMatch(/FR-001 references unknown module "ghost"/);
+  });
+
+  it("fails a module dependsOn that names no declared module", () => {
+    const dir = modulesRun();
+    mutateSRD(dir, (s) => (s.modules![1]!.dependsOn = ["ghost"]));
+    const r = checkRun(dir);
+    expect(r.ok).toBe(false);
+    expect(r.structural.errors.join(" ")).toMatch(/module "search" depends on unknown module "ghost"/);
+  });
+
+  it("warns (not fails) on a module with no requirements", () => {
+    const dir = modulesRun();
+    mutateSRD(dir, (s) => s.modules!.push({ id: "empty-one", name: "Empty", frIds: [], dependsOn: [] }));
+    // the PRD file for the new module doesn't exist — that IS an error; create it
+    // so only the zero-FR warning remains under test
+    mkdirSync(join(dir, "prd", "empty-one"), { recursive: true });
+    writeFileSync(join(dir, "prd", "empty-one", "PRD.md"), "# PRD — Empty\n");
+    const r = checkRun(dir);
+    expect(r.ok).toBe(true);
+    expect(r.structural.warnings.join(" ")).toMatch(/module "empty-one" has no requirements/);
+  });
+});
+
 describe("checkRun — advisory grounding (never fails the build)", () => {
   it("reports coverage and dangling citations as warnings, not errors", () => {
     const dir = renderRun();

@@ -245,6 +245,9 @@ function loadBrief(runDir, warn = () => {
   return normalizeBrief(data, warn);
 }
 var PRIORITIES = ["must", "should", "could"];
+function slugId(s) {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+}
 function normalizeBrief(data, warn = () => {
 }) {
   const d = data ?? {};
@@ -259,6 +262,53 @@ function normalizeBrief(data, warn = () => {
     if (kept.length < v.length) warn(`${field}: dropped ${v.length - kept.length} non-string/empty entr${v.length - kept.length === 1 ? "y" : "ies"}.`);
     return kept;
   };
+  let modules;
+  if (d.modules !== void 0 && d.modules !== null) {
+    if (!Array.isArray(d.modules)) {
+      warn("modules is not an array \u2014 ignored.");
+    } else {
+      const out = [];
+      const seen = /* @__PURE__ */ new Set();
+      d.modules.forEach((m, i) => {
+        const rawId = line(m?.id);
+        const rawName = line(m?.name);
+        const id = slugId(rawId || rawName || "");
+        if (!id) {
+          warn(`modules[${i}] has no usable id or name \u2014 dropped.`);
+          return;
+        }
+        if (seen.has(id)) {
+          warn(`modules[${i}]: duplicate module id "${id}" \u2014 dropped.`);
+          return;
+        }
+        seen.add(id);
+        const def = { id, name: rawName || id };
+        const description = line(m.description);
+        if (description) def.description = description;
+        const deps = arr(m.dependsOn, `modules[${i}].dependsOn`).map(slugId);
+        if (deps.length) def.dependsOn = deps;
+        out.push(def);
+      });
+      for (const m of out) {
+        if (!m.dependsOn) continue;
+        const kept = m.dependsOn.filter((dep) => {
+          if (dep === m.id) {
+            warn(`module "${m.id}": dependsOn cannot reference itself \u2014 dropped.`);
+            return false;
+          }
+          if (!seen.has(dep)) {
+            warn(`module "${m.id}": dependsOn "${dep}" names no declared module \u2014 dropped.`);
+            return false;
+          }
+          return true;
+        });
+        if (kept.length) m.dependsOn = kept;
+        else delete m.dependsOn;
+      }
+      if (out.length) modules = out;
+    }
+  }
+  const moduleIds = new Set((modules ?? []).map((m) => m.id));
   const features = [];
   if (d.featureWishlist !== void 0 && !Array.isArray(d.featureWishlist)) {
     warn("featureWishlist is not an array \u2014 ignored.");
@@ -274,7 +324,14 @@ function normalizeBrief(data, warn = () => {
         warn(`featureWishlist[${i}].priority "${priority}" is not must|should|could \u2014 treated as should.`);
         priority = void 0;
       }
-      features.push({ title, priority, notes: line(f.notes) });
+      let module;
+      const rawModule = line(f.module);
+      if (rawModule) {
+        const slug = slugId(rawModule);
+        if (moduleIds.has(slug)) module = slug;
+        else warn(`featureWishlist[${i}].module "${rawModule}" names no declared module \u2014 dropped.`);
+      }
+      features.push({ title, priority, notes: line(f.notes), ...module ? { module } : {} });
     });
   }
   let design;
@@ -317,6 +374,7 @@ function normalizeBrief(data, warn = () => {
     candidateTech: arr(d.candidateTech, "candidateTech"),
     competitors: arr(d.competitors, "competitors"),
     ossSeeds: arr(d.ossSeeds, "ossSeeds"),
+    ...modules ? { modules } : {},
     featureWishlist: features,
     nfrPriorities: arr(d.nfrPriorities, "nfrPriorities"),
     openQuestions: arr(d.openQuestions, "openQuestions"),
@@ -342,6 +400,17 @@ function validateBrief(brief) {
   }
   if (brief.nfrPriorities.length === 0) {
     warnings.push("no nfrPriorities \u2014 non-functional requirements will use defaults for the level.");
+  }
+  if (brief.modules?.length) {
+    const unassigned = brief.featureWishlist.filter((f) => !f.module).length;
+    if (unassigned) {
+      warnings.push(`modules are declared but ${unassigned} feature(s) have no module \u2014 assign every feature (check fails an FR without one).`);
+    }
+    for (const m of brief.modules) {
+      if (!brief.featureWishlist.some((f) => f.module === m.id)) {
+        warnings.push(`module "${m.id}" has no features \u2014 its PRD will be empty (assign features or drop the module).`);
+      }
+    }
   }
   return { ok: errors.length === 0, errors, warnings };
 }
@@ -1806,9 +1875,17 @@ function buildSRD(brief, evidence, opts) {
       entities: [],
       interfaces: [],
       nfrs,
-      unresolved: false
+      unresolved: false,
+      ...f.module ? { module: f.module } : {}
     };
   });
+  const modules = brief.modules?.length ? brief.modules.map((m) => ({
+    id: m.id,
+    name: m.name,
+    ...m.description ? { description: m.description } : {},
+    frIds: functional.filter((f) => f.module === m.id).map((f) => f.id),
+    dependsOn: m.dependsOn ?? []
+  })) : void 0;
   const dataModel = inferEntities(brief, functional);
   const interfaces = inferInterfaces(brief, functional);
   const evById = new Map(evidence.map((e) => [e.id, e]));
@@ -1861,6 +1938,7 @@ function buildSRD(brief, evidence, opts) {
       row.components = design.components.filter((c) => c.relatedFRs.includes(fr.id)).map((c) => c.name);
       row.screens = design.screens.filter((s) => s.relatedFRs.includes(fr.id)).map((s) => s.name);
     }
+    if (fr.module) row.module = fr.module;
     return row;
   });
   const referenced = /* @__PURE__ */ new Set();
@@ -1888,6 +1966,7 @@ function buildSRD(brief, evidence, opts) {
       assumptions: deriveAssumptions(brief)
     },
     functional,
+    ...modules ? { modules } : {},
     nonFunctional,
     architecture: { context: contextProse(productName, brief), dataModel, interfaces, adrs },
     competitive: { competitors, oss },
@@ -2274,6 +2353,7 @@ function derivePlan(srd) {
       id: `T-${pad32(i + 1)}`,
       title: `${fr.id} \u2014 ${fr.title}`,
       milestone,
+      ...fr.module ? { module: fr.module } : {},
       frIds: [fr.id],
       acceptance: fr.acceptance.map((_, idx) => ({ frId: fr.id, index: idx })),
       dependsOn,
@@ -2423,27 +2503,161 @@ function renderScope(srd) {
   }
   return lines.join("\n");
 }
+function renderFRBlock(fr) {
+  const out = [`## ${fr.id} \u2014 ${fr.title} _(${fr.priority})_${cite(fr.rationaleEvidence)}`, ``];
+  out.push(fr.description);
+  out.push(``);
+  out.push(`**Acceptance criteria:**`);
+  for (const a of fr.acceptance) {
+    out.push(`- **Given** ${a.given} **When** ${a.when} **Then** ${a.then}`);
+  }
+  out.push(``);
+  const trace = [
+    `NFRs: ${fr.nfrs.length ? fr.nfrs.join(", ") : "\u2014"}`,
+    `entities: ${fr.entities.length ? fr.entities.join(", ") : "\u2014"}`,
+    `interfaces: ${fr.interfaces.length ? fr.interfaces.join(", ") : "\u2014"}`
+  ].join(" \xB7 ");
+  out.push(`_Traceability \u2014 ${trace}_`);
+  out.push(``);
+  return out;
+}
 function renderFunctional(srd) {
+  if (srd.modules?.length) return renderFunctionalIndex(srd);
+  return renderFunctionalFull(srd);
+}
+function renderFunctionalFull(srd) {
   const out = [`# Functional requirements`, ``];
   if (!srd.functional.length) out.push(`_No functional requirements defined._`, ``);
+  for (const fr of srd.functional) out.push(...renderFRBlock(fr));
+  return out.join("\n");
+}
+function renderFunctionalIndex(srd) {
+  const out = [`# Functional requirements`, ``];
+  out.push(`_This SRD is partitioned into module PRDs \u2014 the full requirement blocks (description,`);
+  out.push(`acceptance criteria, traceability) live in each module's PRD under [../prd/](../prd/README.md)._`, ``);
+  out.push(`| Requirement | Title | Priority | Module | PRD |`);
+  out.push(`|---|---|---|---|---|`);
   for (const fr of srd.functional) {
-    out.push(`## ${fr.id} \u2014 ${fr.title} _(${fr.priority})_${cite(fr.rationaleEvidence)}`);
-    out.push(``);
-    out.push(fr.description);
-    out.push(``);
-    out.push(`**Acceptance criteria:**`);
-    for (const a of fr.acceptance) {
-      out.push(`- **Given** ${a.given} **When** ${a.when} **Then** ${a.then}`);
-    }
-    out.push(``);
-    const trace = [
-      `NFRs: ${fr.nfrs.length ? fr.nfrs.join(", ") : "\u2014"}`,
-      `entities: ${fr.entities.length ? fr.entities.join(", ") : "\u2014"}`,
-      `interfaces: ${fr.interfaces.length ? fr.interfaces.join(", ") : "\u2014"}`
-    ].join(" \xB7 ");
-    out.push(`_Traceability \u2014 ${trace}_`);
-    out.push(``);
+    const link = fr.module ? `[../prd/${fr.module}/PRD.md](../prd/${fr.module}/PRD.md)` : "\u2014";
+    out.push(`| ${fr.id} | ${cell(fr.title)} | ${fr.priority} | ${fr.module ?? "\u2014"} | ${link} |`);
   }
+  out.push(``);
+  return out.join("\n");
+}
+function renderModulePRD(srd, m) {
+  const frs = srd.functional.filter((f) => f.module === m.id);
+  const others = (srd.modules ?? []).filter((o) => o.id !== m.id);
+  const frIdSet = new Set(frs.map((f) => f.id));
+  const out = [`# PRD \u2014 ${m.name}`, ``];
+  out.push(`_Module \`${m.id}\` \xB7 ${srd.product.name} \xB7 ${frs.length} requirement(s)_`, ``);
+  if (m.description) out.push(m.description, ``);
+  out.push(
+    `**Global context:** [Vision](../../00-overview/VISION.md) \xB7 [Scope](../../00-overview/SCOPE.md) \xB7 [Non-functional requirements](../../requirements/NON-FUNCTIONAL.md) \xB7 [Data model](../../architecture/DATA-MODEL.md) \xB7 [Interfaces](../../architecture/INTERFACES.md) \xB7 [Traceability](../../TRACEABILITY.md)`,
+    ``
+  );
+  out.push(`## Scope`, ``);
+  out.push(`**In scope:** ${frs.length ? frs.map((f) => f.id).join(", ") : "\u2014"}.`, ``);
+  if (others.length) {
+    out.push(`**Out of scope** (owned by other modules): ${others.map((o) => `[${o.name}](../${o.id}/PRD.md)`).join(", ")}.`, ``);
+  }
+  out.push(`## Requirements`, ``);
+  if (!frs.length) out.push(`_No requirements assigned to this module._`, ``);
+  for (const fr of frs) out.push(...renderFRBlock(fr));
+  const nfrIds = new Set(frs.flatMap((f) => f.nfrs));
+  const nfrs = srd.nonFunctional.filter((n) => nfrIds.has(n.id));
+  out.push(`## Non-functional requirements`, ``);
+  if (nfrs.length) {
+    out.push(`_Applying to this module's requirements \u2014 full statements in [NON-FUNCTIONAL.md](../../requirements/NON-FUNCTIONAL.md)._`, ``);
+    out.push(`| NFR | Category | Metric |`, `|---|---|---|`);
+    for (const n of nfrs) out.push(`| ${n.id} | ${cell(n.category)} | ${cell(n.metric ?? "\u2014")} |`);
+  } else {
+    out.push(`_None linked._`);
+  }
+  out.push(``);
+  const entities = srd.architecture.dataModel.filter((e) => e.referencedByFRs.some((id) => frIdSet.has(id)));
+  out.push(`## Data model (module slice)`, ``);
+  if (entities.length) {
+    out.push(`| Entity | Referenced by |`, `|---|---|`);
+    for (const e of entities) out.push(`| ${cell(e.name)} | ${e.referencedByFRs.filter((id) => frIdSet.has(id)).join(", ")} |`);
+  } else {
+    out.push(`_No entities touch this module yet._`);
+  }
+  out.push(``);
+  const ifaces = srd.architecture.interfaces.filter((i) => i.relatedFRs.some((id) => frIdSet.has(id)));
+  out.push(`## Interfaces (module slice)`, ``);
+  if (ifaces.length) {
+    out.push(`| Interface | Kind | Related |`, `|---|---|---|`);
+    for (const i of ifaces) out.push(`| ${cell(i.name)} | ${i.kind} | ${i.relatedFRs.filter((id) => frIdSet.has(id)).join(", ")} |`);
+  } else {
+    out.push(`_No interfaces touch this module yet._`);
+  }
+  out.push(``);
+  out.push(`## Dependencies`, ``);
+  const declared = m.dependsOn.map((dep) => {
+    const d = others.find((o) => o.id === dep);
+    return d ? `[${d.name}](../${d.id}/PRD.md)` : dep;
+  });
+  const shared = [];
+  for (const o of others) {
+    const oSet = new Set(o.frIds);
+    const names = entities.filter((e) => e.referencedByFRs.some((id) => oSet.has(id))).map((e) => e.name);
+    if (names.length) shared.push(`shares ${names.join(", ")} with [${o.name}](../${o.id}/PRD.md)`);
+  }
+  if (!declared.length && !shared.length) out.push(`_None._`);
+  if (declared.length) out.push(`- **Declared:** depends on ${declared.join(", ")}.`);
+  for (const s of shared) out.push(`- **Derived (shared data):** ${s}.`);
+  out.push(``);
+  return out.join("\n");
+}
+function renderModulePrdIndex(srd) {
+  const out = [`# Module PRDs`, ``];
+  out.push(`One PRD per product module, rendered from SRD.json. Cross-module docs (vision, scope,`);
+  out.push(`NFRs, architecture, ADRs, traceability) live at the SRD root; the cross-module requirement`);
+  out.push(`index is [../requirements/FUNCTIONAL.md](../requirements/FUNCTIONAL.md).`, ``);
+  out.push(`| Module | PRD | Requirements | Depends on |`);
+  out.push(`|---|---|---|---|`);
+  for (const m of srd.modules ?? []) {
+    out.push(`| ${cell(m.name)} | [${m.id}/PRD.md](${m.id}/PRD.md) | ${m.frIds.join(", ") || "\u2014"} | ${m.dependsOn.join(", ") || "\u2014"} |`);
+  }
+  out.push(``);
+  return out.join("\n");
+}
+function renderFeaturePRD(fr, srd) {
+  const out = [`# PRD ${fr.id} \u2014 ${fr.title}${cite(fr.rationaleEvidence)}`, ``];
+  out.push(`_Priority: ${fr.priority}_ \xB7 _Product: ${srd.product.name}_`, ``);
+  out.push(`## Context`, ``, srd.product.problem, ``);
+  out.push(`## Feature`, ``, fr.description, ``);
+  out.push(`## Acceptance criteria`, ``);
+  for (const a of fr.acceptance) {
+    out.push(`- **Given** ${a.given} **When** ${a.when} **Then** ${a.then}`);
+  }
+  out.push(``, `## Non-functional requirements`, ``);
+  if (!fr.nfrs.length) out.push(`_None linked._`);
+  for (const id of fr.nfrs) {
+    const nfr = srd.nonFunctional.find((n) => n.id === id);
+    out.push(nfr ? `- **${nfr.id}** (${nfr.category}): ${nfr.statement}${nfr.metric ? ` \u2014 metric: ${nfr.metric}` : ""}` : `- **${id}**`);
+  }
+  out.push(``, `## Data & interfaces`, ``);
+  out.push(`- Entities: ${fr.entities.length ? fr.entities.join(", ") : "\u2014"}`);
+  out.push(`- Interfaces: ${fr.interfaces.length ? fr.interfaces.join(", ") : "\u2014"}`);
+  out.push(``, `## Grounding`, ``);
+  out.push(
+    fr.rationaleEvidence.length ? `Evidence:${cite(fr.rationaleEvidence)} \u2014 see ../../evidence/EVIDENCE.md.` : `_Ungrounded \u2014 see the grounding report (construct check)._`
+  );
+  out.push(``);
+  return out.join("\n");
+}
+function renderPRDIndex(srd) {
+  const out = [`# PRDs \u2014 one per functional requirement`, ``];
+  out.push(`Rendered from SRD.json by \`construct render --prd\`. The canonical, always-current`);
+  out.push(`requirement list is [../FUNCTIONAL.md](../FUNCTIONAL.md); re-render after editing.`, ``);
+  out.push(`| PRD | Priority | Title |`);
+  out.push(`|---|---|---|`);
+  for (const fr of srd.functional) {
+    const file = `PRD-${fr.id}-${slugTitle(fr.title)}.md`;
+    out.push(`| [${file}](${file}) | ${cell(fr.priority)} | ${cell(fr.title)} |`);
+  }
+  out.push(``);
   return out.join("\n");
 }
 function renderNonFunctional(srd) {
@@ -2552,18 +2766,23 @@ function renderBuildPlan(srd) {
 }
 function renderTraceability(srd) {
   const design = !!srd.design;
-  const header = design ? `| Requirement | NFRs | ADRs | Entities | Interfaces | Components | Screens |` : `| Requirement | NFRs | ADRs | Entities | Interfaces |`;
-  const sep3 = design ? `|---|---|---|---|---|---|---|` : `|---|---|---|---|---|`;
-  const out = [`# Traceability matrix`, ``, header, sep3];
+  const modules = !!srd.modules?.length;
+  const cols = ["Requirement", ...modules ? ["Module"] : [], "NFRs", "ADRs", "Entities", "Interfaces", ...design ? ["Components", "Screens"] : []];
+  const out = [`# Traceability matrix`, ``, `| ${cols.join(" | ")} |`, `|${cols.map(() => "---").join("|")}|`];
   for (const r of srd.traceability) {
-    const base = `| ${r.fr} | ${r.nfrs.join(", ") || "\u2014"} | ${r.adrs.join(", ") || "\u2014"} | ${r.entities.join(", ") || "\u2014"} | ${r.interfaces.join(", ") || "\u2014"}`;
+    const cells = [
+      r.fr,
+      ...modules ? [r.module ?? "\u2014"] : [],
+      r.nfrs.join(", ") || "\u2014",
+      r.adrs.join(", ") || "\u2014",
+      r.entities.join(", ") || "\u2014",
+      r.interfaces.join(", ") || "\u2014"
+    ];
     if (design) {
-      const comps = (r.components ?? []).map(cell).join(", ") || "\u2014";
-      const screens = (r.screens ?? []).map(cell).join(", ") || "\u2014";
-      out.push(`${base} | ${comps} | ${screens} |`);
-    } else {
-      out.push(`${base} |`);
+      cells.push((r.components ?? []).map(cell).join(", ") || "\u2014");
+      cells.push((r.screens ?? []).map(cell).join(", ") || "\u2014");
     }
+    out.push(`| ${cells.join(" | ")} |`);
   }
   out.push(``);
   return out.join("\n");
@@ -2655,7 +2874,9 @@ function renderMergeBundle(srd) {
     ``,
     renderVision(srd),
     renderScope(srd),
-    renderFunctional(srd),
+    // Always the full FR blocks: the bundle is the one-file reading copy, so it
+    // must stay complete even when FUNCTIONAL.md is an index (modules mode).
+    renderFunctionalFull(srd),
     renderNonFunctional(srd),
     renderSystemContext(srd),
     renderDataModel(srd),
@@ -2693,9 +2914,17 @@ function renderSRD(brief, evidence, opts) {
   const out = opts.out;
   rmSync2(join9(out, "architecture", "decisions"), { recursive: true, force: true });
   rmSync2(join9(out, "design"), { recursive: true, force: true });
+  rmSync2(join9(out, "prd"), { recursive: true, force: true });
   writeFile(out, "00-overview/VISION.md", renderVision(srd), files);
   writeFile(out, "00-overview/SCOPE.md", renderScope(srd), files);
   writeFile(out, "requirements/FUNCTIONAL.md", renderFunctional(srd), files);
+  rmSync2(join9(out, "requirements", "prd"), { recursive: true, force: true });
+  if (opts.prd) {
+    for (const fr of srd.functional) {
+      writeFile(out, `requirements/prd/PRD-${fr.id}-${slugTitle(fr.title)}.md`, renderFeaturePRD(fr, srd), files);
+    }
+    writeFile(out, "requirements/prd/README.md", renderPRDIndex(srd), files);
+  }
   writeFile(out, "requirements/NON-FUNCTIONAL.md", renderNonFunctional(srd), files);
   writeFile(out, "architecture/SYSTEM-CONTEXT.md", renderSystemContext(srd), files);
   writeFile(out, "architecture/DATA-MODEL.md", renderDataModel(srd), files);
@@ -2708,6 +2937,12 @@ function renderSRD(brief, evidence, opts) {
   writePlan(out, mergePlan(loadPlan(out), derivePlan(srd)));
   files.push("BUILD-PLAN.json");
   writeFile(out, "TRACEABILITY.md", renderTraceability(srd), files);
+  if (srd.modules?.length) {
+    for (const m of srd.modules) {
+      writeFile(out, `prd/${m.id}/PRD.md`, renderModulePRD(srd, m), files);
+    }
+    writeFile(out, "prd/README.md", renderModulePrdIndex(srd), files);
+  }
   if (srd.design) {
     writeFile(out, "design/PRINCIPLES.md", renderDesignPrinciples(srd.design), files);
     writeFile(out, "design/DESIGN-TOKENS.md", renderDesignTokens(srd.design), files);
@@ -2879,6 +3114,29 @@ function checkDesign(runDir, srd, errors, warnings) {
     warnings.push("Design tokens are still seeded defaults \u2014 replace them with the product's real brand values (see references/design-system-authoring.md).");
   }
 }
+function checkModules(runDir, srd, errors, warnings) {
+  const mods = srd.modules;
+  if (!mods?.length) return;
+  const moduleIds = new Set(mods.map((m) => m.id));
+  if (!existsSync5(join10(runDir, "prd", "README.md"))) {
+    errors.push(`Missing required module-PRD index: prd/README.md (re-render).`);
+  }
+  for (const m of mods) {
+    if (!existsSync5(join10(runDir, "prd", m.id, "PRD.md"))) {
+      errors.push(`Missing required module PRD: prd/${m.id}/PRD.md (re-render).`);
+    }
+    for (const dep of m.dependsOn) {
+      if (!moduleIds.has(dep)) errors.push(`module "${m.id}" depends on unknown module "${dep}".`);
+    }
+    if (!srd.functional.some((f) => f.module === m.id)) {
+      warnings.push(`module "${m.id}" has no requirements \u2014 its PRD is empty (assign features or drop the module).`);
+    }
+  }
+  for (const fr of srd.functional) {
+    if (!fr.module) errors.push(`${fr.id} has no module \u2014 modules mode is all-or-nothing (assign every feature to a module).`);
+    else if (!moduleIds.has(fr.module)) errors.push(`${fr.id} references unknown module "${fr.module}".`);
+  }
+}
 function checkRun(runDir, opts = {}) {
   const errors = [];
   const warnings = [];
@@ -2951,6 +3209,7 @@ function checkRun(runDir, opts = {}) {
     }
   }
   checkDesign(runDir, srd, errors, warnings);
+  checkModules(runDir, srd, errors, warnings);
   const templatedThen = srd.functional.reduce((n, fr) => n + fr.acceptance.filter((a) => TEMPLATED_THEN_RE.test(a.then)).length, 0);
   if (templatedThen) {
     warnings.push(
@@ -3500,7 +3759,7 @@ Usage:
   construct research --out <run> [--angles market,oss,tech,semantic] [--q "<focus>"] [--semantic]
   construct analyze  --out <run> [--json]
   construct web|oss|tech|so --out <run> [--q "<focus>"] [--url <u,...>] [--seeds <u,...>]
-  construct render   --out <run> [--level light|complex] [--merge] [--no-design]
+  construct render   --out <run> [--level light|complex] [--merge] [--no-design] [--prd]
   construct check    --out <run> [--min-grounding <0-100>] [--semantic] [--json]
   construct review   --out <run> [--apply <verdicts.json>] [--max-review N] [--json]
   construct verify   --out <run> [--app <dir>] [--run-tests] [--strict] [--json]
@@ -3516,7 +3775,8 @@ Commands:
   render     Render the SRD tree + SRD.json from brief.json + the dossier.
              At --level complex this also renders a design-system subtree
              (design/: principles, tokens, components, screens, accessibility);
-             --no-design opts out.
+             --no-design opts out. --prd also emits requirements/prd/ \u2014 one
+             standalone PRD per functional requirement + an index.
   check      Hard structural gate + advisory grounding-coverage report.
              --semantic also folds in the review verdicts (fails on a claim its
              cited evidence does not support).
@@ -3547,6 +3807,7 @@ Options:
   --per-source <n>     Max evidence items kept per source        (default: 6)
   --merge              Also emit a single-file SRD.md bundle
   --no-design          For 'render': skip the design-system subtree (complex only)
+  --prd                For 'render': also emit one PRD file per FR (requirements/prd/)
   --semantic           Rescore evidence with the local embedding model
   --refresh            Force re-clone of mined OSS repos
   --json               Machine-readable output
@@ -3579,7 +3840,7 @@ var VALUE_FLAGS = /* @__PURE__ */ new Set([
   "apply",
   "max-review"
 ]);
-var BOOL_FLAGS = /* @__PURE__ */ new Set(["semantic", "merge", "json", "refresh", "run-tests", "strict", "no-design"]);
+var BOOL_FLAGS = /* @__PURE__ */ new Set(["semantic", "merge", "json", "refresh", "run-tests", "strict", "no-design", "prd"]);
 function fail(message) {
   process.stderr.write(`construct: ${message}
 `);
@@ -3792,6 +4053,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
         out,
         merge: p.bools.has("merge"),
         noDesign: p.bools.has("no-design"),
+        prd: p.bools.has("prd"),
         generatedAt: (/* @__PURE__ */ new Date()).toISOString()
       });
       const design = r.srd.design;
