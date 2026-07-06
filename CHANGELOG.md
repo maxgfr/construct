@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [1.8.0](https://github.com/maxgfr/construct/compare/v1.7.0...v1.8.0) (2026-07-06)
+
+
+### Features
+
+* **research:** --url pins market pages into the dossier ([2a1af60](https://github.com/maxgfr/construct/commit/2a1af601e81d1f88e9bb8f0545056fd28499aca1))
+
 # [1.7.0](https://github.com/maxgfr/construct/compare/v1.6.0...v1.7.0) (2026-07-06)
 
 
