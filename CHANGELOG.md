@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+## [1.9.2](https://github.com/maxgfr/construct/compare/v1.9.1...v1.9.2) (2026-07-06)
+
+
+### Bug Fixes
+
+* **review:** claim-focused digests in the claim-support worklist ([023acb7](https://github.com/maxgfr/construct/commit/023acb7b2147805f6da6f7792f613740d17ba959))
+
 ## [1.9.1](https://github.com/maxgfr/construct/compare/v1.9.0...v1.9.1) (2026-07-06)
 
 
