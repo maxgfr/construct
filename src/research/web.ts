@@ -80,7 +80,7 @@ export async function discover(query: string, engine: WebEngine, n: number): Pro
 // kind. Shared by the market angle and the `construct web --url` drill-down.
 export async function webFetchUrls(
   urls: string[],
-  question: string,
+  question: string | string[],
   perSource: number,
   source: SourceKind = "market",
   fetchAll = false,

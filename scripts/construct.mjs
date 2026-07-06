@@ -537,12 +537,17 @@ async function fetchAndExtract(url) {
 }
 function excerptsFromText(text, url, title, source, question, perSource) {
   const lines = text.split("\n");
-  const kws = keywords(question).map((k) => k.toLowerCase());
+  const questions = (Array.isArray(question) ? question : [question]).filter((q) => q.trim());
+  const kwSets = questions.map((q) => keywords(q).map((k) => k.toLowerCase()));
   const hits = [];
   for (let i = 0; i < lines.length; i++) {
     const low = lines[i].toLowerCase();
     let cov = 0;
-    for (const kw of kws) if (low.includes(kw)) cov++;
+    for (const kws of kwSets) {
+      let c = 0;
+      for (const kw of kws) if (low.includes(kw)) c++;
+      if (kws.length && c > cov) cov = c;
+    }
     if (cov > 0) hits.push({ idx: i, cov });
   }
   hits.sort((a, b) => b.cov - a.cov || a.idx - b.idx);
@@ -666,8 +671,9 @@ async function marketAngle(ctx) {
   const items = [];
   const notes = [];
   const pinned = ctx.marketUrls ?? [];
+  const questions = [query2, ...b.featureWishlist.map((f) => `${f.title} ${f.notes ?? ""}`.trim())].filter(Boolean);
   if (pinned.length) {
-    const f = await webFetchUrls(pinned, query2 || pinned.join(" "), ctx.perSource, "market", true);
+    const f = await webFetchUrls(pinned, questions.length ? questions : pinned.join(" "), ctx.perSource, "market", true);
     items.push(...f.items.slice(0, ctx.perSource));
     notes.push(`Pinned ${pinned.length} market URL(s) via --url.`, ...f.notes);
   }
@@ -681,7 +687,7 @@ async function marketAngle(ctx) {
     if (urls.length === 0) {
       notes.push(`Market discovery via ${via}.`, ...discoveryNotes);
     } else {
-      const fetched = await webFetchUrls(urls, query2, budget, "market");
+      const fetched = await webFetchUrls(urls, questions, budget, "market");
       items.push(...fetched.items);
       notes.push(`Market discovery via ${via} for "${query2}".`, ...discoveryNotes, ...fetched.notes);
     }

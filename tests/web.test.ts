@@ -143,3 +143,68 @@ describe("marketAngle — pinned URLs (research --url)", () => {
     expect(r!.items.length).toBeLessThanOrEqual(3); // stays within the per-source budget
   });
 });
+
+describe("feature-targeted excerpting (multi-question)", () => {
+  const page = [
+    "<html><body>",
+    "<p>Acme is a creator marketplace for brands.</p>",
+    "<p>Filler line.</p>",
+    "<p>Filler two.</p>",
+    "<p>Filler three.</p>",
+    "<p>Filler four.</p>",
+    "<p>Filler five.</p>",
+    "<p>Filler six.</p>",
+    "<p>Filler seven.</p>",
+    "<p>Filler eight.</p>",
+    "<p>Filler nine.</p>",
+    "<p>Filler ten.</p>",
+    "<p>Filler eleven.</p>",
+    "<p>Filler twelve.</p>",
+    "<p>Filler thirteen.</p>",
+    "<p>Filler fourteen.</p>",
+    "<p>Escrow payment is released to the creator once the brand approves the delivered content submission.</p>",
+    "</body></html>",
+  ].join("\n");
+
+  it("webFetchUrls accepts multiple questions and windows excerpts around the best-covered one", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => res(page)),
+    );
+    const { items } = await webFetchUrls(
+      ["https://acme.example.com/how-it-works"],
+      ["creator marketplace brands", "Pay creators through escrow released on approval of the delivered content submission"],
+      6,
+      "market",
+      true,
+    );
+    expect(items.map((i) => i.snippet).join(" ")).toMatch(/escrow payment is released/i);
+  });
+
+  it("marketAngle excerpts pinned pages against the brief's feature texts", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (String(url).includes("acme.example.com")) return res(page);
+        return res("", { ok: false, status: 404 });
+      }),
+    );
+    const ctx = {
+      brief: {
+        idea: "a creator marketplace",
+        competitors: [],
+        featureWishlist: [{ title: "Pay creators through escrow", notes: "released on approval of the delivered content submission" }],
+      },
+      runDir: "/tmp/none",
+      angles: ["market"],
+      query: "",
+      webEngine: "auto",
+      semantic: false,
+      perSource: 6,
+      refresh: false,
+      marketUrls: ["https://acme.example.com/how-it-works"],
+    } as never;
+    const [r] = await marketAngle(ctx);
+    expect(r!.items.map((i) => i.snippet).join(" ")).toMatch(/escrow payment is released/i);
+  });
+});

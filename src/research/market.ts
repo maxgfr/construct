@@ -16,8 +16,13 @@ export async function marketAngle(ctx: ResearchContext): Promise<SourceResult[]>
   // findings are folded into the dossier deterministically — discovery alone
   // cannot be relied on to re-surface a page a drill already proved useful.
   const pinned = ctx.marketUrls ?? [];
+  // Excerpt against the brief's individual feature texts as well as the market
+  // query: a help-centre page documents ONE mechanic, and the window that best
+  // covers a single feature is the excerpt the grounding matcher can actually
+  // use. Applies to discovery too (same rationale).
+  const questions = [query, ...b.featureWishlist.map((f) => `${f.title} ${f.notes ?? ""}`.trim())].filter(Boolean);
   if (pinned.length) {
-    const f = await webFetchUrls(pinned, query || pinned.join(" "), ctx.perSource, "market", true);
+    const f = await webFetchUrls(pinned, questions.length ? questions : pinned.join(" "), ctx.perSource, "market", true);
     items.push(...f.items.slice(0, ctx.perSource));
     notes.push(`Pinned ${pinned.length} market URL(s) via --url.`, ...f.notes);
   }
@@ -34,7 +39,7 @@ export async function marketAngle(ctx: ResearchContext): Promise<SourceResult[]>
     if (urls.length === 0) {
       notes.push(`Market discovery via ${via}.`, ...discoveryNotes);
     } else {
-      const fetched = await webFetchUrls(urls, query, budget, "market");
+      const fetched = await webFetchUrls(urls, questions, budget, "market");
       items.push(...fetched.items);
       notes.push(`Market discovery via ${via} for "${query}".`, ...discoveryNotes, ...fetched.notes);
     }

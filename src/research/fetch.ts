@@ -190,14 +190,31 @@ export async function fetchAndExtract(url: string): Promise<{ text: string; note
 
 // Turn fetched page text into ranked evidence excerpts around the question's
 // keywords. Returned as `docs` evidence (the external official documentation).
-export function excerptsFromText(text: string, url: string, title: string, source: EvidenceItem["source"], question: string, perSource: number): RawItem[] {
+// Accepts several questions: each line is scored by its BEST single-question
+// coverage, so a page can be excerpted around the one claim it actually
+// supports instead of a diluted union of all of them.
+export function excerptsFromText(
+  text: string,
+  url: string,
+  title: string,
+  source: EvidenceItem["source"],
+  question: string | string[],
+  perSource: number,
+): RawItem[] {
   const lines = text.split("\n");
-  const kws = extractKeywords(question).map((k) => k.toLowerCase());
+  const questions = (Array.isArray(question) ? question : [question]).filter((q) => q.trim());
+  const kwSets = questions.map((q) => extractKeywords(q).map((k) => k.toLowerCase()));
   const hits: { idx: number; cov: number }[] = [];
   for (let i = 0; i < lines.length; i++) {
     const low = lines[i]!.toLowerCase();
     let cov = 0;
-    for (const kw of kws) if (low.includes(kw)) cov++;
+    for (const kws of kwSets) {
+      let c = 0;
+      for (const kw of kws) if (low.includes(kw)) c++;
+      // Normalise by the question's size so a long question cannot win on raw
+      // count alone; scale keeps scores comparable with the single-question path.
+      if (kws.length && c > cov) cov = c;
+    }
     if (cov > 0) hits.push({ idx: i, cov });
   }
   hits.sort((a, b) => b.cov - a.cov || a.idx - b.idx);
