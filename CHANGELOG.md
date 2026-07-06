@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+## [1.9.1](https://github.com/maxgfr/construct/compare/v1.9.0...v1.9.1) (2026-07-06)
+
+
+### Bug Fixes
+
+* **srd:** word-bound the calendar boundary regex ([488db49](https://github.com/maxgfr/construct/commit/488db493073b2b25be1f22be955c829c6f21debe))
+
 # [1.9.0](https://github.com/maxgfr/construct/compare/v1.8.0...v1.9.0) (2026-07-06)
 
 
