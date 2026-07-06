@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [1.9.0](https://github.com/maxgfr/construct/compare/v1.8.0...v1.9.0) (2026-07-06)
+
+
+### Features
+
+* **research:** excerpt market pages against the brief's feature texts ([fc25c51](https://github.com/maxgfr/construct/commit/fc25c5145c75f36cc106ba950d3b623fa2eb80fc))
+
 # [1.8.0](https://github.com/maxgfr/construct/compare/v1.7.0...v1.8.0) (2026-07-06)
 
 
