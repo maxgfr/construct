@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [1.7.0](https://github.com/maxgfr/construct/compare/v1.6.0...v1.7.0) (2026-07-06)
+
+
+### Features
+
+* **render:** modules mode — one PRD per module — plus --prd per-FR export ([57c556d](https://github.com/maxgfr/construct/commit/57c556d3b055de91fa30077377355ed462b365da))
+
 # [1.6.0](https://github.com/maxgfr/construct/compare/v1.5.2...v1.6.0) (2026-06-28)
 
 
