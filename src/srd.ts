@@ -282,7 +282,9 @@ interface BoundaryDef {
   kind: Interface["kind"];
 }
 const BOUNDARY_DEFS: BoundaryDef[] = [
-  { re: /calendar|caldav|ical|ics/i, label: "calendar systems (CalDAV/iCal)", name: "Calendar Integration", kind: "api" },
+  // Word boundaries matter: a bare /ical|ics/ substring-matches "historical"
+  // and "metrics", hallucinating a calendar boundary into unrelated products.
+  { re: /\b(?:calendar|caldav|ical|ics)\b/i, label: "calendar systems (CalDAV/iCal)", name: "Calendar Integration", kind: "api" },
   { re: /google/i, label: "Google APIs", name: "Google API Integration", kind: "api" },
   { re: /email|smtp/i, label: "an email/SMTP provider", name: "Email Delivery", kind: "api" },
   { re: /sms|twilio/i, label: "an SMS provider", name: "SMS Delivery", kind: "api" },

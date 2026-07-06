@@ -314,3 +314,27 @@ describe("buildSRD — modules mode", () => {
     expect(srd().traceability.map((r) => r.module)).toEqual(["capture", "search", "library", "capture", "library"]);
   });
 });
+
+describe("boundary detection — word boundaries", () => {
+  it("does not hallucinate a Calendar Integration from 'metrics' or 'historical'", () => {
+    const b: Brief = {
+      ...brief,
+      candidateTech: [],
+      featureWishlist: [
+        { title: "Declare audience metrics per platform", priority: "must" },
+        { title: "View historical earnings", priority: "should" },
+      ],
+    };
+    const s = buildSRD(b, evidence, { level: "complex", generatedAt: "T" });
+    expect(s.architecture.interfaces.map((i) => i.name)).not.toContain("Calendar Integration");
+  });
+
+  it("still detects a real calendar boundary", () => {
+    const b: Brief = {
+      ...brief,
+      featureWishlist: [{ title: "Sync bookings to Google Calendar", priority: "must", notes: "two-way iCal sync" }],
+    };
+    const s = buildSRD(b, evidence, { level: "complex", generatedAt: "T" });
+    expect(s.architecture.interfaces.map((i) => i.name)).toContain("Calendar Integration");
+  });
+});
