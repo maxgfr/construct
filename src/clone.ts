@@ -72,7 +72,9 @@ export function resolveRepo(raw: string): RepoRef {
   const repo = segments.length ? segments[segments.length - 1] : undefined;
   const owner = segments.length > 1 ? segments.slice(0, -1).join("/") : undefined;
 
-  const cloneUrl = /^https?:\/\//i.test(trimmed) || scp ? trimmed : `https://${host}/${path}.git`;
+  // Strip a trailing slash before the .git-suffix logic below, so a URL pasted
+  // as ".../repo/" yields ".../repo.git", not the un-cloneable ".../repo/.git".
+  const cloneUrl = /^https?:\/\//i.test(trimmed) || scp ? trimmed.replace(/\/+$/, "") : `https://${host}/${path}.git`;
   const webUrl = `https://${host}/${path}`;
 
   return {

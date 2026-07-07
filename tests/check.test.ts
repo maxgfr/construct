@@ -4,10 +4,10 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { renderSRD } from "../src/render.js";
-import { checkRun } from "../src/check.js";
+import { checkRun, formatCheckReport } from "../src/check.js";
 import { srdManifestPath } from "../src/srd.js";
 import { DESIGN_TOKENS_SEEDED_BANNER } from "../src/types.js";
-import type { Brief, EvidenceItem, SRD, Level } from "../src/types.js";
+import type { Brief, CheckResult, EvidenceItem, SRD, Level } from "../src/types.js";
 
 const FIX = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
 const brief = JSON.parse(readFileSync(join(FIX, "sample-brief.json"), "utf8")) as Brief;
@@ -316,6 +316,117 @@ describe("checkRun — design system gate", () => {
     const r = checkRun(dir);
     expect(r.ok).toBe(false);
     expect(r.structural.errors.join(" ")).toMatch(/no accessibility requirements/);
+  });
+});
+
+describe("checkRun — manifest & content edge cases", () => {
+  it("fails cleanly when SRD.json is absent", () => {
+    const dir = mkdtempSync(join(tmpdir(), "construct-check-nosrd-"));
+    dirs.push(dir);
+    const r = checkRun(dir);
+    expect(r.ok).toBe(false);
+    expect(r.structural.errors.join(" ")).toMatch(/No SRD\.json/);
+  });
+
+  it("fails when SRD.json is unreadable", () => {
+    const dir = renderRun();
+    writeFileSync(srdManifestPath(dir), "}not json{");
+    const r = checkRun(dir);
+    expect(r.ok).toBe(false);
+    expect(r.structural.errors.join(" ")).toMatch(/SRD\.json is unreadable/);
+  });
+
+  it("fails on an ADR with an invalid status", () => {
+    const dir = renderRun();
+    mutateSRD(dir, (s) => ((s.architecture.adrs[0]! as { status: string }).status = "bogus"));
+    expect(checkRun(dir).structural.errors.join(" ")).toMatch(/invalid status "bogus"/);
+  });
+
+  it("warns when an NFR metric is still the renderer's generic placeholder", () => {
+    const dir = renderRun();
+    mutateSRD(dir, (s) => (s.nonFunctional[0]!.metric = 'A measurable target for "x" is agreed and tracked.'));
+    expect(checkRun(dir).structural.warnings.join(" ")).toMatch(/generic placeholders/);
+  });
+
+  it("notes an unreadable evidence.json without failing the structural gate", () => {
+    const dir = renderRun();
+    writeFileSync(join(dir, "evidence", "evidence.json"), "{ broken ][");
+    const r = checkRun(dir);
+    expect(r.ok).toBe(true);
+    expect(r.structural.warnings.join(" ")).toMatch(/unreadable/);
+  });
+});
+
+describe("checkRun --semantic composition edge cases", () => {
+  it("folds in unadjudicated claims from VERIFY.json as a warning (still passes)", () => {
+    const dir = renderRun();
+    writeFileSync(
+      join(dir, "VERIFY.json"),
+      JSON.stringify({ ok: true, pairs: 2, adjudicated: 1, supported: 1, partial: 0, refuted: 0, unsupported: 0, failures: [], unadjudicated: ["FR-002"] }),
+    );
+    const r = checkRun(dir, { semantic: true });
+    expect(r.semantic?.ok).toBe(true);
+    expect(r.structural.warnings.join(" ")).toMatch(/not fully adjudicated/);
+  });
+
+  it("warns when VERIFY.json is unreadable", () => {
+    const dir = renderRun();
+    writeFileSync(join(dir, "VERIFY.json"), "}broken{");
+    const r = checkRun(dir, { semantic: true });
+    expect(r.structural.warnings.join(" ")).toMatch(/VERIFY\.json is unreadable/);
+  });
+});
+
+describe("formatCheckReport", () => {
+  it("renders the grounding gate + semantic gate sections; pct is n/a for a zero total", () => {
+    const r: CheckResult = {
+      ok: false,
+      structural: { ok: true, errors: [], warnings: ["a warning"] },
+      coverage: {
+        frTotal: 2,
+        frGrounded: 1,
+        nfrTotal: 0,
+        nfrGrounded: 0,
+        adrTotal: 3,
+        adrGrounded: 3,
+        dangling: ["E9"],
+        uncited: [],
+        citations: ["E1"],
+        resolved: ["E1"],
+      },
+      grounding: { threshold: 80, actualPct: 50, ok: false },
+      semantic: {
+        ok: false,
+        pairs: 3,
+        adjudicated: 3,
+        supported: 1,
+        partial: 0,
+        refuted: 1,
+        unsupported: 1,
+        failures: [{ claimId: "FR-002", evidenceId: "E2", verdict: "refuted", note: "" }],
+        unadjudicated: [],
+      },
+    };
+    const text = formatCheckReport(r, "/run");
+    expect(text).toMatch(/non-functional: 0\/0 grounded \(n\/a\)/);
+    expect(text).toMatch(/Grounding gate \(opt-in --min-grounding 80\)/);
+    expect(text).toMatch(/✗ FAIL — 50% of groundable claims/);
+    expect(text).toMatch(/Semantic claim-support gate/);
+    expect(text).toMatch(/✗ FR-002 \(E2\): refuted/);
+    expect(text).toMatch(/✗ FAIL — a claim is refuted/);
+  });
+
+  it("prints PASS wording and flags leftover unadjudicated claims when the semantic gate passes with gaps", () => {
+    const r: CheckResult = {
+      ok: true,
+      structural: { ok: true, errors: [], warnings: [] },
+      coverage: { frTotal: 1, frGrounded: 1, nfrTotal: 1, nfrGrounded: 1, adrTotal: 1, adrGrounded: 1, dangling: [], uncited: [], citations: [], resolved: [] },
+      grounding: { threshold: 50, actualPct: 100, ok: true },
+      semantic: { ok: true, pairs: 2, adjudicated: 1, supported: 1, partial: 0, refuted: 0, unsupported: 0, failures: [], unadjudicated: ["FR-003"] },
+    };
+    const text = formatCheckReport(r, "/run");
+    expect(text).toMatch(/✓ PASS — 100% of groundable claims/);
+    expect(text).toMatch(/✓ PASS — no refuted\/unsupported claims \(1 still unadjudicated\)/);
   });
 });
 

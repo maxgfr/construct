@@ -388,9 +388,12 @@ async function main(): Promise<void> {
     case "check": {
       const out = requireOut(p);
       let minGrounding: number | undefined;
-      if (p.values["min-grounding"] !== undefined) {
-        minGrounding = Number(p.values["min-grounding"]);
-        if (!Number.isFinite(minGrounding) || minGrounding < 0 || minGrounding > 100) {
+      const rawMinGrounding = p.values["min-grounding"];
+      if (rawMinGrounding !== undefined) {
+        minGrounding = Number(rawMinGrounding);
+        // Reject an empty/blank value: Number("") is 0, which would silently turn
+        // the opt-in gate into a no-op (a 0% threshold always passes).
+        if (rawMinGrounding.trim() === "" || !Number.isFinite(minGrounding) || minGrounding < 0 || minGrounding > 100) {
           fail("invalid --min-grounding (expected a number between 0 and 100)");
         }
       }

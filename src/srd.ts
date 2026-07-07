@@ -99,8 +99,12 @@ const NFR_SIGNALS: Record<string, RegExp> = {
 };
 
 // Integration nouns that signal an external boundary (used for system context,
-// the FR→data-ADR trace, and failure-path acceptance criteria).
-const INTEGRATION_RE = /calendar|caldav|google|ical|ics|sync|webhook|email|smtp|sms|widget|iframe|embed|oauth|payment|api/i;
+// the FR→data-ADR trace, and failure-path acceptance criteria). Word-bounded
+// (with an optional plural) for the same reason the calendar boundary below was:
+// a bare /ical|ics|api/ substring-matches "historical", "analytics" and "rapid",
+// fabricating an external dependency (and a spurious data-integration ADR) into
+// products that have none.
+const INTEGRATION_RE = /\b(?:calendar|caldav|google|ical|ics|sync|webhook|email|smtp|sms|widget|iframe|embed|oauth|payment|api)s?\b/i;
 const PERSIST_RE = /persist|store|database|datastore|save|record|booking|event|schedul|inventory|history/i;
 
 const NFR_TEMPLATES: Record<string, { statement: string; metric: string }> = {
@@ -283,15 +287,17 @@ interface BoundaryDef {
 }
 const BOUNDARY_DEFS: BoundaryDef[] = [
   // Word boundaries matter: a bare /ical|ics/ substring-matches "historical"
-  // and "metrics", hallucinating a calendar boundary into unrelated products.
+  // and "metrics", /stripe/ matches "pinstripe", /embed/ matches "Embedded" and
+  // /google/ matches "googled" — each hallucinating an integration into an
+  // unrelated product. Every token is bounded (optional plural) for that reason.
   { re: /\b(?:calendar|caldav|ical|ics)\b/i, label: "calendar systems (CalDAV/iCal)", name: "Calendar Integration", kind: "api" },
-  { re: /google/i, label: "Google APIs", name: "Google API Integration", kind: "api" },
-  { re: /email|smtp/i, label: "an email/SMTP provider", name: "Email Delivery", kind: "api" },
-  { re: /sms|twilio/i, label: "an SMS provider", name: "SMS Delivery", kind: "api" },
-  { re: /widget|iframe|embed/i, label: "external host sites (embed/iframe)", name: "Embeddable Widget", kind: "ui" },
-  { re: /payment|stripe|billing/i, label: "a payments provider", name: "Payments Integration", kind: "api" },
-  { re: /webhook/i, label: "outbound webhooks", name: "Outbound Webhooks", kind: "event" },
-  { re: /browser extension|chrome extension|firefox add-?on/i, label: "a browser extension", name: "Browser Extension", kind: "ui" },
+  { re: /\bgoogles?\b/i, label: "Google APIs", name: "Google API Integration", kind: "api" },
+  { re: /\b(?:email|smtp)s?\b/i, label: "an email/SMTP provider", name: "Email Delivery", kind: "api" },
+  { re: /\b(?:sms|twilio)s?\b/i, label: "an SMS provider", name: "SMS Delivery", kind: "api" },
+  { re: /\b(?:widget|iframe|embed)s?\b/i, label: "external host sites (embed/iframe)", name: "Embeddable Widget", kind: "ui" },
+  { re: /\b(?:payment|stripe|billing)s?\b/i, label: "a payments provider", name: "Payments Integration", kind: "api" },
+  { re: /\bwebhooks?\b/i, label: "outbound webhooks", name: "Outbound Webhooks", kind: "event" },
+  { re: /\b(?:browser extension|chrome extension|firefox add-?on)s?\b/i, label: "a browser extension", name: "Browser Extension", kind: "ui" },
 ];
 
 function boundaryHaystack(brief: Brief): string {

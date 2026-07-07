@@ -13,6 +13,23 @@ export interface ReviewWorklist {
   pairs: ClaimEvidencePair[];
 }
 
+// Load the dossier defensively: a hand-edited evidence.json (invalid JSON or a
+// non-array) degrades to [] exactly like check/analyze/cli do, instead of
+// crashing runReview with a raw `evidence.map is not a function` TypeError.
+function loadEvidence(path: string): EvidenceItem[] {
+  if (!existsSync(path)) return [];
+  try {
+    const data = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    return Array.isArray(data)
+      ? (data.filter(
+          (e) => !!e && typeof e === "object" && typeof (e as { id?: unknown }).id === "string" && typeof (e as { source?: unknown }).source === "string",
+        ) as EvidenceItem[])
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 // Every groundable SRD claim with the text to judge + its cited [E#] ids. The
 // citations are structured in SRD.json (rationaleEvidence / evidence), so no
 // markdown parsing is needed — the worklist agrees with the coverage report by
@@ -74,8 +91,7 @@ export function runReview(runDir: string, opts: { maxReview?: number } = {}): Re
   } catch (e) {
     throw new Error(`SRD.json is unreadable: ${(e as Error).message}`);
   }
-  const evPath = join(runDir, "evidence", "evidence.json");
-  const evidence: EvidenceItem[] = existsSync(evPath) ? JSON.parse(readFileSync(evPath, "utf8")) : [];
+  const evidence = loadEvidence(join(runDir, "evidence", "evidence.json"));
   const byId = new Map(evidence.map((e) => [e.id, e] as const));
 
   const pairs: (ClaimEvidencePair & { score: number })[] = [];
@@ -263,6 +279,12 @@ export function formatReviewReport(r: ClaimVerifyResult): string {
   if (r.unadjudicated.length) {
     lines.push(`  ⚠ ${r.unadjudicated.length} claim(s) not fully adjudicated: ${r.unadjudicated.join(", ")}`);
   }
-  lines.push(r.ok ? `  ✓ every grounded claim is backed by its cited evidence` : `  ✗ some claims are refuted or unsupported`);
+  lines.push(
+    !r.ok
+      ? `  ✗ some claims are refuted or unsupported`
+      : r.unadjudicated.length
+        ? `  ✓ no refuted or unsupported claims (${r.unadjudicated.length} still unadjudicated — see above)`
+        : `  ✓ every grounded claim is backed by its cited evidence`,
+  );
   return lines.join("\n");
 }

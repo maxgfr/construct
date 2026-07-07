@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { runReview, applyVerdicts } from "../src/review.js";
+import { runReview, applyVerdicts, formatReviewReport } from "../src/review.js";
 import { checkRun } from "../src/check.js";
+import type { ClaimVerifyResult } from "../src/types.js";
 
 function scratch(): string {
   return mkdtempSync(join(tmpdir(), "ct-review-"));
@@ -166,6 +167,143 @@ describe("check --semantic composition (additive)", () => {
     expect(r.semantic).toBeUndefined();
     expect(r.structural.warnings.join(" ").toLowerCase()).toContain("review");
     rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("runReview — claim coverage & error paths", () => {
+  it("builds pairs for NFR, ADR, competitor and OSS claims, not only FRs", () => {
+    const dir = scratch();
+    const srd = {
+      schemaVersion: 1,
+      level: "light",
+      generatedAt: "T",
+      product: { name: "x", problem: "", valueProp: "", users: [], metrics: [] },
+      scope: { inScope: [], outOfScope: [], assumptions: [] },
+      functional: [],
+      nonFunctional: [{ id: "NFR-001", category: "Performance", statement: "stays fast", metric: "p95 < 200ms", rationaleEvidence: ["E1"] }],
+      architecture: {
+        context: "",
+        dataModel: [],
+        interfaces: [],
+        adrs: [{ id: "0001", title: "Use X", status: "accepted", context: "c", decision: "d", consequences: "q", evidence: ["E2"] }],
+      },
+      competitive: { competitors: [{ name: "Acme", note: "incumbent", evidence: ["E1"] }], oss: [{ name: "libx", note: "prior art", evidence: ["E2"] }] },
+      buildPlan: [],
+      traceability: [],
+      openQuestions: [],
+      evidenceIndex: [],
+    };
+    writeFileSync(join(dir, "SRD.json"), JSON.stringify(srd));
+    mkdirSync(join(dir, "evidence"), { recursive: true });
+    writeFileSync(join(dir, "evidence", "evidence.json"), JSON.stringify(EVIDENCE));
+    const wl = runReview(dir);
+    expect(new Set(wl.pairs.map((p) => p.kind))).toEqual(new Set(["NFR", "ADR", "competitor", "oss"]));
+    const ids = wl.pairs.map((p) => p.claimId);
+    expect(ids).toContain("NFR-001");
+    expect(ids).toContain("ADR-0001");
+    expect(ids.some((i) => i.startsWith("COMP-"))).toBe(true);
+    expect(ids.some((i) => i.startsWith("OSS-"))).toBe(true);
+    // the NFR digest carries its metric text
+    expect(wl.pairs.find((p) => p.claimId === "NFR-001")!.claim).toMatch(/p95 < 200ms/);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("throws a clean domain error when SRD.json is unreadable", () => {
+    const dir = scratch();
+    writeFileSync(join(dir, "SRD.json"), "}broken{");
+    expect(() => runReview(dir)).toThrow(/SRD\.json is unreadable/);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("degrades to no-evidence (never crashes) on a corrupt evidence.json", () => {
+    for (const body of [JSON.stringify({ not: "an array" }), "{ broken ]["]) {
+      const dir = scratch();
+      run(dir, [{ id: "FR-001", ev: ["E1"] }], EVIDENCE);
+      writeFileSync(join(dir, "evidence", "evidence.json"), body); // hand-broken dossier
+      expect(() => runReview(dir), `body=${body}`).not.toThrow();
+      // E1 no longer resolves → its citation is dangling → no support pair
+      expect(runReview(dir).pairs).toEqual([]);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("applyVerdicts — validation & unadjudicated tracking", () => {
+  function setup(): string {
+    const dir = scratch();
+    run(
+      dir,
+      [
+        { id: "FR-001", ev: ["E1"] },
+        { id: "FR-002", ev: ["E2"] },
+      ],
+      EVIDENCE,
+    );
+    runReview(dir);
+    return dir;
+  }
+
+  it("rejects a non-JSON verdicts file", () => {
+    const dir = setup();
+    const f = join(dir, "bad.json");
+    writeFileSync(f, "not json at all");
+    expect(() => applyVerdicts(dir, f)).toThrow(/not valid JSON/);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("rejects a valid-JSON-but-wrong-shape file without writing a vacuous VERIFY.json", () => {
+    const dir = setup();
+    const f = join(dir, "wrong.json");
+    writeFileSync(f, "42");
+    expect(() => applyVerdicts(dir, f)).toThrow(/must be a JSON array/);
+    expect(existsSync(join(dir, "VERIFY.json"))).toBe(false);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("surfaces a dropped claim↔evidence pair as unadjudicated rather than passing it", () => {
+    const dir = setup();
+    const todo = JSON.parse(readFileSync(join(dir, "VERIFY.todo.json"), "utf8")) as { pairs: Record<string, unknown>[] };
+    const only = [{ ...todo.pairs[0], verdict: "supported", note: "" }];
+    const f = join(dir, "partial.json");
+    writeFileSync(f, JSON.stringify(only));
+    const r = applyVerdicts(dir, f);
+    expect(r.unadjudicated.length).toBeGreaterThan(0);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("still applies the provided verdicts when VERIFY.todo.json is corrupt", () => {
+    const dir = setup();
+    const good = writeVerdicts(dir, { E1: "supported", E2: "supported" });
+    writeFileSync(join(dir, "VERIFY.todo.json"), "}corrupt{");
+    const r = applyVerdicts(dir, good);
+    expect(r.ok).toBe(true);
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("formatReviewReport", () => {
+  it("lists failures and unadjudicated claims", () => {
+    const r: ClaimVerifyResult = {
+      ok: false,
+      pairs: 3,
+      adjudicated: 2,
+      supported: 1,
+      partial: 0,
+      refuted: 1,
+      unsupported: 0,
+      failures: [{ claimId: "FR-002", evidenceId: "E2", verdict: "refuted", note: "contradicts" }],
+      unadjudicated: ["FR-003"],
+    };
+    const text = formatReviewReport(r);
+    expect(text).toMatch(/2\/3 pair\(s\) adjudicated/);
+    expect(text).toMatch(/✗ FR-002 \(E2\): refuted — contradicts/);
+    expect(text).toMatch(/1 claim\(s\) not fully adjudicated: FR-003/);
+    expect(text).toMatch(/some claims are refuted or unsupported/);
+  });
+
+  it("reports the all-clear when nothing failed", () => {
+    const r: ClaimVerifyResult = { ok: true, pairs: 2, adjudicated: 2, supported: 2, partial: 0, refuted: 0, unsupported: 0, failures: [], unadjudicated: [] };
+    expect(formatReviewReport(r)).toMatch(/every grounded claim is backed/);
   });
 });
 

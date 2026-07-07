@@ -5,8 +5,6 @@ import { discover } from "./web.js";
 import { excerptsFromText } from "./fetch.js";
 import type { ResearchContext, SourceResult, RawItem } from "../types.js";
 
-const REPO_URL_RE = /^https?:\/\/(github|gitlab)\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+/i;
-
 // Top-level GitHub/GitLab namespaces that are site sections, not repo owners.
 // Web discovery routinely surfaces them (github.com/topics/x, /collections/y);
 // treating one as a repo means a doomed clone plus rejected issue/PR queries.
@@ -53,6 +51,25 @@ export function canonicalRepoUrl(url: string): string | undefined {
   return m[1]!.replace(/\.git$/, "");
 }
 
+// Normalise a user-provided OSS seed to something resolveRepo can clone/mine, or
+// drop it. A github.com URL is canonicalised to host/owner/repo (the same as
+// discovered URLs) — github owner/repo is always exactly two path segments, so a
+// deep URL (…/tree/main) that resolveRepo would otherwise mis-split into
+// owner="a/b/tree", repo="main" is trimmed, and a reserved site section (topics/…)
+// is dropped. Every other form resolveRepo understands — other-host URLs, scp
+// (git@…), host/owner/repo, gitlab subgroups (kept whole — canonicalising would
+// wrongly collapse them), bare owner/repo, a local checkout — is kept iff it
+// resolves to a cloneable ref. Free text is dropped. Fixes seeds the old
+// two-regex filter silently lost (non-github/gitlab URLs, scp form) and deep
+// github URLs it mis-resolved.
+export function normalizeSeed(raw: string): string | undefined {
+  const s = raw.trim();
+  if (!s) return undefined;
+  if (/^https?:\/\/github\.com\//i.test(s)) return canonicalRepoUrl(s);
+  const ref = resolveRepo(s);
+  return ref.isLocal || (ref.owner && ref.repo) ? s : undefined;
+}
+
 export function languageHistogram(files: { ext: string }[]): [string, number][] {
   const counts = new Map<string, number>();
   for (const f of files) {
@@ -69,9 +86,10 @@ export function languageHistogram(files: { ext: string }[]): [string, number][] 
 // issues/PRs via the host provider. Emits `oss` + `issue` + `pr` evidence.
 export async function ossAngle(ctx: ResearchContext): Promise<SourceResult[]> {
   const notes: string[] = [];
-  // Accept everything resolveRepo understands: full URLs, host/owner/repo,
-  // gitlab subgroups (a/b/c), and bare owner/repo shorthand.
-  let seeds = ctx.brief.ossSeeds.filter((s) => REPO_URL_RE.test(s) || /^([a-z0-9.-]+\.[a-z]{2,}\/)?[\w.-]+(\/[\w.-]+)+$/i.test(s));
+  // Accept everything resolveRepo understands: full URLs (any host), scp form,
+  // host/owner/repo, gitlab subgroups (a/b/c), bare owner/repo shorthand and
+  // local checkouts — canonicalising github/gitlab URLs and dropping free text.
+  let seeds = [...new Set(ctx.brief.ossSeeds.map(normalizeSeed).filter((x): x is string => !!x))];
 
   if (seeds.length === 0) {
     const q = `${ctx.query || ctx.brief.idea} open source github`;

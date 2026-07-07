@@ -740,7 +740,7 @@ function resolveRepo(raw) {
   const segments = path.split("/").filter(Boolean);
   const repo = segments.length ? segments[segments.length - 1] : void 0;
   const owner = segments.length > 1 ? segments.slice(0, -1).join("/") : void 0;
-  const cloneUrl = /^https?:\/\//i.test(trimmed) || scp ? trimmed : `https://${host}/${path}.git`;
+  const cloneUrl = /^https?:\/\//i.test(trimmed) || scp ? trimmed.replace(/\/+$/, "") : `https://${host}/${path}.git`;
   const webUrl = `https://${host}/${path}`;
   return {
     raw: trimmed,
@@ -1142,7 +1142,6 @@ function providerFor(host) {
 }
 
 // src/research/oss.ts
-var REPO_URL_RE = /^https?:\/\/(github|gitlab)\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+/i;
 var NON_REPO_OWNERS = /* @__PURE__ */ new Set([
   "topics",
   "search",
@@ -1182,6 +1181,13 @@ function canonicalRepoUrl(url) {
   if (!m || NON_REPO_OWNERS.has(m[2].toLowerCase())) return void 0;
   return m[1].replace(/\.git$/, "");
 }
+function normalizeSeed(raw) {
+  const s = raw.trim();
+  if (!s) return void 0;
+  if (/^https?:\/\/github\.com\//i.test(s)) return canonicalRepoUrl(s);
+  const ref = resolveRepo(s);
+  return ref.isLocal || ref.owner && ref.repo ? s : void 0;
+}
 function languageHistogram(files) {
   const counts = /* @__PURE__ */ new Map();
   for (const f of files) {
@@ -1193,7 +1199,7 @@ function languageHistogram(files) {
 }
 async function ossAngle(ctx) {
   const notes = [];
-  let seeds = ctx.brief.ossSeeds.filter((s) => REPO_URL_RE.test(s) || /^([a-z0-9.-]+\.[a-z]{2,}\/)?[\w.-]+(\/[\w.-]+)+$/i.test(s));
+  let seeds = [...new Set(ctx.brief.ossSeeds.map(normalizeSeed).filter((x) => !!x))];
   if (seeds.length === 0) {
     const q2 = `${ctx.query || ctx.brief.idea} open source github`;
     const d = await discover(q2, ctx.webEngine, ctx.perSource);
@@ -1616,7 +1622,7 @@ var NFR_SIGNALS = {
   cost: /cost|budget|cheap|self[- ]?host/i,
   i18n: /locale|i18n|timezone|language|translat/i
 };
-var INTEGRATION_RE = /calendar|caldav|google|ical|ics|sync|webhook|email|smtp|sms|widget|iframe|embed|oauth|payment|api/i;
+var INTEGRATION_RE = /\b(?:calendar|caldav|google|ical|ics|sync|webhook|email|smtp|sms|widget|iframe|embed|oauth|payment|api)s?\b/i;
 var PERSIST_RE = /persist|store|database|datastore|save|record|booking|event|schedul|inventory|history/i;
 var NFR_TEMPLATES = {
   performance: {
@@ -1756,15 +1762,17 @@ function inferEntities(brief, functional) {
 }
 var BOUNDARY_DEFS = [
   // Word boundaries matter: a bare /ical|ics/ substring-matches "historical"
-  // and "metrics", hallucinating a calendar boundary into unrelated products.
+  // and "metrics", /stripe/ matches "pinstripe", /embed/ matches "Embedded" and
+  // /google/ matches "googled" — each hallucinating an integration into an
+  // unrelated product. Every token is bounded (optional plural) for that reason.
   { re: /\b(?:calendar|caldav|ical|ics)\b/i, label: "calendar systems (CalDAV/iCal)", name: "Calendar Integration", kind: "api" },
-  { re: /google/i, label: "Google APIs", name: "Google API Integration", kind: "api" },
-  { re: /email|smtp/i, label: "an email/SMTP provider", name: "Email Delivery", kind: "api" },
-  { re: /sms|twilio/i, label: "an SMS provider", name: "SMS Delivery", kind: "api" },
-  { re: /widget|iframe|embed/i, label: "external host sites (embed/iframe)", name: "Embeddable Widget", kind: "ui" },
-  { re: /payment|stripe|billing/i, label: "a payments provider", name: "Payments Integration", kind: "api" },
-  { re: /webhook/i, label: "outbound webhooks", name: "Outbound Webhooks", kind: "event" },
-  { re: /browser extension|chrome extension|firefox add-?on/i, label: "a browser extension", name: "Browser Extension", kind: "ui" }
+  { re: /\bgoogles?\b/i, label: "Google APIs", name: "Google API Integration", kind: "api" },
+  { re: /\b(?:email|smtp)s?\b/i, label: "an email/SMTP provider", name: "Email Delivery", kind: "api" },
+  { re: /\b(?:sms|twilio)s?\b/i, label: "an SMS provider", name: "SMS Delivery", kind: "api" },
+  { re: /\b(?:widget|iframe|embed)s?\b/i, label: "external host sites (embed/iframe)", name: "Embeddable Widget", kind: "ui" },
+  { re: /\b(?:payment|stripe|billing)s?\b/i, label: "a payments provider", name: "Payments Integration", kind: "api" },
+  { re: /\bwebhooks?\b/i, label: "outbound webhooks", name: "Outbound Webhooks", kind: "event" },
+  { re: /\b(?:browser extension|chrome extension|firefox add-?on)s?\b/i, label: "a browser extension", name: "Browser Extension", kind: "ui" }
 ];
 function boundaryHaystack(brief) {
   return `${brief.idea} ${brief.candidateTech.join(" ")} ${brief.featureWishlist.map((f) => `${f.title} ${f.notes ?? ""}`).join(" ")}`;
@@ -3292,7 +3300,9 @@ function formatCheckReport(r, runDir) {
     lines.push(`Semantic claim-support gate (--semantic):`);
     lines.push(`  supported ${s.supported} \xB7 partial ${s.partial} \xB7 refuted ${s.refuted} \xB7 unsupported ${s.unsupported}`);
     for (const f of s.failures.slice(0, 8)) lines.push(`  \u2717 ${f.claimId} (${f.evidenceId}): ${f.verdict}`);
-    lines.push(s.ok ? `  \u2713 PASS \u2014 every cited claim is supported by its evidence` : `  \u2717 FAIL \u2014 a claim is refuted or unsupported by its cited evidence`);
+    lines.push(
+      !s.ok ? `  \u2717 FAIL \u2014 a claim is refuted or unsupported by its cited evidence` : s.unadjudicated?.length ? `  \u2713 PASS \u2014 no refuted/unsupported claims (${s.unadjudicated.length} still unadjudicated)` : `  \u2713 PASS \u2014 every cited claim is supported by its evidence`
+    );
   }
   return lines.join("\n");
 }
@@ -3588,6 +3598,17 @@ import { existsSync as existsSync8, readFileSync as readFileSync7, writeFileSync
 import { join as join13 } from "path";
 var REVIEW_MAX = 40;
 var VALID_VERDICTS = ["supported", "partial", "refuted", "unsupported"];
+function loadEvidence3(path) {
+  if (!existsSync8(path)) return [];
+  try {
+    const data = JSON.parse(readFileSync7(path, "utf8"));
+    return Array.isArray(data) ? data.filter(
+      (e) => !!e && typeof e === "object" && typeof e.id === "string" && typeof e.source === "string"
+    ) : [];
+  } catch {
+    return [];
+  }
+}
 function srdClaims(srd) {
   const out = [];
   for (const f of srd.functional) {
@@ -3631,8 +3652,7 @@ function runReview(runDir, opts = {}) {
   } catch (e) {
     throw new Error(`SRD.json is unreadable: ${e.message}`);
   }
-  const evPath = join13(runDir, "evidence", "evidence.json");
-  const evidence = existsSync8(evPath) ? JSON.parse(readFileSync7(evPath, "utf8")) : [];
+  const evidence = loadEvidence3(join13(runDir, "evidence", "evidence.json"));
   const byId = new Map(evidence.map((e) => [e.id, e]));
   const pairs = [];
   for (const c of srdClaims(srd)) {
@@ -3781,7 +3801,9 @@ function formatReviewReport(r) {
   if (r.unadjudicated.length) {
     lines.push(`  \u26A0 ${r.unadjudicated.length} claim(s) not fully adjudicated: ${r.unadjudicated.join(", ")}`);
   }
-  lines.push(r.ok ? `  \u2713 every grounded claim is backed by its cited evidence` : `  \u2717 some claims are refuted or unsupported`);
+  lines.push(
+    !r.ok ? `  \u2717 some claims are refuted or unsupported` : r.unadjudicated.length ? `  \u2713 no refuted or unsupported claims (${r.unadjudicated.length} still unadjudicated \u2014 see above)` : `  \u2713 every grounded claim is backed by its cited evidence`
+  );
   return lines.join("\n");
 }
 
@@ -4086,7 +4108,7 @@ async function main() {
       if (!v.ok) fail(`brief is incomplete:
 ${v.errors.map((e) => "  - " + e).join("\n")}`);
       const level = oneOf("level", p.values.level ?? "light", ["light", "complex"]);
-      const evidence = loadEvidence3(out);
+      const evidence = loadEvidence4(out);
       const r = renderSRD(brief, evidence, {
         level,
         out,
@@ -4120,9 +4142,10 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
     case "check": {
       const out = requireOut(p);
       let minGrounding;
-      if (p.values["min-grounding"] !== void 0) {
-        minGrounding = Number(p.values["min-grounding"]);
-        if (!Number.isFinite(minGrounding) || minGrounding < 0 || minGrounding > 100) {
+      const rawMinGrounding = p.values["min-grounding"];
+      if (rawMinGrounding !== void 0) {
+        minGrounding = Number(rawMinGrounding);
+        if (rawMinGrounding.trim() === "" || !Number.isFinite(minGrounding) || minGrounding < 0 || minGrounding > 100) {
           fail("invalid --min-grounding (expected a number between 0 and 100)");
         }
       }
@@ -4203,7 +4226,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
     }
   }
 }
-function loadEvidence3(runDir) {
+function loadEvidence4(runDir) {
   const path = join14(runDir, "evidence", "evidence.json");
   if (!existsSync9(path)) return [];
   try {

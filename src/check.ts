@@ -414,7 +414,13 @@ export function formatCheckReport(r: CheckResult, runDir: string): string {
     lines.push(`Semantic claim-support gate (--semantic):`);
     lines.push(`  supported ${s.supported} · partial ${s.partial} · refuted ${s.refuted} · unsupported ${s.unsupported}`);
     for (const f of s.failures.slice(0, 8)) lines.push(`  ✗ ${f.claimId} (${f.evidenceId}): ${f.verdict}`);
-    lines.push(s.ok ? `  ✓ PASS — every cited claim is supported by its evidence` : `  ✗ FAIL — a claim is refuted or unsupported by its cited evidence`);
+    lines.push(
+      !s.ok
+        ? `  ✗ FAIL — a claim is refuted or unsupported by its cited evidence`
+        : s.unadjudicated?.length
+          ? `  ✓ PASS — no refuted/unsupported claims (${s.unadjudicated.length} still unadjudicated)`
+          : `  ✓ PASS — every cited claim is supported by its evidence`,
+    );
   }
   return lines.join("\n");
 }

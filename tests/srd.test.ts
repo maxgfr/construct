@@ -53,6 +53,48 @@ describe("matchEvidence", () => {
   });
 });
 
+describe("buildSRD — integration detection is word-bounded", () => {
+  // A neutral brief so ONLY the injected feature titles drive boundary/integration
+  // detection (idea + candidateTech are emptied out of the haystack).
+  const clean = (features: Brief["featureWishlist"]): Brief => ({
+    ...brief,
+    idea: "a simple app",
+    candidateTech: [],
+    competitors: [],
+    featureWishlist: features,
+  });
+  const build = (features: Brief["featureWishlist"]) => buildSRD(clean(features), evidence, { level: "complex", generatedAt: "T" });
+
+  it("does not fabricate an external-service dependency or integration ADR from analytics/historical", () => {
+    const srd = build([
+      { title: "View analytics dashboard", priority: "must" },
+      { title: "Show historical trends", priority: "should" },
+    ]);
+    // The must-have FR's failure-path criterion must be the invalid-input path,
+    // not a fabricated "external service … is unreachable" dependency.
+    const acceptance = srd.functional.flatMap((f) => f.acceptance.map((a) => `${a.given} ${a.then}`)).join(" ");
+    expect(acceptance).not.toMatch(/external service/i);
+    const ifaceNames = srd.architecture.interfaces.map((i) => i.name).join(" ");
+    expect(ifaceNames).not.toMatch(/Google|Payments|Email|SMS|Widget|Webhook|Calendar/);
+  });
+
+  it("does not fabricate a payments interface from 'pinstripe' or a widget from 'Embedded'", () => {
+    const srd = build([
+      { title: "Pinstripe visual theme", priority: "should" },
+      { title: "Embedded code editor", priority: "should" },
+    ]);
+    const ifaceNames = srd.architecture.interfaces.map((i) => i.name).join(" ");
+    expect(ifaceNames).not.toMatch(/Payments/);
+    expect(ifaceNames).not.toMatch(/Widget/);
+  });
+
+  it("still detects a real integration when the trigger word actually appears", () => {
+    const srd = build([{ title: "Sync events with Google Calendar", priority: "must" }]);
+    const ifaceNames = srd.architecture.interfaces.map((i) => i.name).join(" ");
+    expect(ifaceNames).toMatch(/Calendar Integration|Google API Integration/);
+  });
+});
+
 describe("buildSRD", () => {
   it("derives one FR per feature with sequential ids and matched evidence", () => {
     const srd = buildSRD(brief, evidence, { level: "light", generatedAt: "T" });

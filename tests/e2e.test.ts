@@ -504,6 +504,32 @@ describe("e2e: full suite completeness (a real render produces the whole tree, i
   });
 });
 
+describe("e2e: analyze (informational gap signal, never gates)", () => {
+  it("reports gaps as text and as valid JSON, always exit 0", () => {
+    const run = seeded(); // brief + evidence is all analyze needs (no render)
+    const text = cli(["analyze", "--out", run]);
+    expect(text.status).toBe(0);
+    expect(text.stdout).toContain("construct analyze:");
+    expect(text.stdout).toMatch(/Gaps \(each will render ungrounded as-is\):/);
+
+    const j = cli(["analyze", "--out", run, "--json"]);
+    expect(j.status).toBe(0);
+    const parsed = JSON.parse(j.stdout) as { evidenceCount: number; suggestions: string[]; bySource: object };
+    expect(typeof parsed.evidenceCount).toBe("number");
+    expect(Array.isArray(parsed.suggestions)).toBe(true);
+    expect(parsed.bySource).toBeTruthy();
+  });
+});
+
+describe("e2e: semantic stack control", () => {
+  it("rejects an unknown action cleanly (exit 1, no docker needed, no stack trace)", () => {
+    const r = cli(["semantic", "bogus"]);
+    expect(r.status).toBe(1);
+    expect((r.stdout + r.stderr).toLowerCase()).toContain("unknown action");
+    noStackTrace(r.stdout + r.stderr);
+  });
+});
+
 describe("e2e: error handling never leaks a stack trace", () => {
   const cases: { args: string[]; needle: string }[] = [
     { args: ["frobnicate"], needle: "unknown command" },
@@ -511,6 +537,7 @@ describe("e2e: error handling never leaks a stack trace", () => {
     { args: ["render"], needle: "missing --out" },
     { args: ["research", "--semantic=yes"], needle: "boolean flag" },
     { args: ["check", "--out", "x", "--min-grounding", "999"], needle: "min-grounding" },
+    { args: ["check", "--out", "x", "--min-grounding="], needle: "min-grounding" }, // empty must not silently become a 0% no-op gate
   ];
   it.each(cases)("$args → clean `construct:` error, exit 1, no stack trace", ({ args, needle }) => {
     const r = cli(args);
