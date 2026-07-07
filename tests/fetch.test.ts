@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { excerptsFromText, fetchAndExtract, htmlToText, httpGet } from "../src/research/fetch.js";
+import { excerptsFromText, fetchAndExtract, htmlToText, httpGet, httpJson } from "../src/research/fetch.js";
 
 function res(body: string, opts: { ok?: boolean; status?: number; contentType?: string; retryAfter?: string } = {}) {
   return {
@@ -153,5 +153,61 @@ describe("htmlToText", () => {
   });
   it("puts unclosed <li> items on their own lines", () => {
     expect(htmlToText("<ul><li>first<li>second<li>third</ul>").split("\n")).toEqual(["first", "second", "third"]);
+  });
+  it("replaces an out-of-range hex codepoint with a space instead of throwing", () => {
+    // 0x110000 is past the Unicode max → String.fromCodePoint throws → " ".
+    expect(htmlToText("<p>a&#x110000;b</p>")).toBe("a b");
+  });
+  it("replaces an out-of-range decimal codepoint with a space", () => {
+    expect(htmlToText("<p>x&#999999999;y</p>")).toBe("x y");
+  });
+});
+
+describe("httpJson", () => {
+  it("parses a JSON response body", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => res(JSON.stringify({ a: 1 }), { contentType: "application/json" })),
+    );
+    const r = await httpJson("GET", "http://local/x");
+    expect(r.ok).toBe(true);
+    expect(r.data).toEqual({ a: 1 });
+  });
+
+  it("falls back to the raw text when the body is not valid JSON", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => res("not json", { contentType: "text/plain" })),
+    );
+    const r = await httpJson("GET", "http://local/x");
+    expect(r.data).toBe("not json");
+  });
+
+  it("serialises the body as JSON for a POST and omits it for a bodyless GET", async () => {
+    const bodies: (string | undefined)[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_u: string, init: { body?: string }) => {
+        bodies.push(init?.body);
+        return res("{}");
+      }),
+    );
+    await httpJson("POST", "http://local/x", { hello: "world" });
+    await httpJson("GET", "http://local/x");
+    expect(JSON.parse(bodies[0]!)).toEqual({ hello: "world" });
+    expect(bodies[1]).toBeUndefined();
+  });
+
+  it("returns an error result (never throws) on a network failure", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("ECONNREFUSED");
+      }),
+    );
+    const r = await httpJson("POST", "http://local/x", { q: 1 });
+    expect(r.ok).toBe(false);
+    expect(r.status).toBe(0);
+    expect(r.error).toMatch(/ECONNREFUSED/);
   });
 });

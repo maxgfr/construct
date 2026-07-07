@@ -190,6 +190,80 @@ describe("verifyRun — opt-in command execution (--run-tests)", () => {
   });
 });
 
+describe("verifyRun — load & integrity failure paths", () => {
+  it("fails when BUILD-PLAN.json is present but unreadable", () => {
+    const { run } = setup();
+    writeFileSync(join(run, "BUILD-PLAN.json"), "{ not json ][");
+    const r = verifyRun(run);
+    expect(r.ok).toBe(false);
+    expect(r.errors.join(" ")).toMatch(/unreadable or malformed/);
+  });
+
+  it("rejects a plan whose schemaVersion is unsupported", () => {
+    const { run, mutate } = setup();
+    mutate((p) => ((p as unknown as { schemaVersion: number }).schemaVersion = 999));
+    const r = verifyRun(run);
+    expect(r.ok).toBe(false);
+    expect(r.errors.join(" ")).toMatch(/schemaVersion 999 is not supported/);
+  });
+
+  it("fails when the SRD.json the plan verifies against is missing", () => {
+    const { run } = setup();
+    rmSync(join(run, "SRD.json"));
+    const r = verifyRun(run);
+    expect(r.ok).toBe(false);
+    expect(r.errors.join(" ")).toMatch(/No SRD\.json/);
+  });
+
+  it("fails when the SRD.json is unreadable", () => {
+    const { run } = setup();
+    writeFileSync(join(run, "SRD.json"), "}not json{");
+    const r = verifyRun(run);
+    expect(r.ok).toBe(false);
+    expect(r.errors.join(" ")).toMatch(/SRD\.json is unreadable/);
+  });
+
+  it("fails when a declared app directory does not exist", () => {
+    const { run, mutate } = setup();
+    mutate((p) => (p.conventions.appDir = join(tmpdir(), "construct-no-such-appdir-zzz")));
+    const r = verifyRun(run);
+    expect(r.ok).toBe(false);
+    expect(r.errors.join(" ")).toMatch(/App directory does not exist/);
+  });
+
+  it("only warns (never gates) when no app dir is declared and nothing is built", () => {
+    const { run, mutate } = setup();
+    mutate((p) => (p.conventions.appDir = null));
+    const r = verifyRun(run);
+    expect(r.ok).toBe(true);
+    expect(r.warnings.join(" ")).toMatch(/No app directory declared yet/);
+  });
+
+  it("fails when conventions.frTagPattern is not a valid regex", () => {
+    const { run, mutate } = setup();
+    mutate((p) => (p.conventions.frTagPattern = "FR-("));
+    const r = verifyRun(run);
+    expect(r.ok).toBe(false);
+    expect(r.errors.join(" ")).toMatch(/frTagPattern is not a valid regex/);
+  });
+
+  it("runs per-task verify commands under --run-tests and flags a failing one", () => {
+    const { run, app, mutate } = setup();
+    mkdirSync(join(app, "src"), { recursive: true });
+    writeFileSync(join(app, "src", "save.ts"), "x\n");
+    mutate((p) => {
+      const t = p.tasks.find((x) => x.frIds.includes("FR-001"))!;
+      t.status = "done";
+      t.artifacts = ["src/save.ts"];
+      t.tests = [];
+      t.verify.commands = [`node -e "process.exit(4)"`];
+    });
+    const r = verifyRun(run, { runTests: true });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join(" ")).toMatch(/verify command failed \(exit 4\)/);
+  });
+});
+
 describe("formatVerifyReport", () => {
   it("renders verdict, coverage and command sections", () => {
     const { run } = setup();

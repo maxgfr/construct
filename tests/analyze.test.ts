@@ -69,6 +69,21 @@ describe("analyzeRun — the post-research gap signal", () => {
     expect(r.notes).toContain("SearXNG unreachable; fell back to DuckDuckGo.");
   });
 
+  it("treats a corrupt evidence.json / meta.json as no dossier rather than crashing", () => {
+    const out = makeRun();
+    writeFileSync(join(out, "evidence", "evidence.json"), "{not json][");
+    writeFileSync(join(out, "evidence", "meta.json"), "}also broken{");
+    const r = analyzeRun(out);
+    expect(r.evidenceCount).toBe(0);
+    expect(r.notes.join(" ")).toMatch(/No evidence dossier/);
+  });
+
+  it("keeps a free-text OSS seed as its own drill query when it is not a resolvable repo", () => {
+    const r = analyzeRun(makeRun({ briefOverride: { ossSeeds: ["some vague idea, not a repo"] } }));
+    expect(r.unminedSeeds).toContain("some vague idea, not a repo");
+    expect(r.suggestions.join("\n")).toMatch(/construct oss --out .* --seeds some vague idea, not a repo/);
+  });
+
   it("is deterministic for the same inputs", () => {
     const out = makeRun();
     expect(JSON.stringify(analyzeRun(out))).toBe(JSON.stringify(analyzeRun(out)));
