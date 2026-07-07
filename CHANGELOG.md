@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+## [1.9.3](https://github.com/maxgfr/construct/compare/v1.9.2...v1.9.3) (2026-07-07)
+
+
+### Bug Fixes
+
+* **srd,oss,clone,review,cli:** correct 8 bugs surfaced while hardening tests ([67e56fe](https://github.com/maxgfr/construct/commit/67e56fe589cfc2cd853095559902d421599f6933))
+
 ## [1.9.2](https://github.com/maxgfr/construct/compare/v1.9.1...v1.9.2) (2026-07-06)
 
 
