@@ -3035,7 +3035,6 @@ import { join as join11, relative as relative2, sep as sep2 } from "path";
 // src/review.ts
 import { existsSync as existsSync5, readFileSync as readFileSync4, writeFileSync as writeFileSync5 } from "fs";
 import { join as join10 } from "path";
-var REVIEW_MAX = 40;
 var VALID_VERDICTS = ["supported", "partial", "refuted", "unsupported"];
 function loadEvidence(path) {
   if (!existsSync5(path)) return [];
@@ -3109,26 +3108,33 @@ function runReview(runDir, opts = {}) {
       });
     }
   }
-  const max = Math.max(1, Math.floor(opts.maxReview ?? REVIEW_MAX));
-  const kept = pairs.length > max ? pairs.slice().sort((a, b) => b.score - a.score || a.claimId.localeCompare(b.claimId) || a.evidenceId.localeCompare(b.evidenceId)).slice(0, max) : pairs;
+  const max = opts.maxReview === void 0 ? Number.POSITIVE_INFINITY : Math.max(1, Math.floor(opts.maxReview));
+  const sorted = pairs.length > max ? pairs.slice().sort((a, b) => b.score - a.score || a.claimId.localeCompare(b.claimId) || a.evidenceId.localeCompare(b.evidenceId)) : pairs;
+  const kept = sorted.slice(0, Math.min(sorted.length, max));
+  const dropped = sorted.slice(kept.length);
   const worklist = { run: runDir, pairs: kept.map(({ score, ...rest }) => rest) };
   const todo = {
     run: runDir,
     pairs: worklist.pairs.map((p) => ({ ...p, verdict: null, note: "" }))
   };
   writeFileSync5(join10(runDir, "VERIFY.todo.json"), JSON.stringify(todo, null, 2));
-  writeFileSync5(join10(runDir, "VERIFY.md"), renderWorklistMd(worklist, pairs.length, kept.length));
+  writeFileSync5(join10(runDir, "VERIFY.md"), renderWorklistMd(worklist, pairs.length, dropped));
   return worklist;
 }
-function renderWorklistMd(wl, total, kept) {
+function renderWorklistMd(wl, total, dropped) {
   const out = [];
   out.push(`# Claim-support review worklist`);
   out.push("");
   out.push(
     `For each pair, open the cited evidence and judge whether it **supports** the claim. In \`VERIFY.todo.json\`, set each \`verdict\` to one of supported \xB7 partial \xB7 refuted \xB7 unsupported, add a short \`note\`, save it (e.g. as \`verdicts.json\`), then run \`construct review --apply verdicts.json --out <run>\`.`
   );
-  if (kept < total) out.push(`
-_Showing ${kept} of ${total} pair(s) \u2014 capped at the highest-score evidence._`);
+  if (dropped.length) {
+    out.push("");
+    out.push(`> **DROPPED (--max-review): ${dropped.length} of ${total} pair(s) are NOT in this worklist and will NOT be adjudicated.**`);
+    out.push(`> Their claims can pass \`check --semantic\` without their evidence ever being judged.`);
+    out.push(`> Re-run \`construct review\` without --max-review to review everything. Dropped:`);
+    for (const d of dropped) out.push(`> - ${d.claimId} \xB7 ${d.evidenceId} (${d.source})`);
+  }
   out.push("");
   for (const p of wl.pairs) {
     out.push(`## ${p.claimId} \xB7 ${p.evidenceId} (${p.source})`);
@@ -3943,6 +3949,9 @@ Options:
   --allow-unverified   For 'check --semantic': degrade a missing/unreadable
                        VERIFY.json to a warning instead of failing
   --apply <file>       For 'review': consume an adjudicated verdicts file + gate
+  --max-review <n>     For 'review': cap the worklist at the n highest-score
+                       pairs (default: review ALL cited pairs; dropped pairs
+                       are named in VERIFY.md)
   --app <dir>          For 'verify': the built app directory (default: conventions.appDir)
   --run-tests          For 'verify': also execute testCommand + per-task verify commands
   --strict             For 'verify': a built must-have FR with no referencing test FAILS
@@ -4250,8 +4259,11 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
         if (!res.ok) process.exit(1);
         return;
       }
-      const maxReview = p.values["max-review"] ? Number(p.values["max-review"]) : REVIEW_MAX;
-      if (!Number.isFinite(maxReview) || maxReview <= 0) fail("invalid --max-review");
+      let maxReview;
+      if (p.values["max-review"] !== void 0) {
+        maxReview = Number(p.values["max-review"]);
+        if (p.values["max-review"].trim() === "" || !Number.isFinite(maxReview) || maxReview <= 0) fail("invalid --max-review");
+      }
       const wl = runReview(out, { maxReview });
       if (p.bools.has("json")) {
         process.stdout.write(JSON.stringify(wl, null, 2) + "\n");

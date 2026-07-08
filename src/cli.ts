@@ -17,7 +17,7 @@ import { renderSRD } from "./render.js";
 import { checkRun, formatCheckReport } from "./check.js";
 import { analyzeRun, formatGapReport } from "./analyze.js";
 import { verifyRun, formatVerifyReport } from "./verify.js";
-import { runReview, applyVerdicts, formatReviewReport, REVIEW_MAX } from "./review.js";
+import { runReview, applyVerdicts, formatReviewReport } from "./review.js";
 import { loadPlan, readyFrontier } from "./plan.js";
 import { semanticControl } from "./research/semantic.js";
 
@@ -76,6 +76,9 @@ Options:
   --allow-unverified   For 'check --semantic': degrade a missing/unreadable
                        VERIFY.json to a warning instead of failing
   --apply <file>       For 'review': consume an adjudicated verdicts file + gate
+  --max-review <n>     For 'review': cap the worklist at the n highest-score
+                       pairs (default: review ALL cited pairs; dropped pairs
+                       are named in VERIFY.md)
   --app <dir>          For 'verify': the built app directory (default: conventions.appDir)
   --run-tests          For 'verify': also execute testCommand + per-task verify commands
   --strict             For 'verify': a built must-have FR with no referencing test FAILS
@@ -419,8 +422,11 @@ async function main(): Promise<void> {
         if (!res.ok) process.exit(1);
         return;
       }
-      const maxReview = p.values["max-review"] ? Number(p.values["max-review"]) : REVIEW_MAX;
-      if (!Number.isFinite(maxReview) || maxReview <= 0) fail("invalid --max-review");
+      let maxReview: number | undefined;
+      if (p.values["max-review"] !== undefined) {
+        maxReview = Number(p.values["max-review"]);
+        if (p.values["max-review"].trim() === "" || !Number.isFinite(maxReview) || maxReview <= 0) fail("invalid --max-review");
+      }
       const wl = runReview(out, { maxReview });
       if (p.bools.has("json")) {
         process.stdout.write(JSON.stringify(wl, null, 2) + "\n");
