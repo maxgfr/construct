@@ -77,6 +77,17 @@ describe("runReview (worklist)", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it("prefixes the digest of a low-signal evidence item so the judge treats it skeptically", () => {
+    const dir = scratch();
+    const lowEv = [
+      { id: "E1", source: "docs", title: "pricing", ref: "https://x/pricing", score: 0, snippet: "Accept all cookies", meta: { lowSignal: true } },
+    ];
+    run(dir, [{ id: "FR-001", ev: ["E1"] }], lowEv);
+    const r = runReview(dir);
+    expect(r.pairs[0]!.digest).toMatch(/low-signal/i);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it("skips a claim citing only a dangling [E#]", () => {
     const dir = scratch();
     run(

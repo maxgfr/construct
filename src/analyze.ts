@@ -54,6 +54,11 @@ export function analyzeRun(runDir: string): GapReport {
     notes.push("No evidence dossier — run `construct research` first; everything below will render ungrounded.");
   }
 
+  const lowSignal = evidence.filter((e) => e.meta?.lowSignal).length;
+  if (lowSignal) {
+    notes.push(`${lowSignal} low-signal snippet(s) in the dossier — likely boilerplate; re-drill with a sharper --q or a better --docs-url.`);
+  }
+
   const suggestions: string[] = [];
 
   // Features with no evidence the renderer could cite (same matcher, same

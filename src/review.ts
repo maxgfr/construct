@@ -97,13 +97,17 @@ export function runReview(runDir: string, opts: { maxReview?: number } = {}): Re
     for (const id of [...new Set(c.ev)]) {
       const e = byId.get(id);
       if (!e) continue; // dangling citation — not a support question
+      const digest = claimDigest(e.snippet || e.title || e.ref, c.text);
       pairs.push({
         claimId: c.id,
         kind: c.kind,
         claim: c.text.trim().slice(0, 400),
         evidenceId: id,
         source: e.source,
-        digest: claimDigest(e.snippet || e.title || e.ref, c.text),
+        // A low-signal snippet (no keyword-matched excerpt — likely boilerplate)
+        // is flagged so the judge adjudicates it skeptically instead of granting
+        // "supported" on the URL alone.
+        digest: e.meta?.lowSignal ? `[low-signal snippet — no keyword-matched excerpt; adjudicate skeptically] ${digest}` : digest,
         score: e.score,
       });
     }

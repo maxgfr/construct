@@ -91,25 +91,30 @@ export async function webFetchUrls(
   // explicitly (fetchAll) must all be fetched, never silently dropped.
   const toFetch = fetchAll ? urls : urls.slice(0, Math.max(1, Math.ceil(perSource / 2)));
   for (const url of toFetch) {
-    const { text, note } = await fetchAndExtract(url);
+    const { text, note, metaDescription } = await fetchAndExtract(url);
     if (note) notes.push(note);
     if (!text) continue;
     const ex = excerptsFromText(text, url, `${labelFor(source)} — ${url}`, source, question, perSource);
-    items.push(
-      ...(ex.length
-        ? ex
-        : [
-            {
-              source,
-              title: `${labelFor(source)} — ${url}`,
-              ref: url,
-              location: url,
-              score: 0,
-              snippet: text.slice(0, 800),
-              url,
-            },
-          ]),
-    );
+    if (ex.length) {
+      // A low-signal excerpt (no line matched the question — the top-of-page
+      // fallback, often a banner) is replaced by the page's own meta
+      // description when one exists; a cleaner low-signal snippet to adjudicate.
+      for (const item of ex) {
+        if (item.meta?.lowSignal && metaDescription) item.snippet = metaDescription;
+      }
+      items.push(...ex);
+    } else {
+      items.push({
+        source,
+        title: `${labelFor(source)} — ${url}`,
+        ref: url,
+        location: url,
+        score: 0,
+        snippet: metaDescription ?? text.slice(0, 800),
+        url,
+        meta: { lowSignal: true },
+      });
+    }
   }
   return { items, notes };
 }

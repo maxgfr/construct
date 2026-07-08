@@ -539,6 +539,34 @@ function htmlToText(html) {
   s = s.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n");
   return s.split("\n").map((l) => l.trim()).filter((l) => l.length > 0).join("\n");
 }
+var CONSENT_PATTERNS = [
+  /\bcookies?\b/i,
+  /\bconsent\b/i,
+  /\bgdpr\b/i,
+  /\bccpa\b/i,
+  /accept all\b/i,
+  /reject all\b/i,
+  /manage (?:preferences|choices|cookies|settings)/i,
+  /privacy (?:policy|preferences|choices)/i,
+  /tracking technolog/i,
+  /advertising partners/i,
+  /legitimate interest/i
+];
+function stripConsentBoilerplate(text) {
+  let dropped = 0;
+  const kept = text.split("\n").filter((line) => {
+    const hits = CONSENT_PATTERNS.reduce((n, re) => n + (re.test(line) ? 1 : 0), 0);
+    const isBanner = hits >= 2 || hits === 1 && line.trim().length < 120;
+    if (isBanner) dropped++;
+    return !isBanner;
+  });
+  return { text: kept.join("\n"), dropped };
+}
+function metaDescriptionOf(html) {
+  const m = /<meta[^>]+name=["']description["'][^>]*content=["']([^"']+)["']/i.exec(html) || /<meta[^>]+content=["']([^"']+)["'][^>]*name=["']description["']/i.exec(html) || /<meta[^>]+property=["']og:description["'][^>]*content=["']([^"']+)["']/i.exec(html);
+  const d = m?.[1]?.replace(/\s+/g, " ").trim();
+  return d || void 0;
+}
 async function fetchAndExtract(url) {
   let res = await httpGet(url, { accept: "text/html,text/plain,*/*" });
   if (!res.ok && (res.status === 403 || res.status === 429)) {
@@ -551,8 +579,10 @@ async function fetchAndExtract(url) {
     return { text: "", note: `Could not fetch ${url} (status ${res.status}${res.error ? ", " + res.error : ""}).` };
   }
   const isHtml = /html/i.test(res.contentType) || /^\s*</.test(res.body);
-  const text = isHtml ? htmlToText(res.body) : res.body;
-  return { text };
+  const metaDescription = isHtml ? metaDescriptionOf(res.body) : void 0;
+  const rawText = isHtml ? htmlToText(res.body) : res.body;
+  const text = isHtml ? stripConsentBoilerplate(rawText).text : rawText;
+  return { text, ...metaDescription ? { metaDescription } : {} };
 }
 function excerptsFromText(text, url, title, source, question, perSource) {
   const lines = text.split("\n");
@@ -591,7 +621,10 @@ function excerptsFromText(text, url, title, source, question, perSource) {
       location: `${url}#~${start + 1}`,
       score: Number((h.cov + 1).toFixed(3)),
       snippet,
-      url
+      url,
+      // cov=0 means no line matched the question — this is the top-of-page
+      // fallback, likely boilerplate. Flag it so review/analyze down-weight it.
+      ...h.cov === 0 ? { meta: { lowSignal: true } } : {}
     });
   }
   return items;
@@ -659,23 +692,27 @@ async function webFetchUrls(urls, question, perSource, source = "market", fetchA
   const notes = [];
   const toFetch = fetchAll ? urls : urls.slice(0, Math.max(1, Math.ceil(perSource / 2)));
   for (const url of toFetch) {
-    const { text, note } = await fetchAndExtract(url);
+    const { text, note, metaDescription } = await fetchAndExtract(url);
     if (note) notes.push(note);
     if (!text) continue;
     const ex = excerptsFromText(text, url, `${labelFor(source)} \u2014 ${url}`, source, question, perSource);
-    items.push(
-      ...ex.length ? ex : [
-        {
-          source,
-          title: `${labelFor(source)} \u2014 ${url}`,
-          ref: url,
-          location: url,
-          score: 0,
-          snippet: text.slice(0, 800),
-          url
-        }
-      ]
-    );
+    if (ex.length) {
+      for (const item of ex) {
+        if (item.meta?.lowSignal && metaDescription) item.snippet = metaDescription;
+      }
+      items.push(...ex);
+    } else {
+      items.push({
+        source,
+        title: `${labelFor(source)} \u2014 ${url}`,
+        ref: url,
+        location: url,
+        score: 0,
+        snippet: metaDescription ?? text.slice(0, 800),
+        url,
+        meta: { lowSignal: true }
+      });
+    }
   }
   return { items, notes };
 }
@@ -3151,13 +3188,17 @@ function runReview(runDir, opts = {}) {
     for (const id of [...new Set(c.ev)]) {
       const e = byId.get(id);
       if (!e) continue;
+      const digest = claimDigest(e.snippet || e.title || e.ref, c.text);
       pairs.push({
         claimId: c.id,
         kind: c.kind,
         claim: c.text.trim().slice(0, 400),
         evidenceId: id,
         source: e.source,
-        digest: claimDigest(e.snippet || e.title || e.ref, c.text),
+        // A low-signal snippet (no keyword-matched excerpt — likely boilerplate)
+        // is flagged so the judge adjudicates it skeptically instead of granting
+        // "supported" on the URL alone.
+        digest: e.meta?.lowSignal ? `[low-signal snippet \u2014 no keyword-matched excerpt; adjudicate skeptically] ${digest}` : digest,
         score: e.score
       });
     }
@@ -3698,6 +3739,10 @@ function analyzeRun(runDir) {
   for (const e of evidence) bySource[e.source] = (bySource[e.source] ?? 0) + 1;
   if (evidence.length === 0) {
     notes.push("No evidence dossier \u2014 run `construct research` first; everything below will render ungrounded.");
+  }
+  const lowSignal = evidence.filter((e) => e.meta?.lowSignal).length;
+  if (lowSignal) {
+    notes.push(`${lowSignal} low-signal snippet(s) in the dossier \u2014 likely boilerplate; re-drill with a sharper --q or a better --docs-url.`);
   }
   const suggestions = [];
   const ungroundedFeatures = brief.featureWishlist.filter((f) => matchEvidence(featureText(f), evidence, 1, GROUND_REQUIREMENT).length === 0).map((f) => ({ title: f.title, priority: f.priority ?? "should" }));
