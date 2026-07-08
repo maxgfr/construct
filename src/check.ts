@@ -69,6 +69,20 @@ function mdFiles(runDir: string): string[] {
   return out.sort();
 }
 
+// Count brainstorm ideas still awaiting a decision (advisory only). Reads
+// brainstorm.json directly so check has no dependency on the brainstorm module's
+// merge logic; a missing/corrupt file just yields 0.
+function countProposedIdeas(runDir: string): number {
+  const p = join(runDir, "brainstorm.json");
+  if (!existsSync(p)) return 0;
+  try {
+    const data = JSON.parse(readFileSync(p, "utf8")) as { ideas?: { status?: string }[] };
+    return Array.isArray(data.ideas) ? data.ideas.filter((i) => i && i.status === "proposed").length : 0;
+  } catch {
+    return 0;
+  }
+}
+
 function loadEvidence(runDir: string): { evidence: EvidenceItem[]; note?: string } {
   const path = join(runDir, "evidence", "evidence.json");
   if (!existsSync(path)) {
@@ -375,6 +389,13 @@ export function checkRun(runDir: string, opts: { minGrounding?: number; semantic
   const templatedMetrics = srd.nonFunctional.filter((n) => n.metric && TEMPLATED_METRIC_RE.test(n.metric)).length;
   if (templatedMetrics) {
     warnings.push(`${templatedMetrics} NFR metric(s) are still generic placeholders — set measurable targets (see references/acceptance-criteria.md).`);
+  }
+
+  // Advisory: an unmerged brainstorm still has undecided ideas. Never gates —
+  // brainstorm is optional and pre-brief.
+  const proposedIdeas = countProposedIdeas(runDir);
+  if (proposedIdeas > 0) {
+    warnings.push(`brainstorm: ${proposedIdeas} idea(s) still 'proposed' — adjudicate (kept/parked/rejected) and run \`construct brainstorm --merge\`.`);
   }
 
   // Advisory grounding coverage.

@@ -141,6 +141,39 @@ export interface Brief {
   createdAt: string;
 }
 
+// ---------------------------------------------------------------------------
+// Brainstorm — the optional DIVERGENT step before the convergent interview.
+// The interview elicits decisions the user already holds; brainstorm GENERATES
+// candidate ideas (feature reframes, user segments, differentiators, anti-goals,
+// wildcards) for the user to keep/park/reject, then `brainstorm --merge` folds
+// the kept ones into the brief deterministically. The engine persists + merges;
+// the AI runs the session (references/brainstorm-playbook.md).
+// ---------------------------------------------------------------------------
+export const BRAINSTORM_SCHEMA_VERSION = 1;
+
+export type BrainstormAngle = "reframe" | "segment" | "feature" | "differentiator" | "anti-goal" | "wildcard";
+export type BrainstormStatus = "proposed" | "kept" | "parked" | "rejected";
+export type BrainstormTarget = "featureWishlist" | "competitors" | "nonGoals" | "goals" | "candidateTech" | "openQuestions";
+
+export interface BrainstormIdea {
+  id: string; // "B-001", assigned sequentially, stable once assigned
+  angle: BrainstormAngle;
+  title: string; // one line, whitespace-collapsed like brief fields
+  notes?: string;
+  status: BrainstormStatus; // default "proposed"
+  target?: BrainstormTarget; // required to merge a "kept" idea
+  priority?: "must" | "should" | "could"; // honored only for target=featureWishlist (default "could")
+  mergedAt?: string; // ISO stamp set by --merge; merged ideas are skipped forever after
+}
+
+export interface Brainstorm {
+  schemaVersion: number;
+  idea: string; // copied from brief.idea at scaffold time
+  createdAt: string;
+  updatedAt?: string;
+  ideas: BrainstormIdea[];
+}
+
 // Optional design intent captured during the interview. All fields optional —
 // the renderer derives sensible defaults from the rest of the brief when absent.
 export interface DesignInput {

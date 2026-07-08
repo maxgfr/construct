@@ -81,6 +81,65 @@ describe("e2e: CLI basics", () => {
   });
 });
 
+describe("e2e: brainstorm lifecycle", () => {
+  it("scaffolds a board, merges kept+parked ideas into the brief, and is idempotent", () => {
+    const run = join(tmp(), "run");
+    expect(cli(["init", "--idea", "a habit tracker for remote teams", "--out", run]).status).toBe(0);
+
+    // Scaffold the board.
+    const scaffold = cli(["brainstorm", "--out", run]);
+    expect(scaffold.status, scaffold.stderr).toBe(0);
+    expect(existsSync(join(run, "brainstorm.json"))).toBe(true);
+    expect(existsSync(join(run, "BRAINSTORM.md"))).toBe(true);
+
+    // Author ideas + statuses (what the AI does during the session).
+    writeFileSync(
+      join(run, "brainstorm.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        idea: "a habit tracker for remote teams",
+        createdAt: "T",
+        ideas: [
+          { id: "B-001", angle: "feature", title: "Streak freeze", status: "kept", target: "featureWishlist", priority: "should" },
+          { id: "B-002", angle: "differentiator", title: "Team accountability nudges", status: "kept", target: "featureWishlist" },
+          { id: "B-003", angle: "wildcard", title: "AI habit coach", status: "parked" },
+          { id: "B-004", angle: "anti-goal", title: "Not a social network", status: "rejected" },
+          { id: "B-005", angle: "segment", title: "Solo users too?", status: "proposed" },
+        ],
+      }),
+    );
+
+    const merge = cli(["brainstorm", "--out", run, "--merge", "--json"]);
+    expect(merge.status, merge.stderr).toBe(0);
+    const summary = JSON.parse(merge.stdout) as { merged: number; parkedFolded: number; proposed: number };
+    expect(summary.merged).toBe(2);
+    expect(summary.parkedFolded).toBe(1);
+    expect(summary.proposed).toBe(1);
+
+    const brief = JSON.parse(readFileSync(join(run, "brief.json"), "utf8")) as { featureWishlist: { title: string }[]; openQuestions: string[] };
+    expect(brief.featureWishlist.map((f) => f.title)).toEqual(expect.arrayContaining(["Streak freeze", "Team accountability nudges"]));
+    expect(brief.openQuestions.some((q) => /AI habit coach/.test(q))).toBe(true);
+
+    // Second merge folds nothing new (idempotent).
+    const again = cli(["brainstorm", "--out", run, "--merge", "--json"]);
+    const summary2 = JSON.parse(again.stdout) as { merged: number; parkedFolded: number };
+    expect(summary2.merged).toBe(0);
+    expect(summary2.parkedFolded).toBe(0);
+
+    // status shows the brainstorm line.
+    const st = cli(["status", "--out", run]);
+    expect(st.stdout).toMatch(/brainstorm\.json/);
+  });
+
+  it("brainstorm --merge without a brainstorm.json fails cleanly", () => {
+    const run = join(tmp(), "run");
+    cli(["init", "--idea", "x", "--out", run]);
+    const r = cli(["brainstorm", "--out", run, "--merge"]);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/brainstorm\.json/);
+  });
+});
+
 describe("e2e: render lifecycle", () => {
   it("renders the SRD tree + BUILD-PLAN (T-000 + one task per FR)", () => {
     // --no-design isolates the pure FR→task DAG (the design system would append

@@ -511,6 +511,29 @@ describe("formatCheckReport", () => {
   });
 });
 
+describe("checkRun — brainstorm advisory", () => {
+  it("warns (never gates) when brainstorm.json has proposed ideas", () => {
+    const dir = renderRun();
+    writeFileSync(
+      join(dir, "brainstorm.json"),
+      JSON.stringify({ schemaVersion: 1, idea: "x", createdAt: "T", ideas: [{ id: "B-001", angle: "feature", title: "idea", status: "proposed" }] }),
+    );
+    const r = checkRun(dir);
+    expect(r.ok).toBe(true); // advisory
+    expect(r.structural.warnings.join(" ")).toMatch(/brainstorm.*proposed/i);
+  });
+
+  it("stays silent once every brainstorm idea is adjudicated", () => {
+    const dir = renderRun();
+    writeFileSync(
+      join(dir, "brainstorm.json"),
+      JSON.stringify({ schemaVersion: 1, idea: "x", createdAt: "T", ideas: [{ id: "B-001", angle: "feature", title: "idea", status: "rejected" }] }),
+    );
+    const r = checkRun(dir);
+    expect(r.structural.warnings.join(" ")).not.toMatch(/brainstorm/i);
+  });
+});
+
 describe("checkRun — placeholder words vs decisions", () => {
   it("does NOT hard-fail when a feature title legitimately contains TODO (advisory only)", () => {
     const r = checkRun(

@@ -1,5 +1,46 @@
 import { DESIGN_TOKENS_SEEDED_BANNER } from "./types.js";
-import type { SRD, ADR, DesignSystem, FR, SRDModule } from "./types.js";
+import type { SRD, ADR, DesignSystem, FR, SRDModule, Brainstorm, BrainstormAngle } from "./types.js";
+
+const BRAINSTORM_ANGLE_ORDER: { angle: BrainstormAngle; label: string }[] = [
+  { angle: "reframe", label: "Problem reframes" },
+  { angle: "segment", label: "User segments" },
+  { angle: "feature", label: "Feature ideas" },
+  { angle: "differentiator", label: "Differentiators" },
+  { angle: "anti-goal", label: "Anti-goals & risks" },
+  { angle: "wildcard", label: "Wildcards" },
+];
+
+// The human-facing brainstorm board. Divergent ideas grouped by angle, each
+// tagged with its status and (when kept) its merge target. Regenerated from
+// brainstorm.json on every `brainstorm` run — the JSON is the source of truth.
+export function renderBrainstormMd(b: Brainstorm): string {
+  const out: string[] = [];
+  out.push(`# Brainstorm — ${b.idea || "(idea)"}`);
+  out.push("");
+  out.push(
+    `Divergent ideas for this product. Mark each idea's \`status\` in \`brainstorm.json\` ` +
+      `(**proposed** → **kept** / **parked** / **rejected**); give every **kept** idea a \`target\` ` +
+      `(featureWishlist · competitors · nonGoals · goals · candidateTech · openQuestions), then run ` +
+      `\`construct brainstorm --out <run> --merge\` to fold them into brief.json. ` +
+      `**Parked** ideas become 🧠 open questions that BLOCK the structural gate until resolved.`,
+  );
+  out.push("");
+  for (const { angle, label } of BRAINSTORM_ANGLE_ORDER) {
+    const ideas = b.ideas.filter((i) => i.angle === angle);
+    if (!ideas.length) continue;
+    out.push(`## ${label}`);
+    out.push("");
+    for (const i of ideas) {
+      const tgt = i.target ? ` → ${i.target}${i.priority ? ` (${i.priority})` : ""}` : "";
+      const notes = i.notes ? ` — ${i.notes}` : "";
+      const mergedMark = i.mergedAt ? " ✓merged" : "";
+      out.push(`- **[${i.status}]** ${i.id} — ${i.title}${tgt}${notes}${mergedMark}`);
+    }
+    out.push("");
+  }
+  if (!b.ideas.length) out.push("_No ideas yet — generate some with the AI (references/brainstorm-playbook.md)._");
+  return out.join("\n");
+}
 
 // Markdown rendering for every SRD section. Each function is pure (model slice →
 // string) so it is trivially golden-testable offline.

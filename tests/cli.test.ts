@@ -64,6 +64,13 @@ describe("parseArgs", () => {
     expect(p.bools.has("allow-unverified")).toBe(true);
   });
 
+  it("parses the brainstorm command with --merge", () => {
+    const p = parseArgs(["brainstorm", "--out", "run", "--merge"]);
+    expect(p.command).toBe("brainstorm");
+    expect(p.values.out).toBe("run");
+    expect(p.bools.has("merge")).toBe(true);
+  });
+
   it("parses the analyze command", () => {
     const p = parseArgs(["analyze", "--out=run", "--json"]);
     expect(p.command).toBe("analyze");
