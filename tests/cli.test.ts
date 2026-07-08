@@ -58,6 +58,12 @@ describe("parseArgs", () => {
     expect(p.bools.has("json")).toBe(true);
   });
 
+  it("parses check with --semantic --allow-unverified", () => {
+    const p = parseArgs(["check", "--out", "run", "--semantic", "--allow-unverified"]);
+    expect(p.bools.has("semantic")).toBe(true);
+    expect(p.bools.has("allow-unverified")).toBe(true);
+  });
+
   it("parses the analyze command", () => {
     const p = parseArgs(["analyze", "--out=run", "--json"]);
     expect(p.command).toBe("analyze");

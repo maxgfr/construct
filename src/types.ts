@@ -405,6 +405,10 @@ export interface CheckResult {
   // Present ONLY with `check --semantic` (folds the `review` verdicts). Fails the
   // gate on a refuted/unsupported claim. Undefined — and `ok` unchanged — without it.
   semantic?: ClaimVerifyResult;
+  // Present when `--semantic` was requested but the gate could not engage
+  // (missing/unreadable/verdict-less VERIFY.json) and `--allow-unverified` was
+  // not passed. Fail-closed: its presence means `ok` is false.
+  semanticError?: string;
 }
 
 // ---------------------------------------------------------------------------
