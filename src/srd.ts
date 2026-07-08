@@ -229,6 +229,39 @@ const FEATURE_VERBS = new Set([
 // Words that name actions or qualities, not data — never entities.
 const NON_ENTITY_WORDS = new Set(["search", "login", "signup", "support", "setup", "offline", "online", "mobile", "desktop", "full", "text", "user", "users"]);
 
+// Adjectival/compound prefixes ("Multi-currency accounts", "Cross-platform
+// sync"): keywords() splits the hyphen, and the bare prefix would otherwise
+// recur across features and get promoted into a data-model entity literally
+// named "Multi". The head noun ("currency", "account") is the real candidate.
+const ADJECTIVAL_PREFIXES = new Set([
+  "multi",
+  "auto",
+  "self",
+  "cross",
+  "pre",
+  "post",
+  "non",
+  "anti",
+  "semi",
+  "meta",
+  "mini",
+  "micro",
+  "macro",
+  "mono",
+  "dual",
+  "poly",
+  "omni",
+  "pseudo",
+  "quasi",
+  "ultra",
+  "hyper",
+  "super",
+  "sub",
+  "inter",
+  "intra",
+  "extra",
+]);
+
 function singularize(w: string): string {
   if (/ies$/.test(w)) return w.slice(0, -3) + "y";
   if (/(?:ches|shes|xes|zes|ses)$/.test(w)) return w.slice(0, -2);
@@ -248,7 +281,7 @@ function entityTokens(title: string, exclude: Set<string>): { tokens: string[]; 
   const verbLed = words.length > 0 && FEATURE_VERBS.has(words[0]!);
   const rest = verbLed ? words.slice(1) : words;
   const tokens = rest
-    .filter((w) => w.length >= 3 && !FEATURE_VERBS.has(w) && !NON_ENTITY_WORDS.has(w) && !/(?:ed|ing)$/.test(w))
+    .filter((w) => w.length >= 3 && !FEATURE_VERBS.has(w) && !NON_ENTITY_WORDS.has(w) && !ADJECTIVAL_PREFIXES.has(w) && !/(?:ed|ing)$/.test(w))
     .map(singularize)
     .filter((w) => !exclude.has(w));
   return { tokens, verbLed };

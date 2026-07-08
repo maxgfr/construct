@@ -362,13 +362,15 @@ export function checkRun(runDir: string, opts: { minGrounding?: number; semantic
   // Module partition (only when present) — additive structural gate.
   checkModules(runDir, srd, errors, warnings);
 
-  // Advisory: criteria/metrics still carrying the renderer's own template
-  // phrasing — complete but not yet sharpened into something testable.
+  // Criteria/metrics still carrying the renderer's own template phrasing —
+  // complete but not yet sharpened into something testable. A complex SRD
+  // certifies build-readiness, so surviving templates HARD-FAIL there; at
+  // light they stay an advisory nudge.
   const templatedThen = srd.functional.reduce((n, fr) => n + fr.acceptance.filter((a) => TEMPLATED_THEN_RE.test(a.then)).length, 0);
   if (templatedThen) {
-    warnings.push(
-      `${templatedThen} acceptance criteria are still renderer-templated — sharpen them into observable, bounded outcomes (see references/acceptance-criteria.md).`,
-    );
+    const msg = `${templatedThen} acceptance criteria are still renderer-templated — sharpen them into observable, bounded outcomes (see references/acceptance-criteria.md).`;
+    if (srd.level === "complex") errors.push(msg);
+    else warnings.push(msg);
   }
   const templatedMetrics = srd.nonFunctional.filter((n) => n.metric && TEMPLATED_METRIC_RE.test(n.metric)).length;
   if (templatedMetrics) {

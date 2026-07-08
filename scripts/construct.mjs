@@ -1721,6 +1721,34 @@ var FEATURE_VERBS = /* @__PURE__ */ new Set([
   "stream"
 ]);
 var NON_ENTITY_WORDS = /* @__PURE__ */ new Set(["search", "login", "signup", "support", "setup", "offline", "online", "mobile", "desktop", "full", "text", "user", "users"]);
+var ADJECTIVAL_PREFIXES = /* @__PURE__ */ new Set([
+  "multi",
+  "auto",
+  "self",
+  "cross",
+  "pre",
+  "post",
+  "non",
+  "anti",
+  "semi",
+  "meta",
+  "mini",
+  "micro",
+  "macro",
+  "mono",
+  "dual",
+  "poly",
+  "omni",
+  "pseudo",
+  "quasi",
+  "ultra",
+  "hyper",
+  "super",
+  "sub",
+  "inter",
+  "intra",
+  "extra"
+]);
 function singularize(w) {
   if (/ies$/.test(w)) return w.slice(0, -3) + "y";
   if (/(?:ches|shes|xes|zes|ses)$/.test(w)) return w.slice(0, -2);
@@ -1734,7 +1762,7 @@ function entityTokens(title, exclude) {
   const words = keywords(title).map((w) => w.toLowerCase());
   const verbLed = words.length > 0 && FEATURE_VERBS.has(words[0]);
   const rest = verbLed ? words.slice(1) : words;
-  const tokens = rest.filter((w) => w.length >= 3 && !FEATURE_VERBS.has(w) && !NON_ENTITY_WORDS.has(w) && !/(?:ed|ing)$/.test(w)).map(singularize).filter((w) => !exclude.has(w));
+  const tokens = rest.filter((w) => w.length >= 3 && !FEATURE_VERBS.has(w) && !NON_ENTITY_WORDS.has(w) && !ADJECTIVAL_PREFIXES.has(w) && !/(?:ed|ing)$/.test(w)).map(singularize).filter((w) => !exclude.has(w));
   return { tokens, verbLed };
 }
 function inferEntities(brief, functional) {
@@ -3485,9 +3513,9 @@ function checkRun(runDir, opts = {}) {
   checkModules(runDir, srd, errors, warnings);
   const templatedThen = srd.functional.reduce((n, fr) => n + fr.acceptance.filter((a) => TEMPLATED_THEN_RE.test(a.then)).length, 0);
   if (templatedThen) {
-    warnings.push(
-      `${templatedThen} acceptance criteria are still renderer-templated \u2014 sharpen them into observable, bounded outcomes (see references/acceptance-criteria.md).`
-    );
+    const msg = `${templatedThen} acceptance criteria are still renderer-templated \u2014 sharpen them into observable, bounded outcomes (see references/acceptance-criteria.md).`;
+    if (srd.level === "complex") errors.push(msg);
+    else warnings.push(msg);
   }
   const templatedMetrics = srd.nonFunctional.filter((n) => n.metric && TEMPLATED_METRIC_RE.test(n.metric)).length;
   if (templatedMetrics) {
