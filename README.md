@@ -50,6 +50,9 @@ npx skills add maxgfr/construct
 
 ```
 node scripts/construct.mjs init --idea "a self-hosted read-it-later app" --out ./readpile
+# optional: diverge first, then fold kept ideas into the brief
+node scripts/construct.mjs brainstorm --out ./readpile            # scaffold BRAINSTORM.md
+node scripts/construct.mjs brainstorm --out ./readpile --merge    # kept → brief.json
 # …fill ./readpile/brief.json via the interview…
 node scripts/construct.mjs research --out ./readpile --angles market,oss,tech
 node scripts/construct.mjs analyze  --out ./readpile          # what's thin? drill it

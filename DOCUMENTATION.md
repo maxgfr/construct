@@ -15,15 +15,29 @@ CI verifies the committed bundle is reproducible (`pnpm run check:build`).
 ## Pipeline
 
 ```
-init → (interview, agent-driven) → research → analyze → render → check → review → verify
-brief.json          evidence/         gap report   SRD tree + SRD.json   report  claim-support  build referee
-                                                   + BUILD-PLAN.json
+init → [brainstorm] → (interview, agent-driven) → research → analyze → render → check → review → verify
+brief.json  brainstorm.json                       evidence/   gap report  SRD tree + SRD.json  report  claim-support  build referee
+                                                                          + BUILD-PLAN.json
 ```
 
 ### `init`
 Writes a `brief.json` skeleton (`src/brief.ts`). The brief is a passive schema
 store — the analog of reconstruct's `plan.json`. The interview that fills it is
 agent-driven (`references/interview-playbook.md`).
+
+### `brainstorm`  (`src/brainstorm.ts`)
+The optional DIVERGENT step before the convergent interview. `brainstorm`
+scaffolds `brainstorm.json` + `BRAINSTORM.md` — a board of `{ id, angle, title,
+status, target? }` ideas across six angles (reframe/segment/feature/
+differentiator/anti-goal/wildcard). The agent generates ideas WITH the user and
+marks each `proposed|kept|parked|rejected`. `brainstorm --merge` folds every
+**kept** idea into the brief by its `target` (featureWishlist/competitors/goals/
+nonGoals/candidateTech/openQuestions) and every **parked** idea into
+`openQuestions` (a gate-blocking 🧠). `mergeBrainstorm` is pure and idempotent —
+an idea carries `mergedAt` once folded and is skipped forever after; a
+goals↔nonGoals conflict or a targetless kept idea warns and is left unstamped so
+it can be resolved and re-merged. `check` warns (never gates) while any idea is
+still `proposed`.
 
 ### `research`  (`src/research/`)
 Runs the selected angles concurrently (`registry.ts::runAngles`), optionally

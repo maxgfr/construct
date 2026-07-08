@@ -6,6 +6,7 @@ import { VERSION, ALL_SOURCE_KINDS } from "./types.js";
 import type { Angle, ResearchContext, WebEngine, EvidenceItem, DossierMeta, Level, SourceResult, SourceKind } from "./types.js";
 import { slugify } from "./util.js";
 import { initBrief, saveBrief, loadBrief, validateBrief } from "./brief.js";
+import { initBrainstorm, loadBrainstorm, saveBrainstorm, mergeBrainstorm, brainstormCounts, writeBrainstormMd } from "./brainstorm.js";
 import { runResearch } from "./research/registry.js";
 import { marketAngle } from "./research/market.js";
 import { ossAngle } from "./research/oss.js";
@@ -28,6 +29,7 @@ check. Grounding is advisory; structural completeness is enforced.
 
 Usage:
   construct init     --idea "<one-liner>" [--out <dir>]
+  construct brainstorm --out <run> [--merge] [--json]
   construct research --out <run> [--angles market,oss,tech,semantic] [--q "<focus>"] [--url <u,...>] [--semantic]
   construct analyze  --out <run> [--json]
   construct web|oss|tech|so --out <run> [--q "<focus>"] [--url <u,...>] [--seeds <u,...>]
@@ -41,6 +43,9 @@ Usage:
 
 Commands:
   init       Scaffold a run folder + brief.json (fill it via the interview).
+  brainstorm Divergent ideation BEFORE the interview: scaffold a board of
+             candidate ideas (brainstorm.json + BRAINSTORM.md). --merge folds
+             kept ideas into brief.json (parked → 🧠 openQuestions).
   research   Gather evidence across angles into <run>/evidence (a dossier).
   analyze    Report what is thin (gaps that will render ungrounded) + drill commands.
   web        Drill the market/web angle.       oss   Drill OSS prior-art mining.
@@ -104,7 +109,22 @@ Workflow:
   construct check --out ./my-idea                 # structural gate + coverage report
 `;
 
-const COMMANDS = new Set(["init", "research", "analyze", "web", "oss", "tech", "so", "render", "check", "verify", "review", "status", "semantic"]);
+const COMMANDS = new Set([
+  "init",
+  "brainstorm",
+  "research",
+  "analyze",
+  "web",
+  "oss",
+  "tech",
+  "so",
+  "render",
+  "check",
+  "verify",
+  "review",
+  "status",
+  "semantic",
+]);
 const VALUE_FLAGS = new Set([
   "idea",
   "out",
@@ -301,6 +321,57 @@ async function main(): Promise<void> {
       return;
     }
 
+    case "brainstorm": {
+      const out = requireOut(p);
+      // Brainstorm sits on top of the brief (it seeds the idea from it and folds
+      // ideas back into it) — require an initialized run.
+      const brief = loadBrief(out, warnBrief);
+      if (p.bools.has("merge")) {
+        const b = loadBrainstorm(out, warnBrief);
+        if (!b) fail(`no brainstorm.json in ${out} — run \`construct brainstorm --out ${out}\` first to scaffold one.`);
+        const r = mergeBrainstorm(brief, b!, new Date().toISOString(), warnBrief);
+        saveBrief(out, r.brief);
+        saveBrainstorm(out, r.brainstorm);
+        writeBrainstormMd(out, r.brainstorm);
+        if (p.bools.has("json")) {
+          process.stdout.write(JSON.stringify({ merged: r.merged, parkedFolded: r.parkedFolded, skipped: r.skipped, proposed: r.proposed }, null, 2) + "\n");
+          return;
+        }
+        process.stderr.write(
+          [
+            `construct: merged brainstorm → brief.json`,
+            `  merged:   ${r.merged} kept idea(s) folded into the brief`,
+            `  parked:   ${r.parkedFolded} parked idea(s) → openQuestions (🧠 — resolve before check passes)`,
+            `  skipped:  ${r.skipped} kept idea(s) not merged (no target / conflict — see warnings)`,
+            `  proposed: ${r.proposed} idea(s) still awaiting a decision`,
+            `  next:     construct research --out ${out}`,
+          ].join("\n") + "\n",
+        );
+        return;
+      }
+      // Scaffold or re-render the board (never clobbers existing ideas).
+      let b = loadBrainstorm(out, warnBrief);
+      if (!b) {
+        b = initBrainstorm(brief.idea, new Date().toISOString());
+        saveBrainstorm(out, b);
+      }
+      writeBrainstormMd(out, b);
+      if (p.bools.has("json")) {
+        process.stdout.write(JSON.stringify(b, null, 2) + "\n");
+        return;
+      }
+      const c = brainstormCounts(b);
+      process.stderr.write(
+        [
+          `construct: brainstorm board at ${join(out, "BRAINSTORM.md")}`,
+          `  ideas:  ${b.ideas.length} (${c.kept} kept · ${c.parked} parked · ${c.proposed} proposed · ${c.rejected} rejected)`,
+          `  next:   generate ideas WITH the user (references/brainstorm-playbook.md), mark statuses in`,
+          `          brainstorm.json, then: construct brainstorm --out ${out} --merge`,
+        ].join("\n") + "\n",
+      );
+      return;
+    }
+
     case "research": {
       const out = requireOut(p);
       const angles = p.values.angles ? parseAngles(p.values.angles) : DEFAULT_ANGLES;
@@ -489,9 +560,17 @@ async function main(): Promise<void> {
       const planLine = plan
         ? `  ✓ BUILD-PLAN.json (build: ${plan.tasks.filter((t) => t.status === "done").length}/${plan.tasks.length} tasks done)`
         : `  · BUILD-PLAN.json (build plan)`;
+      const bs = loadBrainstorm(out);
+      const bsLine = bs
+        ? (() => {
+            const c = brainstormCounts(bs);
+            return `  ✓ brainstorm.json (${c.kept} kept · ${c.parked} parked · ${c.proposed} proposed · ${c.rejected} rejected)`;
+          })()
+        : `  · brainstorm.json (optional divergence)`;
       process.stdout.write(
         [
           `construct status: ${out}`,
+          bsLine,
           `  ${has("brief.json")} brief.json`,
           `  ${has("evidence/evidence.json")} evidence/evidence.json (research)`,
           `  ${has("SRD.json")} SRD.json (render)`,

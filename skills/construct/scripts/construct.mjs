@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { resolve as resolve3, join as join14 } from "path";
-import { existsSync as existsSync10, readFileSync as readFileSync9 } from "fs";
+import { resolve as resolve3, join as join15 } from "path";
+import { existsSync as existsSync11, readFileSync as readFileSync10 } from "fs";
 import { pathToFileURL, fileURLToPath as fileURLToPath2 } from "url";
 import { realpathSync } from "fs";
 
@@ -10,6 +10,7 @@ import { realpathSync } from "fs";
 var VERSION = "1.9.3";
 var ALL_SOURCE_KINDS = ["market", "oss", "docs", "so", "issue", "pr"];
 var BRIEF_SCHEMA_VERSION = 1;
+var BRAINSTORM_SCHEMA_VERSION = 1;
 var SRD_SCHEMA_VERSION = 1;
 var REQUIRED_NFR = {
   light: ["performance", "security", "reliability"],
@@ -249,7 +250,7 @@ function slugId(s) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
 }
 var KNOWN_CONSTRAINT_KEYS = ["budget", "timeline", "team", "compliance"];
-function normalizeConstraints(raw, line, arr, warn) {
+function normalizeConstraints(raw, line2, arr, warn) {
   const c = raw ?? {};
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
     for (const k of Object.keys(c)) {
@@ -261,16 +262,16 @@ function normalizeConstraints(raw, line, arr, warn) {
     }
   }
   return {
-    budget: line(c.budget),
-    timeline: line(c.timeline),
-    team: line(c.team),
+    budget: line2(c.budget),
+    timeline: line2(c.timeline),
+    team: line2(c.team),
     compliance: arr(c.compliance, "constraints.compliance")
   };
 }
 function normalizeBrief(data, warn = () => {
 }) {
   const d = data ?? {};
-  const line = (v) => typeof v === "string" ? v.replace(/\s+/g, " ").trim() : void 0;
+  const line2 = (v) => typeof v === "string" ? v.replace(/\s+/g, " ").trim() : void 0;
   const arr = (v, field) => {
     if (v === void 0 || v === null) return [];
     if (!Array.isArray(v)) {
@@ -294,8 +295,8 @@ function normalizeBrief(data, warn = () => {
       const out = [];
       const seen = /* @__PURE__ */ new Set();
       d.modules.forEach((m, i) => {
-        const rawId = line(m?.id);
-        const rawName = line(m?.name);
+        const rawId = line2(m?.id);
+        const rawName = line2(m?.name);
         const id = slugId(rawId || rawName || "");
         if (!id) {
           warn(`modules[${i}] has no usable id or name \u2014 dropped.`);
@@ -307,7 +308,7 @@ function normalizeBrief(data, warn = () => {
         }
         seen.add(id);
         const def = { id, name: rawName || id };
-        const description = line(m.description);
+        const description = line2(m.description);
         if (description) def.description = description;
         const deps = arr(m.dependsOn, `modules[${i}].dependsOn`).map(slugId);
         if (deps.length) def.dependsOn = deps;
@@ -338,7 +339,7 @@ function normalizeBrief(data, warn = () => {
     warn("featureWishlist is not an array \u2014 ignored.");
   } else if (Array.isArray(d.featureWishlist)) {
     d.featureWishlist.forEach((f, i) => {
-      const title = line(f?.title);
+      const title = line2(f?.title);
       if (!title) {
         warn(`featureWishlist[${i}] has no usable title \u2014 dropped.`);
         return;
@@ -349,13 +350,13 @@ function normalizeBrief(data, warn = () => {
         priority = void 0;
       }
       let module;
-      const rawModule = line(f.module);
+      const rawModule = line2(f.module);
       if (rawModule) {
         const slug = slugId(rawModule);
         if (moduleIds.has(slug)) module = slug;
         else warn(`featureWishlist[${i}].module "${rawModule}" names no declared module \u2014 dropped.`);
       }
-      features.push({ title, priority, notes: line(f.notes), ...module ? { module } : {} });
+      features.push({ title, priority, notes: line2(f.notes), ...module ? { module } : {} });
     });
   }
   let design;
@@ -367,9 +368,9 @@ function normalizeBrief(data, warn = () => {
       const out = {};
       const platforms = arr(dd.platforms, "design.platforms");
       const referenceSystems = arr(dd.referenceSystems, "design.referenceSystems");
-      const brand = line(dd.brandConstraints);
-      const a11y = line(dd.accessibilityTarget);
-      const tone = line(dd.tone);
+      const brand = line2(dd.brandConstraints);
+      const a11y = line2(dd.accessibilityTarget);
+      const tone = line2(dd.tone);
       if (platforms.length) out.platforms = platforms;
       if (referenceSystems.length) out.referenceSystems = referenceSystems;
       if (brand) out.brandConstraints = brand;
@@ -380,16 +381,16 @@ function normalizeBrief(data, warn = () => {
   }
   return {
     schemaVersion: typeof d.schemaVersion === "number" ? d.schemaVersion : BRIEF_SCHEMA_VERSION,
-    idea: line(d.idea) ?? "",
+    idea: line2(d.idea) ?? "",
     product: {
-      name: line(d.product?.name),
-      problem: line(d.product?.problem),
+      name: line2(d.product?.name),
+      problem: line2(d.product?.problem),
       users: arr(d.product?.users, "product.users"),
-      valueProp: line(d.product?.valueProp)
+      valueProp: line2(d.product?.valueProp)
     },
     goals: arr(d.goals, "goals"),
     nonGoals: arr(d.nonGoals, "nonGoals"),
-    constraints: normalizeConstraints(d.constraints, line, arr, warn),
+    constraints: normalizeConstraints(d.constraints, line2, arr, warn),
     candidateTech: arr(d.candidateTech, "candidateTech"),
     competitors: arr(d.competitors, "competitors"),
     ossSeeds: arr(d.ossSeeds, "ossSeeds"),
@@ -434,8 +435,655 @@ function validateBrief(brief) {
   return { ok: errors.length === 0, errors, warnings };
 }
 
+// src/brainstorm.ts
+import { existsSync as existsSync2, readFileSync as readFileSync2, writeFileSync as writeFileSync2, mkdirSync as mkdirSync2 } from "fs";
+import { join as join2 } from "path";
+
+// src/templates.ts
+var BRAINSTORM_ANGLE_ORDER = [
+  { angle: "reframe", label: "Problem reframes" },
+  { angle: "segment", label: "User segments" },
+  { angle: "feature", label: "Feature ideas" },
+  { angle: "differentiator", label: "Differentiators" },
+  { angle: "anti-goal", label: "Anti-goals & risks" },
+  { angle: "wildcard", label: "Wildcards" }
+];
+function renderBrainstormMd(b) {
+  const out = [];
+  out.push(`# Brainstorm \u2014 ${b.idea || "(idea)"}`);
+  out.push("");
+  out.push(
+    `Divergent ideas for this product. Mark each idea's \`status\` in \`brainstorm.json\` (**proposed** \u2192 **kept** / **parked** / **rejected**); give every **kept** idea a \`target\` (featureWishlist \xB7 competitors \xB7 nonGoals \xB7 goals \xB7 candidateTech \xB7 openQuestions), then run \`construct brainstorm --out <run> --merge\` to fold them into brief.json. **Parked** ideas become \u{1F9E0} open questions that BLOCK the structural gate until resolved.`
+  );
+  out.push("");
+  for (const { angle, label } of BRAINSTORM_ANGLE_ORDER) {
+    const ideas = b.ideas.filter((i) => i.angle === angle);
+    if (!ideas.length) continue;
+    out.push(`## ${label}`);
+    out.push("");
+    for (const i of ideas) {
+      const tgt = i.target ? ` \u2192 ${i.target}${i.priority ? ` (${i.priority})` : ""}` : "";
+      const notes = i.notes ? ` \u2014 ${i.notes}` : "";
+      const mergedMark = i.mergedAt ? " \u2713merged" : "";
+      out.push(`- **[${i.status}]** ${i.id} \u2014 ${i.title}${tgt}${notes}${mergedMark}`);
+    }
+    out.push("");
+  }
+  if (!b.ideas.length) out.push("_No ideas yet \u2014 generate some with the AI (references/brainstorm-playbook.md)._");
+  return out.join("\n");
+}
+function cite(ids) {
+  if (!ids || ids.length === 0) return "";
+  return " " + ids.map((id) => `[${id}]`).join("");
+}
+function cell(s) {
+  return String(s).replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, " ").trim();
+}
+function slugTitle(s) {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "decision";
+}
+function bullets(items, empty) {
+  if (!items.length) return `_${empty}_`;
+  return items.map((i) => `- ${i}`).join("\n");
+}
+function renderVision(srd) {
+  const p = srd.product;
+  return [
+    `# Vision`,
+    ``,
+    `**Product:** ${p.name}`,
+    ``,
+    `## Problem`,
+    p.problem,
+    ``,
+    `## Target users`,
+    bullets(p.users, "No users captured."),
+    ``,
+    `## Value proposition`,
+    p.valueProp,
+    ``,
+    `## Success metrics`,
+    bullets(p.metrics, "Define a measurable launch success metric."),
+    ``
+  ].join("\n");
+}
+function renderScope(srd) {
+  const lines = [
+    `# Scope`,
+    ``,
+    `## In scope`,
+    bullets(srd.scope.inScope, "No in-scope items captured."),
+    ``,
+    `## Out of scope`,
+    bullets(srd.scope.outOfScope, "Nothing explicitly excluded yet."),
+    ``,
+    `## Assumptions`,
+    bullets(srd.scope.assumptions, "No assumptions recorded."),
+    ``
+  ];
+  if (srd.openQuestions.length) {
+    lines.push(`## Open decisions`, ``);
+    for (const q of srd.openQuestions) lines.push(`> \u{1F9E0} **Decide:** ${q}`, ``);
+  }
+  return lines.join("\n");
+}
+function renderFRBlock(fr) {
+  const out = [`## ${fr.id} \u2014 ${fr.title} _(${fr.priority})_${cite(fr.rationaleEvidence)}`, ``];
+  out.push(fr.description);
+  out.push(``);
+  out.push(`**Acceptance criteria:**`);
+  for (const a of fr.acceptance) {
+    out.push(`- **Given** ${a.given} **When** ${a.when} **Then** ${a.then}`);
+  }
+  out.push(``);
+  const trace = [
+    `NFRs: ${fr.nfrs.length ? fr.nfrs.join(", ") : "\u2014"}`,
+    `entities: ${fr.entities.length ? fr.entities.join(", ") : "\u2014"}`,
+    `interfaces: ${fr.interfaces.length ? fr.interfaces.join(", ") : "\u2014"}`
+  ].join(" \xB7 ");
+  out.push(`_Traceability \u2014 ${trace}_`);
+  out.push(``);
+  return out;
+}
+function renderFunctional(srd) {
+  if (srd.modules?.length) return renderFunctionalIndex(srd);
+  return renderFunctionalFull(srd);
+}
+function renderFunctionalFull(srd) {
+  const out = [`# Functional requirements`, ``];
+  if (!srd.functional.length) out.push(`_No functional requirements defined._`, ``);
+  for (const fr of srd.functional) out.push(...renderFRBlock(fr));
+  return out.join("\n");
+}
+function renderFunctionalIndex(srd) {
+  const out = [`# Functional requirements`, ``];
+  out.push(`_This SRD is partitioned into module PRDs \u2014 the full requirement blocks (description,`);
+  out.push(`acceptance criteria, traceability) live in each module's PRD under [../prd/](../prd/README.md)._`, ``);
+  out.push(`| Requirement | Title | Priority | Module | PRD |`);
+  out.push(`|---|---|---|---|---|`);
+  for (const fr of srd.functional) {
+    const link = fr.module ? `[../prd/${fr.module}/PRD.md](../prd/${fr.module}/PRD.md)` : "\u2014";
+    out.push(`| ${fr.id} | ${cell(fr.title)} | ${fr.priority} | ${fr.module ?? "\u2014"} | ${link} |`);
+  }
+  out.push(``);
+  return out.join("\n");
+}
+function renderModulePRD(srd, m) {
+  const frs = srd.functional.filter((f) => f.module === m.id);
+  const others = (srd.modules ?? []).filter((o) => o.id !== m.id);
+  const frIdSet = new Set(frs.map((f) => f.id));
+  const out = [`# PRD \u2014 ${m.name}`, ``];
+  out.push(`_Module \`${m.id}\` \xB7 ${srd.product.name} \xB7 ${frs.length} requirement(s)_`, ``);
+  if (m.description) out.push(m.description, ``);
+  out.push(
+    `**Global context:** [Vision](../../00-overview/VISION.md) \xB7 [Scope](../../00-overview/SCOPE.md) \xB7 [Non-functional requirements](../../requirements/NON-FUNCTIONAL.md) \xB7 [Data model](../../architecture/DATA-MODEL.md) \xB7 [Interfaces](../../architecture/INTERFACES.md) \xB7 [Traceability](../../TRACEABILITY.md)`,
+    ``
+  );
+  out.push(`## Scope`, ``);
+  out.push(`**In scope:** ${frs.length ? frs.map((f) => f.id).join(", ") : "\u2014"}.`, ``);
+  if (others.length) {
+    out.push(`**Out of scope** (owned by other modules): ${others.map((o) => `[${o.name}](../${o.id}/PRD.md)`).join(", ")}.`, ``);
+  }
+  out.push(`## Requirements`, ``);
+  if (!frs.length) out.push(`_No requirements assigned to this module._`, ``);
+  for (const fr of frs) out.push(...renderFRBlock(fr));
+  const nfrIds = new Set(frs.flatMap((f) => f.nfrs));
+  const nfrs = srd.nonFunctional.filter((n) => nfrIds.has(n.id));
+  out.push(`## Non-functional requirements`, ``);
+  if (nfrs.length) {
+    out.push(`_Applying to this module's requirements \u2014 full statements in [NON-FUNCTIONAL.md](../../requirements/NON-FUNCTIONAL.md)._`, ``);
+    out.push(`| NFR | Category | Metric |`, `|---|---|---|`);
+    for (const n of nfrs) out.push(`| ${n.id} | ${cell(n.category)} | ${cell(n.metric ?? "\u2014")} |`);
+  } else {
+    out.push(`_None linked._`);
+  }
+  out.push(``);
+  const entities = srd.architecture.dataModel.filter((e) => e.referencedByFRs.some((id) => frIdSet.has(id)));
+  out.push(`## Data model (module slice)`, ``);
+  if (entities.length) {
+    out.push(`| Entity | Referenced by |`, `|---|---|`);
+    for (const e of entities) out.push(`| ${cell(e.name)} | ${e.referencedByFRs.filter((id) => frIdSet.has(id)).join(", ")} |`);
+  } else {
+    out.push(`_No entities touch this module yet._`);
+  }
+  out.push(``);
+  const ifaces = srd.architecture.interfaces.filter((i) => i.relatedFRs.some((id) => frIdSet.has(id)));
+  out.push(`## Interfaces (module slice)`, ``);
+  if (ifaces.length) {
+    out.push(`| Interface | Kind | Related |`, `|---|---|---|`);
+    for (const i of ifaces) out.push(`| ${cell(i.name)} | ${i.kind} | ${i.relatedFRs.filter((id) => frIdSet.has(id)).join(", ")} |`);
+  } else {
+    out.push(`_No interfaces touch this module yet._`);
+  }
+  out.push(``);
+  out.push(`## Dependencies`, ``);
+  const declared = m.dependsOn.map((dep) => {
+    const d = others.find((o) => o.id === dep);
+    return d ? `[${d.name}](../${d.id}/PRD.md)` : dep;
+  });
+  const shared = [];
+  for (const o of others) {
+    const oSet = new Set(o.frIds);
+    const names = entities.filter((e) => e.referencedByFRs.some((id) => oSet.has(id))).map((e) => e.name);
+    if (names.length) shared.push(`shares ${names.join(", ")} with [${o.name}](../${o.id}/PRD.md)`);
+  }
+  if (!declared.length && !shared.length) out.push(`_None._`);
+  if (declared.length) out.push(`- **Declared:** depends on ${declared.join(", ")}.`);
+  for (const s of shared) out.push(`- **Derived (shared data):** ${s}.`);
+  out.push(``);
+  return out.join("\n");
+}
+function renderModulePrdIndex(srd) {
+  const out = [`# Module PRDs`, ``];
+  out.push(`One PRD per product module, rendered from SRD.json. Cross-module docs (vision, scope,`);
+  out.push(`NFRs, architecture, ADRs, traceability) live at the SRD root; the cross-module requirement`);
+  out.push(`index is [../requirements/FUNCTIONAL.md](../requirements/FUNCTIONAL.md).`, ``);
+  out.push(`| Module | PRD | Requirements | Depends on |`);
+  out.push(`|---|---|---|---|`);
+  for (const m of srd.modules ?? []) {
+    out.push(`| ${cell(m.name)} | [${m.id}/PRD.md](${m.id}/PRD.md) | ${m.frIds.join(", ") || "\u2014"} | ${m.dependsOn.join(", ") || "\u2014"} |`);
+  }
+  out.push(``);
+  return out.join("\n");
+}
+function renderFeaturePRD(fr, srd) {
+  const out = [`# PRD ${fr.id} \u2014 ${fr.title}${cite(fr.rationaleEvidence)}`, ``];
+  out.push(`_Priority: ${fr.priority}_ \xB7 _Product: ${srd.product.name}_`, ``);
+  out.push(`## Context`, ``, srd.product.problem, ``);
+  out.push(`## Feature`, ``, fr.description, ``);
+  out.push(`## Acceptance criteria`, ``);
+  for (const a of fr.acceptance) {
+    out.push(`- **Given** ${a.given} **When** ${a.when} **Then** ${a.then}`);
+  }
+  out.push(``, `## Non-functional requirements`, ``);
+  if (!fr.nfrs.length) out.push(`_None linked._`);
+  for (const id of fr.nfrs) {
+    const nfr = srd.nonFunctional.find((n) => n.id === id);
+    out.push(nfr ? `- **${nfr.id}** (${nfr.category}): ${nfr.statement}${nfr.metric ? ` \u2014 metric: ${nfr.metric}` : ""}` : `- **${id}**`);
+  }
+  out.push(``, `## Data & interfaces`, ``);
+  out.push(`- Entities: ${fr.entities.length ? fr.entities.join(", ") : "\u2014"}`);
+  out.push(`- Interfaces: ${fr.interfaces.length ? fr.interfaces.join(", ") : "\u2014"}`);
+  out.push(``, `## Grounding`, ``);
+  out.push(
+    fr.rationaleEvidence.length ? `Evidence:${cite(fr.rationaleEvidence)} \u2014 see ../../evidence/EVIDENCE.md.` : `_Ungrounded \u2014 see the grounding report (construct check)._`
+  );
+  out.push(``);
+  return out.join("\n");
+}
+function renderPRDIndex(srd) {
+  const out = [`# PRDs \u2014 one per functional requirement`, ``];
+  out.push(`Rendered from SRD.json by \`construct render --prd\`. The canonical, always-current`);
+  out.push(`requirement list is [../FUNCTIONAL.md](../FUNCTIONAL.md); re-render after editing.`, ``);
+  out.push(`| PRD | Priority | Title |`);
+  out.push(`|---|---|---|`);
+  for (const fr of srd.functional) {
+    const file = `PRD-${fr.id}-${slugTitle(fr.title)}.md`;
+    out.push(`| [${file}](${file}) | ${cell(fr.priority)} | ${cell(fr.title)} |`);
+  }
+  out.push(``);
+  return out.join("\n");
+}
+function renderNonFunctional(srd) {
+  const out = [`# Non-functional requirements`, ``];
+  if (!srd.nonFunctional.length) out.push(`_No non-functional requirements defined._`, ``);
+  for (const n of srd.nonFunctional) {
+    out.push(`## ${n.id} \u2014 ${n.category}${cite(n.rationaleEvidence)}`);
+    out.push(``);
+    out.push(n.statement);
+    if (n.metric) out.push(``, `- **Metric:** ${n.metric}`);
+    out.push(``);
+  }
+  return out.join("\n");
+}
+function renderSystemContext(srd) {
+  return [`# System context`, ``, srd.architecture.context, ``].join("\n");
+}
+function renderDataModel(srd) {
+  const out = [`# Data model`, ``];
+  const entities = srd.architecture.dataModel;
+  if (!entities.length) {
+    out.push(`_No entities defined yet. Enrich during authoring: list entities, their attributes, and which functional requirements reference each._`, ``);
+    return out.join("\n");
+  }
+  out.push(`_Seeded by inference from the brief \u2014 verify each entity and extend attributes during authoring._`, ``);
+  for (const e of entities) {
+    out.push(`## ${e.name}`);
+    out.push(``);
+    if (e.attributes.length) {
+      out.push(`| Attribute | Type |`, `|---|---|`);
+      for (const a of e.attributes) out.push(`| ${cell(a.name)} | ${cell(a.type)} |`);
+    }
+    out.push(``, `_Referenced by: ${e.referencedByFRs.length ? e.referencedByFRs.join(", ") : "\u2014"}_`, ``);
+  }
+  return out.join("\n");
+}
+function renderInterfaces(srd) {
+  const out = [`# Interfaces`, ``];
+  const ifaces = srd.architecture.interfaces;
+  if (!ifaces.length) {
+    out.push(`_No interfaces defined yet. Enrich during authoring: list the API/event/UI/CLI surfaces and the functional requirements each serves._`, ``);
+    return out.join("\n");
+  }
+  out.push(`_Seeded by inference from the brief \u2014 verify each surface and define its contract during authoring._`, ``);
+  for (const i of ifaces) {
+    out.push(`## ${i.name} _(${i.kind})_`, ``, i.summary, ``, `_Related: ${i.relatedFRs.length ? i.relatedFRs.join(", ") : "\u2014"}_`, ``);
+  }
+  return out.join("\n");
+}
+function renderADR(adr) {
+  const out = [
+    `# ${adr.id}. ${adr.title}`,
+    ``,
+    `- **Status:** ${adr.status}`,
+    ``,
+    `## Context`,
+    adr.context,
+    ``,
+    `## Decision`,
+    `${adr.decision}${cite(adr.evidence)}`,
+    ``,
+    `## Consequences`,
+    adr.consequences,
+    ``
+  ];
+  if (adr.alternatives) out.push(`## Alternatives considered`, adr.alternatives, ``);
+  return out.join("\n");
+}
+function renderLandscape(srd) {
+  const out = [`# Competitive landscape`, ``, `## Competitors`, ``];
+  if (srd.competitive.competitors.length) {
+    out.push(`| Product | Note | Evidence |`, `|---|---|---|`);
+    for (const c of srd.competitive.competitors) {
+      const ev = c.evidence.length ? c.evidence.map((id) => `[${id}]`).join("") : "_ungrounded_";
+      out.push(`| ${cell(c.name)} | ${cell(c.note)} | ${ev} |`);
+    }
+  } else {
+    out.push(`_No competitors captured. Use the market research angle to discover them._`);
+  }
+  out.push(``, `## Comparable open-source projects`, ``);
+  if (srd.competitive.oss.length) {
+    out.push(`| Project | Note | Evidence |`, `|---|---|---|`);
+    for (const o of srd.competitive.oss) {
+      const name = o.url ? `[${cell(o.name)}](${o.url})` : cell(o.name);
+      const ev = o.evidence.length ? o.evidence.map((id) => `[${id}]`).join("") : "_ungrounded_";
+      out.push(`| ${name} | ${cell(o.note)} | ${ev} |`);
+    }
+  } else {
+    out.push(`_No OSS prior art captured. Use the oss research angle to mine comparable projects._`);
+  }
+  out.push(``);
+  return out.join("\n");
+}
+function renderBuildPlan(srd) {
+  const out = [`# Build plan`, ``];
+  for (const m of srd.buildPlan) {
+    out.push(`## ${m.title}`, ``, m.outcome, ``);
+    out.push(`- **Requirements:** ${m.frIds.length ? m.frIds.join(", ") : "\u2014"}`);
+    if (m.risks.length) {
+      out.push(`- **Risks:**`);
+      for (const r of m.risks) out.push(`  - ${r}`);
+    }
+    out.push(``);
+  }
+  return out.join("\n");
+}
+function renderTraceability(srd) {
+  const design = !!srd.design;
+  const modules = !!srd.modules?.length;
+  const cols = ["Requirement", ...modules ? ["Module"] : [], "NFRs", "ADRs", "Entities", "Interfaces", ...design ? ["Components", "Screens"] : []];
+  const out = [`# Traceability matrix`, ``, `| ${cols.join(" | ")} |`, `|${cols.map(() => "---").join("|")}|`];
+  for (const r of srd.traceability) {
+    const cells = [
+      r.fr,
+      ...modules ? [r.module ?? "\u2014"] : [],
+      r.nfrs.join(", ") || "\u2014",
+      r.adrs.join(", ") || "\u2014",
+      r.entities.join(", ") || "\u2014",
+      r.interfaces.join(", ") || "\u2014"
+    ];
+    if (design) {
+      cells.push((r.components ?? []).map(cell).join(", ") || "\u2014");
+      cells.push((r.screens ?? []).map(cell).join(", ") || "\u2014");
+    }
+    out.push(`| ${cells.join(" | ")} |`);
+  }
+  out.push(``);
+  return out.join("\n");
+}
+function renderDesignPrinciples(ds) {
+  return [
+    `# Design principles`,
+    ``,
+    bullets(ds.principles, "No design principles captured."),
+    ``,
+    `## Content & voice`,
+    ``,
+    bullets(ds.contentVoice, "No content guidelines captured."),
+    ``
+  ].join("\n");
+}
+function renderDesignTokens(ds) {
+  const out = [`# Design tokens`, ``, `_${DESIGN_TOKENS_SEEDED_BANNER}_`, ``];
+  const cats = [...new Set(ds.tokens.map((t) => t.category))];
+  for (const cat of cats) {
+    const toks = ds.tokens.filter((t) => t.category === cat);
+    out.push(`## ${cell(cat)}`, ``, `| Token | Value | Notes |`, `|---|---|---|`);
+    for (const t of toks) out.push(`| ${cell(t.name)} | ${cell(t.value)} | ${cell(t.note ?? "")} |`);
+    out.push(``);
+  }
+  out.push("> The machine-readable token set is in `design/design-tokens.json`.", ``);
+  return out.join("\n");
+}
+function renderDesignTokensJson(ds) {
+  const obj = {};
+  for (const t of ds.tokens) {
+    (obj[t.category] ??= {})[t.name] = t.value;
+  }
+  return JSON.stringify(obj, null, 2);
+}
+function renderComponents(ds) {
+  const out = [`# Components`, ``];
+  if (!ds.components.length) {
+    out.push(`_No components defined yet. Enrich during authoring: name each component, its states and the requirements it realises._`, ``);
+    return out.join("\n");
+  }
+  out.push(`_Seeded from the functional requirements \u2014 verify each component and its states during authoring._`, ``);
+  for (const c of ds.components) {
+    out.push(`## ${c.name}${cite(c.evidence)}`, ``, c.purpose, ``);
+    out.push(`- **States:** ${c.states.join(", ") || "\u2014"}`);
+    out.push(`- **Realises:** ${c.relatedFRs.length ? c.relatedFRs.join(", ") : "\u2014"}`, ``);
+  }
+  return out.join("\n");
+}
+function renderScreens(ds) {
+  const out = [`# Screens & flows`, ``, `## Screens`, ``];
+  if (ds.screens.length) {
+    out.push(`| Screen | Purpose | Requirements |`, `|---|---|---|`);
+    for (const s of ds.screens) out.push(`| ${cell(s.name)} | ${cell(s.purpose)} | ${s.relatedFRs.join(", ") || "\u2014"} |`);
+  } else {
+    out.push(`_No screens defined._`);
+  }
+  out.push(``, `## User flows`, ``);
+  if (ds.flows.length) {
+    for (const f of ds.flows) {
+      out.push(`### ${f.name}${f.frIds.length ? ` _(${f.frIds.join(", ")})_` : ""}`, ``);
+      f.steps.forEach((step, i) => out.push(`${i + 1}. ${step}`));
+      out.push(``);
+    }
+  } else {
+    out.push(`_No user flows defined._`);
+  }
+  return out.join("\n");
+}
+function renderAccessibility(ds) {
+  const a = ds.accessibility;
+  const out = [`# Accessibility`, ``, `**Target standard:** ${a.standard}`, ``];
+  if (!a.requirements.length) {
+    out.push(`_No accessibility requirements defined._`, ``);
+    return out.join("\n");
+  }
+  for (const r of a.requirements) {
+    out.push(`## ${r.id} \u2014 ${r.statement}`, ``, `**Acceptance criteria:**`);
+    for (const c of r.acceptance) out.push(`- **Given** ${c.given} **When** ${c.when} **Then** ${c.then}`);
+    out.push(``);
+  }
+  return out.join("\n");
+}
+function renderMergeBundle(srd) {
+  const parts = [
+    `# Software Requirements Document \u2014 ${srd.product.name}`,
+    ``,
+    `_Level: ${srd.level} \xB7 generated: ${srd.generatedAt}_`,
+    ``,
+    renderVision(srd),
+    renderScope(srd),
+    // Always the full FR blocks: the bundle is the one-file reading copy, so it
+    // must stay complete even when FUNCTIONAL.md is an index (modules mode).
+    renderFunctionalFull(srd),
+    renderNonFunctional(srd),
+    renderSystemContext(srd),
+    renderDataModel(srd),
+    renderInterfaces(srd),
+    `# Architecture decisions`,
+    ``,
+    ...srd.architecture.adrs.map(renderADR),
+    ...srd.design ? [
+      `# Design system`,
+      ``,
+      renderDesignPrinciples(srd.design),
+      renderDesignTokens(srd.design),
+      renderComponents(srd.design),
+      renderScreens(srd.design),
+      renderAccessibility(srd.design)
+    ] : [],
+    renderLandscape(srd),
+    renderBuildPlan(srd),
+    renderTraceability(srd)
+  ];
+  return parts.join("\n");
+}
+
+// src/brainstorm.ts
+var ANGLES = ["reframe", "segment", "feature", "differentiator", "anti-goal", "wildcard"];
+var STATUSES = ["proposed", "kept", "parked", "rejected"];
+var TARGETS = ["featureWishlist", "competitors", "nonGoals", "goals", "candidateTech", "openQuestions"];
+function brainstormPath(runDir) {
+  return join2(runDir, "brainstorm.json");
+}
+function initBrainstorm(idea, now) {
+  return { schemaVersion: BRAINSTORM_SCHEMA_VERSION, idea: idea.trim(), createdAt: now, ideas: [] };
+}
+function saveBrainstorm(runDir, b) {
+  mkdirSync2(runDir, { recursive: true });
+  const path = brainstormPath(runDir);
+  writeFileSync2(path, JSON.stringify(b, null, 2));
+  return path;
+}
+function writeBrainstormMd(runDir, b) {
+  mkdirSync2(runDir, { recursive: true });
+  const path = join2(runDir, "BRAINSTORM.md");
+  const md = renderBrainstormMd(b);
+  writeFileSync2(path, md.endsWith("\n") ? md : md + "\n");
+  return path;
+}
+function brainstormCounts(b) {
+  const counts = { proposed: 0, kept: 0, parked: 0, rejected: 0 };
+  for (const i of b.ideas) if (counts[i.status] !== void 0) counts[i.status]++;
+  return counts;
+}
+var line = (v) => typeof v === "string" ? v.replace(/\s+/g, " ").trim() : void 0;
+function loadBrainstorm(runDir, warn = () => {
+}) {
+  const path = brainstormPath(runDir);
+  if (!existsSync2(path)) return void 0;
+  let data;
+  try {
+    data = JSON.parse(readFileSync2(path, "utf8"));
+  } catch (e) {
+    throw new Error(`brainstorm.json is unreadable: ${e.message}`);
+  }
+  const d = data ?? {};
+  const used = /* @__PURE__ */ new Set();
+  let seq = 0;
+  const nextId = () => {
+    do {
+      seq++;
+    } while (used.has(`B-${String(seq).padStart(3, "0")}`));
+    const id = `B-${String(seq).padStart(3, "0")}`;
+    used.add(id);
+    return id;
+  };
+  const rawIdeas = Array.isArray(d.ideas) ? d.ideas : [];
+  if (!Array.isArray(d.ideas) && d.ideas !== void 0) warn("brainstorm.ideas is not an array \u2014 ignored.");
+  for (const raw of rawIdeas) {
+    const id = line(raw?.id);
+    if (id && /^B-\d{3,}$/.test(id)) used.add(id);
+  }
+  const ideas = [];
+  rawIdeas.forEach((raw, i) => {
+    const r = raw ?? {};
+    const title = line(r.title);
+    if (!title) {
+      warn(`brainstorm.ideas[${i}] has no usable title \u2014 dropped.`);
+      return;
+    }
+    let id = line(r.id);
+    if (!id || !/^B-\d{3,}$/.test(id)) id = nextId();
+    let angle = r.angle;
+    if (!ANGLES.includes(angle)) {
+      if (r.angle !== void 0) warn(`brainstorm ${id}: angle "${String(r.angle)}" is not recognized \u2014 treated as wildcard.`);
+      angle = "wildcard";
+    }
+    let status = r.status;
+    if (!STATUSES.includes(status)) {
+      if (r.status !== void 0) warn(`brainstorm ${id}: status "${String(r.status)}" is not recognized \u2014 treated as proposed.`);
+      status = "proposed";
+    }
+    let target = r.target;
+    if (target !== void 0 && !TARGETS.includes(target)) {
+      warn(`brainstorm ${id}: target "${String(r.target)}" is not recognized \u2014 removed.`);
+      target = void 0;
+    }
+    const idea = { id, angle, title, status };
+    const notes = line(r.notes);
+    if (notes) idea.notes = notes;
+    if (target) idea.target = target;
+    const priority = r.priority;
+    if (priority === "must" || priority === "should" || priority === "could") idea.priority = priority;
+    const mergedAt = line(r.mergedAt);
+    if (mergedAt) idea.mergedAt = mergedAt;
+    ideas.push(idea);
+  });
+  return {
+    schemaVersion: typeof d.schemaVersion === "number" ? d.schemaVersion : BRAINSTORM_SCHEMA_VERSION,
+    idea: line(d.idea) ?? "",
+    createdAt: line(d.createdAt) ?? "",
+    ...line(d.updatedAt) ? { updatedAt: line(d.updatedAt) } : {},
+    ideas
+  };
+}
+var norm = (s) => s.toLowerCase().replace(/\s+/g, " ").trim();
+function mergeBrainstorm(briefIn, brainstormIn, now, warn = () => {
+}) {
+  const brief = JSON.parse(JSON.stringify(briefIn));
+  const brainstorm = JSON.parse(JSON.stringify(brainstormIn));
+  let merged = 0;
+  let parkedFolded = 0;
+  let skipped = 0;
+  const appendUnique = (list, value) => {
+    if (list.some((x) => norm(x) === norm(value))) return false;
+    list.push(value);
+    return true;
+  };
+  for (const idea of brainstorm.ideas) {
+    if (idea.mergedAt) continue;
+    if (idea.status === "parked") {
+      appendUnique(brief.openQuestions, `Parked idea ${idea.id}: ${idea.title}`);
+      idea.mergedAt = now;
+      parkedFolded++;
+      continue;
+    }
+    if (idea.status !== "kept") continue;
+    if (!idea.target) {
+      warn(`brainstorm ${idea.id} "${idea.title}" is kept but has no target \u2014 set one (featureWishlist, competitors, \u2026) and re-merge.`);
+      skipped++;
+      continue;
+    }
+    if (idea.target === "featureWishlist") {
+      const exists = brief.featureWishlist.some((f) => norm(f.title) === norm(idea.title));
+      if (exists) {
+        warn(`brainstorm ${idea.id} "${idea.title}" is already in the wishlist \u2014 skipped.`);
+      } else {
+        brief.featureWishlist.push({ title: idea.title, priority: idea.priority ?? "could", ...idea.notes ? { notes: idea.notes } : {} });
+      }
+      idea.mergedAt = now;
+      merged++;
+      continue;
+    }
+    if (idea.target === "goals" && brief.nonGoals.some((g) => norm(g) === norm(idea.title))) {
+      warn(`brainstorm ${idea.id} "${idea.title}" conflicts with an existing nonGoal \u2014 NOT merged; resolve it in brief.json first.`);
+      skipped++;
+      continue;
+    }
+    if (idea.target === "nonGoals" && brief.goals.some((g) => norm(g) === norm(idea.title))) {
+      warn(`brainstorm ${idea.id} "${idea.title}" conflicts with an existing goal \u2014 NOT merged; resolve it in brief.json first.`);
+      skipped++;
+      continue;
+    }
+    const value = idea.target === "openQuestions" && idea.notes ? `${idea.title} \u2014 ${idea.notes}` : idea.title;
+    const list = brief[idea.target];
+    if (!appendUnique(list, value)) warn(`brainstorm ${idea.id} "${idea.title}" is already in ${idea.target} \u2014 skipped.`);
+    idea.mergedAt = now;
+    merged++;
+  }
+  brainstorm.updatedAt = now;
+  const proposed = brainstorm.ideas.filter((i) => i.status === "proposed").length;
+  return { brief, brainstorm, merged, parkedFolded, skipped, proposed };
+}
+
 // src/research/registry.ts
-import { join as join6 } from "path";
+import { join as join7 } from "path";
 
 // src/research/fetch.ts
 var UA = "construct/0.x (+https://github.com/maxgfr/construct)";
@@ -554,9 +1202,9 @@ var CONSENT_PATTERNS = [
 ];
 function stripConsentBoilerplate(text) {
   let dropped = 0;
-  const kept = text.split("\n").filter((line) => {
-    const hits = CONSENT_PATTERNS.reduce((n, re) => n + (re.test(line) ? 1 : 0), 0);
-    const isBanner = hits >= 2 || hits === 1 && line.trim().length < 120;
+  const kept = text.split("\n").filter((line2) => {
+    const hits = CONSENT_PATTERNS.reduce((n, re) => n + (re.test(line2) ? 1 : 0), 0);
+    const isBanner = hits >= 2 || hits === 1 && line2.trim().length < 120;
     if (isBanner) dropped++;
     return !isBanner;
   });
@@ -752,17 +1400,17 @@ async function marketAngle(ctx) {
 }
 
 // src/clone.ts
-import { existsSync as existsSync2, statSync, mkdirSync as mkdirSync2, readdirSync, rmSync } from "fs";
-import { resolve, join as join2, basename } from "path";
+import { existsSync as existsSync3, statSync, mkdirSync as mkdirSync3, readdirSync, rmSync } from "fs";
+import { resolve, join as join3, basename } from "path";
 import { tmpdir } from "os";
 function cacheRoot() {
-  return join2(tmpdir(), "construct");
+  return join3(tmpdir(), "construct");
 }
 function resolveRepo(raw) {
   const trimmed = raw.trim();
   if (trimmed) {
     const asPath = resolve(trimmed);
-    if (existsSync2(asPath) && statSync(asPath).isDirectory()) {
+    if (existsSync3(asPath) && statSync(asPath).isDirectory()) {
       return {
         raw: trimmed,
         host: "local",
@@ -811,15 +1459,15 @@ function resolveRepo(raw) {
 }
 function ensureClone(ref, opts = {}) {
   if (ref.isLocal) return resolve(ref.raw);
-  const dir = join2(cacheRoot(), ref.slug);
-  const alreadyCloned = existsSync2(join2(dir, ".git"));
+  const dir = join3(cacheRoot(), ref.slug);
+  const alreadyCloned = existsSync3(join3(dir, ".git"));
   if (alreadyCloned && !opts.refresh) return dir;
   if (alreadyCloned && opts.refresh) {
     sh("git", ["-C", dir, "fetch", "--depth", "1", "origin"], { timeoutMs: GIT_FETCH_TIMEOUT_MS });
     sh("git", ["-C", dir, "reset", "--hard", "FETCH_HEAD"], { timeoutMs: GIT_RESET_TIMEOUT_MS });
     return dir;
   }
-  mkdirSync2(cacheRoot(), { recursive: true });
+  mkdirSync3(cacheRoot(), { recursive: true });
   const args = ["clone", "--depth", "1", "--filter=blob:none"];
   if (opts.branch) args.push("--branch", opts.branch);
   args.push(ref.cloneUrl, dir);
@@ -828,7 +1476,7 @@ function ensureClone(ref, opts = {}) {
     if (res.missing) {
       throw new Error(`git is not installed or not on PATH \u2014 cannot clone ${ref.cloneUrl}`);
     }
-    if (existsSync2(dir)) {
+    if (existsSync3(dir)) {
       try {
         rmSync(dir, { recursive: true, force: true });
       } catch (e) {
@@ -848,15 +1496,15 @@ function ensureClone(ref, opts = {}) {
       );
     }
   }
-  if (!existsSync2(dir) || readdirSync(dir).length === 0) {
+  if (!existsSync3(dir) || readdirSync(dir).length === 0) {
     throw new Error(`clone produced an empty tree at ${dir}`);
   }
   return dir;
 }
 
 // src/walk.ts
-import { readdirSync as readdirSync2, lstatSync, readFileSync as readFileSync2 } from "fs";
-import { join as join3, relative, sep, extname } from "path";
+import { readdirSync as readdirSync2, lstatSync, readFileSync as readFileSync3 } from "fs";
+import { join as join4, relative, sep, extname } from "path";
 var IGNORE_DIRS = /* @__PURE__ */ new Set([
   ".git",
   "node_modules",
@@ -970,7 +1618,7 @@ function walk(root, opts = {}) {
     }
     for (const name of entries) {
       if (out.length >= maxFiles) break;
-      const abs = join3(dir, name);
+      const abs = join4(dir, name);
       let st;
       try {
         st = lstatSync(abs);
@@ -995,7 +1643,7 @@ function walk(root, opts = {}) {
 }
 function readText(abs) {
   try {
-    const buf = readFileSync2(abs);
+    const buf = readFileSync3(abs);
     const head = buf.subarray(0, 4096);
     if (head.includes(0)) return "";
     return buf.toString("utf8");
@@ -1441,8 +2089,8 @@ async function techAngle(ctx) {
 }
 
 // src/research/semantic.ts
-import { existsSync as existsSync3 } from "fs";
-import { join as join4, dirname } from "path";
+import { existsSync as existsSync4 } from "fs";
+import { join as join5, dirname } from "path";
 import { fileURLToPath } from "url";
 var OLLAMA = (process.env.CONSTRUCT_OLLAMA || "http://localhost:11434").replace(/\/$/, "");
 var EMBED_MODEL = process.env.CONSTRUCT_EMBED_MODEL || "nomic-embed-text";
@@ -1502,10 +2150,10 @@ ${it.snippet}`);
 }
 function composeFile() {
   const here = dirname(fileURLToPath(import.meta.url));
-  for (const cand of [join4(here, "..", "docker-compose.yml"), join4(here, "docker-compose.yml")]) {
-    if (existsSync3(cand)) return cand;
+  for (const cand of [join5(here, "..", "docker-compose.yml"), join5(here, "docker-compose.yml")]) {
+    if (existsSync4(cand)) return cand;
   }
-  return join4(here, "..", "docker-compose.yml");
+  return join5(here, "..", "docker-compose.yml");
 }
 function semanticControl(action) {
   if (!["up", "down", "status"].includes(action)) {
@@ -1538,8 +2186,8 @@ ${up.stderr}`, code: 1 };
 }
 
 // src/research/dossier.ts
-import { mkdirSync as mkdirSync3, writeFileSync as writeFileSync2 } from "fs";
-import { join as join5 } from "path";
+import { mkdirSync as mkdirSync4, writeFileSync as writeFileSync3 } from "fs";
+import { join as join6 } from "path";
 var SOURCE_ORDER = ["market", "oss", "docs", "so", "issue", "pr"];
 var SOURCE_LABEL = {
   market: "Market & competitors",
@@ -1599,13 +2247,13 @@ function renderEvidenceMarkdown(evidence, meta) {
   return out.join("\n");
 }
 function writeDossier(dir, evidence, meta) {
-  mkdirSync3(dir, { recursive: true });
-  const evidenceJson = join5(dir, "evidence.json");
-  const evidenceMd = join5(dir, "EVIDENCE.md");
-  const metaJson = join5(dir, "meta.json");
-  writeFileSync2(evidenceJson, JSON.stringify(evidence, null, 2));
-  writeFileSync2(evidenceMd, renderEvidenceMarkdown(evidence, meta));
-  writeFileSync2(metaJson, JSON.stringify(meta, null, 2));
+  mkdirSync4(dir, { recursive: true });
+  const evidenceJson = join6(dir, "evidence.json");
+  const evidenceMd = join6(dir, "EVIDENCE.md");
+  const metaJson = join6(dir, "meta.json");
+  writeFileSync3(evidenceJson, JSON.stringify(evidence, null, 2));
+  writeFileSync3(evidenceMd, renderEvidenceMarkdown(evidence, meta));
+  writeFileSync3(metaJson, JSON.stringify(meta, null, 2));
   return { dir, evidenceJson, evidenceMd, metaJson };
 }
 
@@ -1659,19 +2307,19 @@ async function runResearch(ctx, builtAt) {
     builtAt,
     notes: [...capped.flatMap((r) => r.notes), ...notes]
   };
-  const dir = join6(ctx.runDir, "evidence");
+  const dir = join7(ctx.runDir, "evidence");
   const paths = writeDossier(dir, evidence, meta);
   return { dir, evidence, meta, paths };
 }
 
 // src/render.ts
-import { existsSync as existsSync5, mkdirSync as mkdirSync4, readFileSync as readFileSync4, writeFileSync as writeFileSync4, rmSync as rmSync2 } from "fs";
-import { join as join9, dirname as dirname2 } from "path";
+import { existsSync as existsSync6, mkdirSync as mkdirSync5, readFileSync as readFileSync5, writeFileSync as writeFileSync5, rmSync as rmSync2 } from "fs";
+import { join as join10, dirname as dirname2 } from "path";
 
 // src/srd.ts
-import { join as join7 } from "path";
+import { join as join8 } from "path";
 function srdManifestPath(runDir) {
-  return join7(runDir, "SRD.json");
+  return join8(runDir, "SRD.json");
 }
 function pad3(n) {
   return String(n).padStart(3, "0");
@@ -2453,10 +3101,10 @@ function evNum(id) {
 }
 
 // src/plan.ts
-import { existsSync as existsSync4, readFileSync as readFileSync3, writeFileSync as writeFileSync3 } from "fs";
-import { join as join8 } from "path";
+import { existsSync as existsSync5, readFileSync as readFileSync4, writeFileSync as writeFileSync4 } from "fs";
+import { join as join9 } from "path";
 function buildPlanPath(runDir) {
-  return join8(runDir, "BUILD-PLAN.json");
+  return join9(runDir, "BUILD-PLAN.json");
 }
 function milestoneLabel(title) {
   return title.split("\u2014")[0].trim() || title.trim();
@@ -2543,7 +3191,7 @@ function derivePlan(srd) {
     tasks
   };
 }
-var STATUSES = ["todo", "in-progress", "done"];
+var STATUSES2 = ["todo", "in-progress", "done"];
 function taskKey(t) {
   return t.frIds.length ? `fr:${t.title.replace(/^FR-\d+\s*—\s*/, "").trim().toLowerCase()}` : `title:${t.title.trim().toLowerCase()}`;
 }
@@ -2558,7 +3206,7 @@ function mergePlan(prev, next) {
       artifacts: Array.isArray(old.artifacts) ? old.artifacts : t.artifacts,
       tests: Array.isArray(old.tests) ? old.tests : t.tests,
       verify: old.verify && Array.isArray(old.verify.commands) ? old.verify : t.verify,
-      status: STATUSES.includes(old.status) ? old.status : t.status
+      status: STATUSES2.includes(old.status) ? old.status : t.status
     };
   });
   return {
@@ -2591,9 +3239,9 @@ function readyFrontier(plan) {
 }
 function loadPlan(runDir) {
   const path = buildPlanPath(runDir);
-  if (!existsSync4(path)) return null;
+  if (!existsSync5(path)) return null;
   try {
-    const data = JSON.parse(readFileSync3(path, "utf8"));
+    const data = JSON.parse(readFileSync4(path, "utf8"));
     return data && typeof data === "object" && Array.isArray(data.tasks) ? data : null;
   } catch {
     return null;
@@ -2601,468 +3249,15 @@ function loadPlan(runDir) {
 }
 function writePlan(runDir, plan) {
   const path = buildPlanPath(runDir);
-  writeFileSync3(path, JSON.stringify(plan, null, 2) + "\n");
+  writeFileSync4(path, JSON.stringify(plan, null, 2) + "\n");
   return path;
-}
-
-// src/templates.ts
-function cite(ids) {
-  if (!ids || ids.length === 0) return "";
-  return " " + ids.map((id) => `[${id}]`).join("");
-}
-function cell(s) {
-  return String(s).replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, " ").trim();
-}
-function slugTitle(s) {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "decision";
-}
-function bullets(items, empty) {
-  if (!items.length) return `_${empty}_`;
-  return items.map((i) => `- ${i}`).join("\n");
-}
-function renderVision(srd) {
-  const p = srd.product;
-  return [
-    `# Vision`,
-    ``,
-    `**Product:** ${p.name}`,
-    ``,
-    `## Problem`,
-    p.problem,
-    ``,
-    `## Target users`,
-    bullets(p.users, "No users captured."),
-    ``,
-    `## Value proposition`,
-    p.valueProp,
-    ``,
-    `## Success metrics`,
-    bullets(p.metrics, "Define a measurable launch success metric."),
-    ``
-  ].join("\n");
-}
-function renderScope(srd) {
-  const lines = [
-    `# Scope`,
-    ``,
-    `## In scope`,
-    bullets(srd.scope.inScope, "No in-scope items captured."),
-    ``,
-    `## Out of scope`,
-    bullets(srd.scope.outOfScope, "Nothing explicitly excluded yet."),
-    ``,
-    `## Assumptions`,
-    bullets(srd.scope.assumptions, "No assumptions recorded."),
-    ``
-  ];
-  if (srd.openQuestions.length) {
-    lines.push(`## Open decisions`, ``);
-    for (const q of srd.openQuestions) lines.push(`> \u{1F9E0} **Decide:** ${q}`, ``);
-  }
-  return lines.join("\n");
-}
-function renderFRBlock(fr) {
-  const out = [`## ${fr.id} \u2014 ${fr.title} _(${fr.priority})_${cite(fr.rationaleEvidence)}`, ``];
-  out.push(fr.description);
-  out.push(``);
-  out.push(`**Acceptance criteria:**`);
-  for (const a of fr.acceptance) {
-    out.push(`- **Given** ${a.given} **When** ${a.when} **Then** ${a.then}`);
-  }
-  out.push(``);
-  const trace = [
-    `NFRs: ${fr.nfrs.length ? fr.nfrs.join(", ") : "\u2014"}`,
-    `entities: ${fr.entities.length ? fr.entities.join(", ") : "\u2014"}`,
-    `interfaces: ${fr.interfaces.length ? fr.interfaces.join(", ") : "\u2014"}`
-  ].join(" \xB7 ");
-  out.push(`_Traceability \u2014 ${trace}_`);
-  out.push(``);
-  return out;
-}
-function renderFunctional(srd) {
-  if (srd.modules?.length) return renderFunctionalIndex(srd);
-  return renderFunctionalFull(srd);
-}
-function renderFunctionalFull(srd) {
-  const out = [`# Functional requirements`, ``];
-  if (!srd.functional.length) out.push(`_No functional requirements defined._`, ``);
-  for (const fr of srd.functional) out.push(...renderFRBlock(fr));
-  return out.join("\n");
-}
-function renderFunctionalIndex(srd) {
-  const out = [`# Functional requirements`, ``];
-  out.push(`_This SRD is partitioned into module PRDs \u2014 the full requirement blocks (description,`);
-  out.push(`acceptance criteria, traceability) live in each module's PRD under [../prd/](../prd/README.md)._`, ``);
-  out.push(`| Requirement | Title | Priority | Module | PRD |`);
-  out.push(`|---|---|---|---|---|`);
-  for (const fr of srd.functional) {
-    const link = fr.module ? `[../prd/${fr.module}/PRD.md](../prd/${fr.module}/PRD.md)` : "\u2014";
-    out.push(`| ${fr.id} | ${cell(fr.title)} | ${fr.priority} | ${fr.module ?? "\u2014"} | ${link} |`);
-  }
-  out.push(``);
-  return out.join("\n");
-}
-function renderModulePRD(srd, m) {
-  const frs = srd.functional.filter((f) => f.module === m.id);
-  const others = (srd.modules ?? []).filter((o) => o.id !== m.id);
-  const frIdSet = new Set(frs.map((f) => f.id));
-  const out = [`# PRD \u2014 ${m.name}`, ``];
-  out.push(`_Module \`${m.id}\` \xB7 ${srd.product.name} \xB7 ${frs.length} requirement(s)_`, ``);
-  if (m.description) out.push(m.description, ``);
-  out.push(
-    `**Global context:** [Vision](../../00-overview/VISION.md) \xB7 [Scope](../../00-overview/SCOPE.md) \xB7 [Non-functional requirements](../../requirements/NON-FUNCTIONAL.md) \xB7 [Data model](../../architecture/DATA-MODEL.md) \xB7 [Interfaces](../../architecture/INTERFACES.md) \xB7 [Traceability](../../TRACEABILITY.md)`,
-    ``
-  );
-  out.push(`## Scope`, ``);
-  out.push(`**In scope:** ${frs.length ? frs.map((f) => f.id).join(", ") : "\u2014"}.`, ``);
-  if (others.length) {
-    out.push(`**Out of scope** (owned by other modules): ${others.map((o) => `[${o.name}](../${o.id}/PRD.md)`).join(", ")}.`, ``);
-  }
-  out.push(`## Requirements`, ``);
-  if (!frs.length) out.push(`_No requirements assigned to this module._`, ``);
-  for (const fr of frs) out.push(...renderFRBlock(fr));
-  const nfrIds = new Set(frs.flatMap((f) => f.nfrs));
-  const nfrs = srd.nonFunctional.filter((n) => nfrIds.has(n.id));
-  out.push(`## Non-functional requirements`, ``);
-  if (nfrs.length) {
-    out.push(`_Applying to this module's requirements \u2014 full statements in [NON-FUNCTIONAL.md](../../requirements/NON-FUNCTIONAL.md)._`, ``);
-    out.push(`| NFR | Category | Metric |`, `|---|---|---|`);
-    for (const n of nfrs) out.push(`| ${n.id} | ${cell(n.category)} | ${cell(n.metric ?? "\u2014")} |`);
-  } else {
-    out.push(`_None linked._`);
-  }
-  out.push(``);
-  const entities = srd.architecture.dataModel.filter((e) => e.referencedByFRs.some((id) => frIdSet.has(id)));
-  out.push(`## Data model (module slice)`, ``);
-  if (entities.length) {
-    out.push(`| Entity | Referenced by |`, `|---|---|`);
-    for (const e of entities) out.push(`| ${cell(e.name)} | ${e.referencedByFRs.filter((id) => frIdSet.has(id)).join(", ")} |`);
-  } else {
-    out.push(`_No entities touch this module yet._`);
-  }
-  out.push(``);
-  const ifaces = srd.architecture.interfaces.filter((i) => i.relatedFRs.some((id) => frIdSet.has(id)));
-  out.push(`## Interfaces (module slice)`, ``);
-  if (ifaces.length) {
-    out.push(`| Interface | Kind | Related |`, `|---|---|---|`);
-    for (const i of ifaces) out.push(`| ${cell(i.name)} | ${i.kind} | ${i.relatedFRs.filter((id) => frIdSet.has(id)).join(", ")} |`);
-  } else {
-    out.push(`_No interfaces touch this module yet._`);
-  }
-  out.push(``);
-  out.push(`## Dependencies`, ``);
-  const declared = m.dependsOn.map((dep) => {
-    const d = others.find((o) => o.id === dep);
-    return d ? `[${d.name}](../${d.id}/PRD.md)` : dep;
-  });
-  const shared = [];
-  for (const o of others) {
-    const oSet = new Set(o.frIds);
-    const names = entities.filter((e) => e.referencedByFRs.some((id) => oSet.has(id))).map((e) => e.name);
-    if (names.length) shared.push(`shares ${names.join(", ")} with [${o.name}](../${o.id}/PRD.md)`);
-  }
-  if (!declared.length && !shared.length) out.push(`_None._`);
-  if (declared.length) out.push(`- **Declared:** depends on ${declared.join(", ")}.`);
-  for (const s of shared) out.push(`- **Derived (shared data):** ${s}.`);
-  out.push(``);
-  return out.join("\n");
-}
-function renderModulePrdIndex(srd) {
-  const out = [`# Module PRDs`, ``];
-  out.push(`One PRD per product module, rendered from SRD.json. Cross-module docs (vision, scope,`);
-  out.push(`NFRs, architecture, ADRs, traceability) live at the SRD root; the cross-module requirement`);
-  out.push(`index is [../requirements/FUNCTIONAL.md](../requirements/FUNCTIONAL.md).`, ``);
-  out.push(`| Module | PRD | Requirements | Depends on |`);
-  out.push(`|---|---|---|---|`);
-  for (const m of srd.modules ?? []) {
-    out.push(`| ${cell(m.name)} | [${m.id}/PRD.md](${m.id}/PRD.md) | ${m.frIds.join(", ") || "\u2014"} | ${m.dependsOn.join(", ") || "\u2014"} |`);
-  }
-  out.push(``);
-  return out.join("\n");
-}
-function renderFeaturePRD(fr, srd) {
-  const out = [`# PRD ${fr.id} \u2014 ${fr.title}${cite(fr.rationaleEvidence)}`, ``];
-  out.push(`_Priority: ${fr.priority}_ \xB7 _Product: ${srd.product.name}_`, ``);
-  out.push(`## Context`, ``, srd.product.problem, ``);
-  out.push(`## Feature`, ``, fr.description, ``);
-  out.push(`## Acceptance criteria`, ``);
-  for (const a of fr.acceptance) {
-    out.push(`- **Given** ${a.given} **When** ${a.when} **Then** ${a.then}`);
-  }
-  out.push(``, `## Non-functional requirements`, ``);
-  if (!fr.nfrs.length) out.push(`_None linked._`);
-  for (const id of fr.nfrs) {
-    const nfr = srd.nonFunctional.find((n) => n.id === id);
-    out.push(nfr ? `- **${nfr.id}** (${nfr.category}): ${nfr.statement}${nfr.metric ? ` \u2014 metric: ${nfr.metric}` : ""}` : `- **${id}**`);
-  }
-  out.push(``, `## Data & interfaces`, ``);
-  out.push(`- Entities: ${fr.entities.length ? fr.entities.join(", ") : "\u2014"}`);
-  out.push(`- Interfaces: ${fr.interfaces.length ? fr.interfaces.join(", ") : "\u2014"}`);
-  out.push(``, `## Grounding`, ``);
-  out.push(
-    fr.rationaleEvidence.length ? `Evidence:${cite(fr.rationaleEvidence)} \u2014 see ../../evidence/EVIDENCE.md.` : `_Ungrounded \u2014 see the grounding report (construct check)._`
-  );
-  out.push(``);
-  return out.join("\n");
-}
-function renderPRDIndex(srd) {
-  const out = [`# PRDs \u2014 one per functional requirement`, ``];
-  out.push(`Rendered from SRD.json by \`construct render --prd\`. The canonical, always-current`);
-  out.push(`requirement list is [../FUNCTIONAL.md](../FUNCTIONAL.md); re-render after editing.`, ``);
-  out.push(`| PRD | Priority | Title |`);
-  out.push(`|---|---|---|`);
-  for (const fr of srd.functional) {
-    const file = `PRD-${fr.id}-${slugTitle(fr.title)}.md`;
-    out.push(`| [${file}](${file}) | ${cell(fr.priority)} | ${cell(fr.title)} |`);
-  }
-  out.push(``);
-  return out.join("\n");
-}
-function renderNonFunctional(srd) {
-  const out = [`# Non-functional requirements`, ``];
-  if (!srd.nonFunctional.length) out.push(`_No non-functional requirements defined._`, ``);
-  for (const n of srd.nonFunctional) {
-    out.push(`## ${n.id} \u2014 ${n.category}${cite(n.rationaleEvidence)}`);
-    out.push(``);
-    out.push(n.statement);
-    if (n.metric) out.push(``, `- **Metric:** ${n.metric}`);
-    out.push(``);
-  }
-  return out.join("\n");
-}
-function renderSystemContext(srd) {
-  return [`# System context`, ``, srd.architecture.context, ``].join("\n");
-}
-function renderDataModel(srd) {
-  const out = [`# Data model`, ``];
-  const entities = srd.architecture.dataModel;
-  if (!entities.length) {
-    out.push(`_No entities defined yet. Enrich during authoring: list entities, their attributes, and which functional requirements reference each._`, ``);
-    return out.join("\n");
-  }
-  out.push(`_Seeded by inference from the brief \u2014 verify each entity and extend attributes during authoring._`, ``);
-  for (const e of entities) {
-    out.push(`## ${e.name}`);
-    out.push(``);
-    if (e.attributes.length) {
-      out.push(`| Attribute | Type |`, `|---|---|`);
-      for (const a of e.attributes) out.push(`| ${cell(a.name)} | ${cell(a.type)} |`);
-    }
-    out.push(``, `_Referenced by: ${e.referencedByFRs.length ? e.referencedByFRs.join(", ") : "\u2014"}_`, ``);
-  }
-  return out.join("\n");
-}
-function renderInterfaces(srd) {
-  const out = [`# Interfaces`, ``];
-  const ifaces = srd.architecture.interfaces;
-  if (!ifaces.length) {
-    out.push(`_No interfaces defined yet. Enrich during authoring: list the API/event/UI/CLI surfaces and the functional requirements each serves._`, ``);
-    return out.join("\n");
-  }
-  out.push(`_Seeded by inference from the brief \u2014 verify each surface and define its contract during authoring._`, ``);
-  for (const i of ifaces) {
-    out.push(`## ${i.name} _(${i.kind})_`, ``, i.summary, ``, `_Related: ${i.relatedFRs.length ? i.relatedFRs.join(", ") : "\u2014"}_`, ``);
-  }
-  return out.join("\n");
-}
-function renderADR(adr) {
-  const out = [
-    `# ${adr.id}. ${adr.title}`,
-    ``,
-    `- **Status:** ${adr.status}`,
-    ``,
-    `## Context`,
-    adr.context,
-    ``,
-    `## Decision`,
-    `${adr.decision}${cite(adr.evidence)}`,
-    ``,
-    `## Consequences`,
-    adr.consequences,
-    ``
-  ];
-  if (adr.alternatives) out.push(`## Alternatives considered`, adr.alternatives, ``);
-  return out.join("\n");
-}
-function renderLandscape(srd) {
-  const out = [`# Competitive landscape`, ``, `## Competitors`, ``];
-  if (srd.competitive.competitors.length) {
-    out.push(`| Product | Note | Evidence |`, `|---|---|---|`);
-    for (const c of srd.competitive.competitors) {
-      const ev = c.evidence.length ? c.evidence.map((id) => `[${id}]`).join("") : "_ungrounded_";
-      out.push(`| ${cell(c.name)} | ${cell(c.note)} | ${ev} |`);
-    }
-  } else {
-    out.push(`_No competitors captured. Use the market research angle to discover them._`);
-  }
-  out.push(``, `## Comparable open-source projects`, ``);
-  if (srd.competitive.oss.length) {
-    out.push(`| Project | Note | Evidence |`, `|---|---|---|`);
-    for (const o of srd.competitive.oss) {
-      const name = o.url ? `[${cell(o.name)}](${o.url})` : cell(o.name);
-      const ev = o.evidence.length ? o.evidence.map((id) => `[${id}]`).join("") : "_ungrounded_";
-      out.push(`| ${name} | ${cell(o.note)} | ${ev} |`);
-    }
-  } else {
-    out.push(`_No OSS prior art captured. Use the oss research angle to mine comparable projects._`);
-  }
-  out.push(``);
-  return out.join("\n");
-}
-function renderBuildPlan(srd) {
-  const out = [`# Build plan`, ``];
-  for (const m of srd.buildPlan) {
-    out.push(`## ${m.title}`, ``, m.outcome, ``);
-    out.push(`- **Requirements:** ${m.frIds.length ? m.frIds.join(", ") : "\u2014"}`);
-    if (m.risks.length) {
-      out.push(`- **Risks:**`);
-      for (const r of m.risks) out.push(`  - ${r}`);
-    }
-    out.push(``);
-  }
-  return out.join("\n");
-}
-function renderTraceability(srd) {
-  const design = !!srd.design;
-  const modules = !!srd.modules?.length;
-  const cols = ["Requirement", ...modules ? ["Module"] : [], "NFRs", "ADRs", "Entities", "Interfaces", ...design ? ["Components", "Screens"] : []];
-  const out = [`# Traceability matrix`, ``, `| ${cols.join(" | ")} |`, `|${cols.map(() => "---").join("|")}|`];
-  for (const r of srd.traceability) {
-    const cells = [
-      r.fr,
-      ...modules ? [r.module ?? "\u2014"] : [],
-      r.nfrs.join(", ") || "\u2014",
-      r.adrs.join(", ") || "\u2014",
-      r.entities.join(", ") || "\u2014",
-      r.interfaces.join(", ") || "\u2014"
-    ];
-    if (design) {
-      cells.push((r.components ?? []).map(cell).join(", ") || "\u2014");
-      cells.push((r.screens ?? []).map(cell).join(", ") || "\u2014");
-    }
-    out.push(`| ${cells.join(" | ")} |`);
-  }
-  out.push(``);
-  return out.join("\n");
-}
-function renderDesignPrinciples(ds) {
-  return [
-    `# Design principles`,
-    ``,
-    bullets(ds.principles, "No design principles captured."),
-    ``,
-    `## Content & voice`,
-    ``,
-    bullets(ds.contentVoice, "No content guidelines captured."),
-    ``
-  ].join("\n");
-}
-function renderDesignTokens(ds) {
-  const out = [`# Design tokens`, ``, `_${DESIGN_TOKENS_SEEDED_BANNER}_`, ``];
-  const cats = [...new Set(ds.tokens.map((t) => t.category))];
-  for (const cat of cats) {
-    const toks = ds.tokens.filter((t) => t.category === cat);
-    out.push(`## ${cell(cat)}`, ``, `| Token | Value | Notes |`, `|---|---|---|`);
-    for (const t of toks) out.push(`| ${cell(t.name)} | ${cell(t.value)} | ${cell(t.note ?? "")} |`);
-    out.push(``);
-  }
-  out.push("> The machine-readable token set is in `design/design-tokens.json`.", ``);
-  return out.join("\n");
-}
-function renderDesignTokensJson(ds) {
-  const obj = {};
-  for (const t of ds.tokens) {
-    (obj[t.category] ??= {})[t.name] = t.value;
-  }
-  return JSON.stringify(obj, null, 2);
-}
-function renderComponents(ds) {
-  const out = [`# Components`, ``];
-  if (!ds.components.length) {
-    out.push(`_No components defined yet. Enrich during authoring: name each component, its states and the requirements it realises._`, ``);
-    return out.join("\n");
-  }
-  out.push(`_Seeded from the functional requirements \u2014 verify each component and its states during authoring._`, ``);
-  for (const c of ds.components) {
-    out.push(`## ${c.name}${cite(c.evidence)}`, ``, c.purpose, ``);
-    out.push(`- **States:** ${c.states.join(", ") || "\u2014"}`);
-    out.push(`- **Realises:** ${c.relatedFRs.length ? c.relatedFRs.join(", ") : "\u2014"}`, ``);
-  }
-  return out.join("\n");
-}
-function renderScreens(ds) {
-  const out = [`# Screens & flows`, ``, `## Screens`, ``];
-  if (ds.screens.length) {
-    out.push(`| Screen | Purpose | Requirements |`, `|---|---|---|`);
-    for (const s of ds.screens) out.push(`| ${cell(s.name)} | ${cell(s.purpose)} | ${s.relatedFRs.join(", ") || "\u2014"} |`);
-  } else {
-    out.push(`_No screens defined._`);
-  }
-  out.push(``, `## User flows`, ``);
-  if (ds.flows.length) {
-    for (const f of ds.flows) {
-      out.push(`### ${f.name}${f.frIds.length ? ` _(${f.frIds.join(", ")})_` : ""}`, ``);
-      f.steps.forEach((step, i) => out.push(`${i + 1}. ${step}`));
-      out.push(``);
-    }
-  } else {
-    out.push(`_No user flows defined._`);
-  }
-  return out.join("\n");
-}
-function renderAccessibility(ds) {
-  const a = ds.accessibility;
-  const out = [`# Accessibility`, ``, `**Target standard:** ${a.standard}`, ``];
-  if (!a.requirements.length) {
-    out.push(`_No accessibility requirements defined._`, ``);
-    return out.join("\n");
-  }
-  for (const r of a.requirements) {
-    out.push(`## ${r.id} \u2014 ${r.statement}`, ``, `**Acceptance criteria:**`);
-    for (const c of r.acceptance) out.push(`- **Given** ${c.given} **When** ${c.when} **Then** ${c.then}`);
-    out.push(``);
-  }
-  return out.join("\n");
-}
-function renderMergeBundle(srd) {
-  const parts = [
-    `# Software Requirements Document \u2014 ${srd.product.name}`,
-    ``,
-    `_Level: ${srd.level} \xB7 generated: ${srd.generatedAt}_`,
-    ``,
-    renderVision(srd),
-    renderScope(srd),
-    // Always the full FR blocks: the bundle is the one-file reading copy, so it
-    // must stay complete even when FUNCTIONAL.md is an index (modules mode).
-    renderFunctionalFull(srd),
-    renderNonFunctional(srd),
-    renderSystemContext(srd),
-    renderDataModel(srd),
-    renderInterfaces(srd),
-    `# Architecture decisions`,
-    ``,
-    ...srd.architecture.adrs.map(renderADR),
-    ...srd.design ? [
-      `# Design system`,
-      ``,
-      renderDesignPrinciples(srd.design),
-      renderDesignTokens(srd.design),
-      renderComponents(srd.design),
-      renderScreens(srd.design),
-      renderAccessibility(srd.design)
-    ] : [],
-    renderLandscape(srd),
-    renderBuildPlan(srd),
-    renderTraceability(srd)
-  ];
-  return parts.join("\n");
 }
 
 // src/render.ts
 function writeFile(out, rel, content, files) {
-  const abs = join9(out, rel);
-  mkdirSync4(dirname2(abs), { recursive: true });
-  writeFileSync4(abs, content.endsWith("\n") ? content : content + "\n");
+  const abs = join10(out, rel);
+  mkdirSync5(dirname2(abs), { recursive: true });
+  writeFileSync5(abs, content.endsWith("\n") ? content : content + "\n");
   files.push(rel);
 }
 function renderSRD(brief, evidence, opts) {
@@ -3072,12 +3267,12 @@ function renderSRD(brief, evidence, opts) {
 }
 function renderFromSRD(runDir, opts) {
   const manifest = srdManifestPath(runDir);
-  if (!existsSync5(manifest)) {
+  if (!existsSync6(manifest)) {
     throw new Error(`No SRD.json in ${runDir} \u2014 render the SRD first (construct render), then edit it and re-run with --from-srd.`);
   }
   let srd;
   try {
-    srd = JSON.parse(readFileSync4(manifest, "utf8"));
+    srd = JSON.parse(readFileSync5(manifest, "utf8"));
   } catch (e) {
     throw new Error(`SRD.json is unreadable: ${e.message}`);
   }
@@ -3089,13 +3284,13 @@ function renderFromSRD(runDir, opts) {
 function emitSRD(srd, opts) {
   const files = [];
   const out = opts.out;
-  rmSync2(join9(out, "architecture", "decisions"), { recursive: true, force: true });
-  rmSync2(join9(out, "design"), { recursive: true, force: true });
-  rmSync2(join9(out, "prd"), { recursive: true, force: true });
+  rmSync2(join10(out, "architecture", "decisions"), { recursive: true, force: true });
+  rmSync2(join10(out, "design"), { recursive: true, force: true });
+  rmSync2(join10(out, "prd"), { recursive: true, force: true });
   writeFile(out, "00-overview/VISION.md", renderVision(srd), files);
   writeFile(out, "00-overview/SCOPE.md", renderScope(srd), files);
   writeFile(out, "requirements/FUNCTIONAL.md", renderFunctional(srd), files);
-  rmSync2(join9(out, "requirements", "prd"), { recursive: true, force: true });
+  rmSync2(join10(out, "requirements", "prd"), { recursive: true, force: true });
   if (opts.prd) {
     for (const fr of srd.functional) {
       writeFile(out, `requirements/prd/PRD-${fr.id}-${slugTitle(fr.title)}.md`, renderFeaturePRD(fr, srd), files);
@@ -3128,28 +3323,28 @@ function emitSRD(srd, opts) {
     writeFile(out, "design/SCREENS.md", renderScreens(srd.design), files);
     writeFile(out, "design/ACCESSIBILITY.md", renderAccessibility(srd.design), files);
   }
-  writeFileSync4(srdManifestPath(out), JSON.stringify(srd, null, 2) + "\n");
+  writeFileSync5(srdManifestPath(out), JSON.stringify(srd, null, 2) + "\n");
   files.push("SRD.json");
   if (opts.merge) {
     writeFile(out, "SRD.md", renderMergeBundle(srd), files);
   } else {
-    rmSync2(join9(out, "SRD.md"), { force: true });
+    rmSync2(join10(out, "SRD.md"), { force: true });
   }
   return { dir: out, files, srd };
 }
 
 // src/check.ts
-import { existsSync as existsSync7, readFileSync as readFileSync6, readdirSync as readdirSync3, statSync as statSync2 } from "fs";
-import { join as join11, relative as relative2, sep as sep2 } from "path";
+import { existsSync as existsSync8, readFileSync as readFileSync7, readdirSync as readdirSync3, statSync as statSync2 } from "fs";
+import { join as join12, relative as relative2, sep as sep2 } from "path";
 
 // src/review.ts
-import { existsSync as existsSync6, readFileSync as readFileSync5, writeFileSync as writeFileSync5 } from "fs";
-import { join as join10 } from "path";
+import { existsSync as existsSync7, readFileSync as readFileSync6, writeFileSync as writeFileSync6 } from "fs";
+import { join as join11 } from "path";
 var VALID_VERDICTS = ["supported", "partial", "refuted", "unsupported"];
 function loadEvidence(path) {
-  if (!existsSync6(path)) return [];
+  if (!existsSync7(path)) return [];
   try {
-    const data = JSON.parse(readFileSync5(path, "utf8"));
+    const data = JSON.parse(readFileSync6(path, "utf8"));
     return Array.isArray(data) ? data.filter(
       (e) => !!e && typeof e === "object" && typeof e.id === "string" && typeof e.source === "string"
     ) : [];
@@ -3193,14 +3388,14 @@ function claimDigest(snippet, claim, cap = 600) {
 }
 function runReview(runDir, opts = {}) {
   const manifest = srdManifestPath(runDir);
-  if (!existsSync6(manifest)) throw new Error(`No SRD.json in ${runDir} \u2014 render the SRD first (construct render).`);
+  if (!existsSync7(manifest)) throw new Error(`No SRD.json in ${runDir} \u2014 render the SRD first (construct render).`);
   let srd;
   try {
-    srd = JSON.parse(readFileSync5(manifest, "utf8"));
+    srd = JSON.parse(readFileSync6(manifest, "utf8"));
   } catch (e) {
     throw new Error(`SRD.json is unreadable: ${e.message}`);
   }
-  const evidence = loadEvidence(join10(runDir, "evidence", "evidence.json"));
+  const evidence = loadEvidence(join11(runDir, "evidence", "evidence.json"));
   const byId = new Map(evidence.map((e) => [e.id, e]));
   const pairs = [];
   for (const c of srdClaims(srd)) {
@@ -3231,8 +3426,8 @@ function runReview(runDir, opts = {}) {
     run: runDir,
     pairs: worklist.pairs.map((p) => ({ ...p, verdict: null, note: "" }))
   };
-  writeFileSync5(join10(runDir, "VERIFY.todo.json"), JSON.stringify(todo, null, 2));
-  writeFileSync5(join10(runDir, "VERIFY.md"), renderWorklistMd(worklist, pairs.length, dropped));
+  writeFileSync6(join11(runDir, "VERIFY.todo.json"), JSON.stringify(todo, null, 2));
+  writeFileSync6(join11(runDir, "VERIFY.md"), renderWorklistMd(worklist, pairs.length, dropped));
   return worklist;
 }
 function renderWorklistMd(wl, total, dropped) {
@@ -3260,10 +3455,10 @@ function renderWorklistMd(wl, total, dropped) {
   return out.join("\n");
 }
 function applyVerdicts(runDir, verdictsPath) {
-  if (!existsSync6(verdictsPath)) throw new Error(`verdicts file not found: ${verdictsPath}`);
+  if (!existsSync7(verdictsPath)) throw new Error(`verdicts file not found: ${verdictsPath}`);
   let raw;
   try {
-    raw = JSON.parse(readFileSync5(verdictsPath, "utf8"));
+    raw = JSON.parse(readFileSync6(verdictsPath, "utf8"));
   } catch (e) {
     throw new Error(`verdicts file is not valid JSON (${verdictsPath}): ${e.message}`);
   }
@@ -3289,10 +3484,10 @@ function applyVerdicts(runDir, verdictsPath) {
     });
     seen.add(key(v.claimId, v.evidenceId));
   }
-  const todoPath = join10(runDir, "VERIFY.todo.json");
-  if (existsSync6(todoPath)) {
+  const todoPath = join11(runDir, "VERIFY.todo.json");
+  if (existsSync7(todoPath)) {
     try {
-      const todo = JSON.parse(readFileSync5(todoPath, "utf8"));
+      const todo = JSON.parse(readFileSync6(todoPath, "utf8"));
       for (const p of todo.pairs ?? []) {
         if (!p || typeof p.claimId !== "string" || typeof p.evidenceId !== "string") continue;
         if (seen.has(key(p.claimId, p.evidenceId))) continue;
@@ -3312,7 +3507,7 @@ function applyVerdicts(runDir, verdictsPath) {
     }
   }
   const result = reduceVerdicts(verdicts);
-  writeFileSync5(join10(runDir, "VERIFY.json"), JSON.stringify({ ...result, verdicts }, null, 2));
+  writeFileSync6(join11(runDir, "VERIFY.json"), JSON.stringify({ ...result, verdicts }, null, 2));
   return result;
 }
 function reduceVerdicts(verdicts) {
@@ -3397,7 +3592,7 @@ function mdFiles(runDir) {
       continue;
     }
     for (const name of entries) {
-      const abs = join11(dir, name);
+      const abs = join12(dir, name);
       let st;
       try {
         st = statSync2(abs);
@@ -3415,13 +3610,23 @@ function mdFiles(runDir) {
   }
   return out.sort();
 }
+function countProposedIdeas(runDir) {
+  const p = join12(runDir, "brainstorm.json");
+  if (!existsSync8(p)) return 0;
+  try {
+    const data = JSON.parse(readFileSync7(p, "utf8"));
+    return Array.isArray(data.ideas) ? data.ideas.filter((i) => i && i.status === "proposed").length : 0;
+  } catch {
+    return 0;
+  }
+}
 function loadEvidence2(runDir) {
-  const path = join11(runDir, "evidence", "evidence.json");
-  if (!existsSync7(path)) {
+  const path = join12(runDir, "evidence", "evidence.json");
+  if (!existsSync8(path)) {
     return { evidence: [], note: `No evidence/evidence.json \u2014 grounding coverage is 0 (run \`construct research\` to ground the SRD).` };
   }
   try {
-    const data = JSON.parse(readFileSync6(path, "utf8"));
+    const data = JSON.parse(readFileSync7(path, "utf8"));
     const evidence = Array.isArray(data) ? data.filter(
       (e) => !!e && typeof e === "object" && typeof e.id === "string" && typeof e.source === "string"
     ) : [];
@@ -3470,7 +3675,7 @@ function computeCoverage(srd, evidence) {
 var TEMPLATED_THEN_RE = /is persisted and visible to the user$/;
 var TEMPLATED_METRIC_RE = /^A measurable target for "/;
 function applySemantic(runDir, result, allowUnverified) {
-  const p = join11(runDir, "VERIFY.json");
+  const p = join12(runDir, "VERIFY.json");
   const skip = (reason, hint) => {
     if (allowUnverified) {
       result.structural.warnings.push(`--semantic: ${reason} \u2014 ${hint}; semantic gate skipped (--allow-unverified).`);
@@ -3479,13 +3684,13 @@ function applySemantic(runDir, result, allowUnverified) {
       result.ok = false;
     }
   };
-  if (!existsSync7(p)) {
+  if (!existsSync8(p)) {
     skip("no VERIFY.json", "run `construct review` then `review --apply <verdicts.json>` first");
     return;
   }
   let sem;
   try {
-    sem = JSON.parse(readFileSync6(p, "utf8"));
+    sem = JSON.parse(readFileSync7(p, "utf8"));
   } catch (e) {
     skip(`VERIFY.json is unreadable (${e.message})`, "re-run `review --apply <verdicts.json>` to regenerate it");
     return;
@@ -3508,7 +3713,7 @@ function checkDesign(runDir, srd, errors, warnings) {
   const ds = srd.design;
   if (!ds) return;
   for (const f of DESIGN_REQUIRED_FILES) {
-    if (!existsSync7(join11(runDir, f))) errors.push(`Missing required design file: ${f} (re-render at --level complex).`);
+    if (!existsSync8(join12(runDir, f))) errors.push(`Missing required design file: ${f} (re-render at --level complex).`);
   }
   const frIds = new Set(srd.functional.map((f) => f.id));
   if (ds.components.length === 0) errors.push("Design system has no components \u2014 a complex SRD's design must name its UI components.");
@@ -3530,8 +3735,8 @@ function checkDesign(runDir, srd, errors, warnings) {
   for (const r of ds.accessibility.requirements) {
     if (!r.acceptance.length) errors.push(`Accessibility requirement ${r.id} has no acceptance criteria.`);
   }
-  const tokenDoc = join11(runDir, "design", "DESIGN-TOKENS.md");
-  if (existsSync7(tokenDoc) && readFileSync6(tokenDoc, "utf8").includes(DESIGN_TOKENS_SEEDED_BANNER)) {
+  const tokenDoc = join12(runDir, "design", "DESIGN-TOKENS.md");
+  if (existsSync8(tokenDoc) && readFileSync7(tokenDoc, "utf8").includes(DESIGN_TOKENS_SEEDED_BANNER)) {
     warnings.push("Design tokens are still seeded defaults \u2014 replace them with the product's real brand values (see references/design-system-authoring.md).");
   }
 }
@@ -3539,11 +3744,11 @@ function checkModules(runDir, srd, errors, warnings) {
   const mods = srd.modules;
   if (!mods?.length) return;
   const moduleIds = new Set(mods.map((m) => m.id));
-  if (!existsSync7(join11(runDir, "prd", "README.md"))) {
+  if (!existsSync8(join12(runDir, "prd", "README.md"))) {
     errors.push(`Missing required module-PRD index: prd/README.md (re-render).`);
   }
   for (const m of mods) {
-    if (!existsSync7(join11(runDir, "prd", m.id, "PRD.md"))) {
+    if (!existsSync8(join12(runDir, "prd", m.id, "PRD.md"))) {
       errors.push(`Missing required module PRD: prd/${m.id}/PRD.md (re-render).`);
     }
     for (const dep of m.dependsOn) {
@@ -3574,22 +3779,22 @@ function checkRun(runDir, opts = {}) {
     resolved: []
   };
   for (const f of REQUIRED_FILES) {
-    if (!existsSync7(join11(runDir, f))) errors.push(`Missing required file: ${f} (run \`construct render --out ${runDir}\`).`);
+    if (!existsSync8(join12(runDir, f))) errors.push(`Missing required file: ${f} (run \`construct render --out ${runDir}\`).`);
   }
   const manifest = srdManifestPath(runDir);
-  if (!existsSync7(manifest)) {
+  if (!existsSync8(manifest)) {
     errors.push(`No SRD.json in ${runDir} \u2014 render the SRD first.`);
     return { ok: false, structural: { ok: false, errors, warnings }, coverage: emptyCoverage };
   }
   let srd;
   try {
-    srd = JSON.parse(readFileSync6(manifest, "utf8"));
+    srd = JSON.parse(readFileSync7(manifest, "utf8"));
   } catch (e) {
     errors.push(`SRD.json is unreadable: ${e.message}`);
     return { ok: false, structural: { ok: false, errors, warnings }, coverage: emptyCoverage };
   }
   for (const rel of mdFiles(runDir)) {
-    const text = readFileSync6(join11(runDir, rel), "utf8");
+    const text = readFileSync7(join12(runDir, rel), "utf8");
     if (DECISION_RE.test(text)) errors.push(`Unresolved decision (\u{1F9E0}) in ${rel} \u2014 resolve it before the SRD is complete.`);
     else if (PLACEHOLDER_RE.test(text)) warnings.push(`Possible leftover placeholder (TODO/TBD/FIXME) in ${rel} \u2014 confirm it is intentional.`);
   }
@@ -3641,6 +3846,10 @@ function checkRun(runDir, opts = {}) {
   if (templatedMetrics) {
     warnings.push(`${templatedMetrics} NFR metric(s) are still generic placeholders \u2014 set measurable targets (see references/acceptance-criteria.md).`);
   }
+  const proposedIdeas = countProposedIdeas(runDir);
+  if (proposedIdeas > 0) {
+    warnings.push(`brainstorm: ${proposedIdeas} idea(s) still 'proposed' \u2014 adjudicate (kept/parked/rejected) and run \`construct brainstorm --merge\`.`);
+  }
   const { evidence, note } = loadEvidence2(runDir);
   if (note) warnings.push(note);
   const coverage = computeCoverage(srd, evidence);
@@ -3661,7 +3870,7 @@ function checkRun(runDir, opts = {}) {
     applySemantic(runDir, result, opts.allowUnverified ?? false);
   } else if (coverage.resolved.length > 0) {
     const citedClaims = coverage.frGrounded + coverage.nfrGrounded + coverage.adrGrounded;
-    result.semanticSkipped = { citedClaims, verifyExists: existsSync7(join11(runDir, "VERIFY.json")) };
+    result.semanticSkipped = { citedClaims, verifyExists: existsSync8(join12(runDir, "VERIFY.json")) };
   }
   return result;
 }
@@ -3722,13 +3931,13 @@ function formatCheckReport(r, runDir) {
 }
 
 // src/analyze.ts
-import { existsSync as existsSync8, readFileSync as readFileSync7 } from "fs";
-import { join as join12 } from "path";
+import { existsSync as existsSync9, readFileSync as readFileSync8 } from "fs";
+import { join as join13 } from "path";
 function loadEvidence3(runDir) {
-  const path = join12(runDir, "evidence", "evidence.json");
-  if (!existsSync8(path)) return [];
+  const path = join13(runDir, "evidence", "evidence.json");
+  if (!existsSync9(path)) return [];
   try {
-    const data = JSON.parse(readFileSync7(path, "utf8"));
+    const data = JSON.parse(readFileSync8(path, "utf8"));
     return Array.isArray(data) ? data.filter(
       (e) => !!e && typeof e === "object" && typeof e.id === "string" && typeof e.source === "string"
     ) : [];
@@ -3737,10 +3946,10 @@ function loadEvidence3(runDir) {
   }
 }
 function loadMetaNotes(runDir) {
-  const path = join12(runDir, "evidence", "meta.json");
-  if (!existsSync8(path)) return [];
+  const path = join13(runDir, "evidence", "meta.json");
+  if (!existsSync9(path)) return [];
   try {
-    const meta = JSON.parse(readFileSync7(path, "utf8"));
+    const meta = JSON.parse(readFileSync8(path, "utf8"));
     return Array.isArray(meta.notes) ? meta.notes.filter((n) => typeof n === "string") : [];
   } catch {
     return [];
@@ -3815,8 +4024,8 @@ function formatGapReport(r, runDir) {
 }
 
 // src/verify.ts
-import { existsSync as existsSync9, readFileSync as readFileSync8 } from "fs";
-import { isAbsolute, join as join13, resolve as resolve2 } from "path";
+import { existsSync as existsSync10, readFileSync as readFileSync9 } from "fs";
+import { isAbsolute, join as join14, resolve as resolve2 } from "path";
 var TEST_FILE_RE = /\.(test|spec)\.[^./]+$|_(test|spec)\.[^./]+$|(^|\/)test_[^/]+\.[^./]+$/i;
 var TEST_SUFFIX_RE = /(^|\/)[^/]*[A-Z]\w*Tests?\.(java|kt|kts|cs|scala|groovy)$/;
 var TEST_DIR_RE = /(^|\/)(tests?|__tests__|spec|specs|e2e)\//i;
@@ -3854,7 +4063,7 @@ function verifyRun(runDir, opts = {}) {
   const warnings = [];
   const frTestCoverage = [];
   const planPath = buildPlanPath(runDir);
-  if (!existsSync9(planPath)) {
+  if (!existsSync10(planPath)) {
     errors.push(`No BUILD-PLAN.json in ${runDir} \u2014 render the SRD first (construct render).`);
     return { ok: false, errors, warnings, frTestCoverage };
   }
@@ -3868,13 +4077,13 @@ function verifyRun(runDir, opts = {}) {
     return { ok: false, errors, warnings, frTestCoverage };
   }
   const manifest = srdManifestPath(runDir);
-  if (!existsSync9(manifest)) {
+  if (!existsSync10(manifest)) {
     errors.push(`No SRD.json in ${runDir} \u2014 the plan cannot be verified against a missing SRD.`);
     return { ok: false, errors, warnings, frTestCoverage };
   }
   let srd;
   try {
-    srd = JSON.parse(readFileSync8(manifest, "utf8"));
+    srd = JSON.parse(readFileSync9(manifest, "utf8"));
   } catch (e) {
     errors.push(`SRD.json is unreadable: ${e.message}`);
     return { ok: false, errors, warnings, frTestCoverage };
@@ -3918,13 +4127,13 @@ function verifyRun(runDir, opts = {}) {
     const ok2 = errors.length === 0;
     return { ok: ok2, errors, warnings, frTestCoverage };
   }
-  if (!existsSync9(appDir)) {
+  if (!existsSync10(appDir)) {
     errors.push(`App directory does not exist: ${appDir}.`);
     return { ok: false, errors, warnings, frTestCoverage };
   }
   for (const t of doneTasks) {
     for (const rel of [...t.artifacts, ...t.tests]) {
-      if (!existsSync9(join13(appDir, rel))) errors.push(`${t.id} is done but its declared file is missing: ${rel}.`);
+      if (!existsSync10(join14(appDir, rel))) errors.push(`${t.id} is done but its declared file is missing: ${rel}.`);
     }
     if (t.frIds.length && t.tests.length === 0) {
       warnings.push(`${t.id} is done but declares no tests \u2014 record the test files that exercise ${t.frIds.join(", ")}.`);
@@ -4019,6 +4228,7 @@ check. Grounding is advisory; structural completeness is enforced.
 
 Usage:
   construct init     --idea "<one-liner>" [--out <dir>]
+  construct brainstorm --out <run> [--merge] [--json]
   construct research --out <run> [--angles market,oss,tech,semantic] [--q "<focus>"] [--url <u,...>] [--semantic]
   construct analyze  --out <run> [--json]
   construct web|oss|tech|so --out <run> [--q "<focus>"] [--url <u,...>] [--seeds <u,...>]
@@ -4032,6 +4242,9 @@ Usage:
 
 Commands:
   init       Scaffold a run folder + brief.json (fill it via the interview).
+  brainstorm Divergent ideation BEFORE the interview: scaffold a board of
+             candidate ideas (brainstorm.json + BRAINSTORM.md). --merge folds
+             kept ideas into brief.json (parked \u2192 \u{1F9E0} openQuestions).
   research   Gather evidence across angles into <run>/evidence (a dossier).
   analyze    Report what is thin (gaps that will render ungrounded) + drill commands.
   web        Drill the market/web angle.       oss   Drill OSS prior-art mining.
@@ -4094,7 +4307,22 @@ Workflow:
   construct render --out ./my-idea --level complex # writes the SRD tree
   construct check --out ./my-idea                 # structural gate + coverage report
 `;
-var COMMANDS = /* @__PURE__ */ new Set(["init", "research", "analyze", "web", "oss", "tech", "so", "render", "check", "verify", "review", "status", "semantic"]);
+var COMMANDS = /* @__PURE__ */ new Set([
+  "init",
+  "brainstorm",
+  "research",
+  "analyze",
+  "web",
+  "oss",
+  "tech",
+  "so",
+  "render",
+  "check",
+  "verify",
+  "review",
+  "status",
+  "semantic"
+]);
 var VALUE_FLAGS = /* @__PURE__ */ new Set([
   "idea",
   "out",
@@ -4263,6 +4491,53 @@ async function main() {
       );
       return;
     }
+    case "brainstorm": {
+      const out = requireOut(p);
+      const brief = loadBrief(out, warnBrief);
+      if (p.bools.has("merge")) {
+        const b2 = loadBrainstorm(out, warnBrief);
+        if (!b2) fail(`no brainstorm.json in ${out} \u2014 run \`construct brainstorm --out ${out}\` first to scaffold one.`);
+        const r = mergeBrainstorm(brief, b2, (/* @__PURE__ */ new Date()).toISOString(), warnBrief);
+        saveBrief(out, r.brief);
+        saveBrainstorm(out, r.brainstorm);
+        writeBrainstormMd(out, r.brainstorm);
+        if (p.bools.has("json")) {
+          process.stdout.write(JSON.stringify({ merged: r.merged, parkedFolded: r.parkedFolded, skipped: r.skipped, proposed: r.proposed }, null, 2) + "\n");
+          return;
+        }
+        process.stderr.write(
+          [
+            `construct: merged brainstorm \u2192 brief.json`,
+            `  merged:   ${r.merged} kept idea(s) folded into the brief`,
+            `  parked:   ${r.parkedFolded} parked idea(s) \u2192 openQuestions (\u{1F9E0} \u2014 resolve before check passes)`,
+            `  skipped:  ${r.skipped} kept idea(s) not merged (no target / conflict \u2014 see warnings)`,
+            `  proposed: ${r.proposed} idea(s) still awaiting a decision`,
+            `  next:     construct research --out ${out}`
+          ].join("\n") + "\n"
+        );
+        return;
+      }
+      let b = loadBrainstorm(out, warnBrief);
+      if (!b) {
+        b = initBrainstorm(brief.idea, (/* @__PURE__ */ new Date()).toISOString());
+        saveBrainstorm(out, b);
+      }
+      writeBrainstormMd(out, b);
+      if (p.bools.has("json")) {
+        process.stdout.write(JSON.stringify(b, null, 2) + "\n");
+        return;
+      }
+      const c = brainstormCounts(b);
+      process.stderr.write(
+        [
+          `construct: brainstorm board at ${join15(out, "BRAINSTORM.md")}`,
+          `  ideas:  ${b.ideas.length} (${c.kept} kept \xB7 ${c.parked} parked \xB7 ${c.proposed} proposed \xB7 ${c.rejected} rejected)`,
+          `  next:   generate ideas WITH the user (references/brainstorm-playbook.md), mark statuses in`,
+          `          brainstorm.json, then: construct brainstorm --out ${out} --merge`
+        ].join("\n") + "\n"
+      );
+      return;
+    }
     case "research": {
       const out = requireOut(p);
       const angles = p.values.angles ? parseAngles(p.values.angles) : DEFAULT_ANGLES;
@@ -4324,7 +4599,7 @@ async function main() {
         const r2 = renderFromSRD(out, { merge: p.bools.has("merge"), prd: p.bools.has("prd") });
         process.stderr.write(
           [
-            `construct: re-emitted the SRD tree from ${join14(out, "SRD.json")}`,
+            `construct: re-emitted the SRD tree from ${join15(out, "SRD.json")}`,
             `  files:    ${r2.files.length} (${r2.srd.functional.length} FR \xB7 ${r2.srd.nonFunctional.length} NFR \xB7 ${r2.srd.architecture.adrs.length} ADR)`,
             `  next:     construct check --out ${out}`
           ].join("\n") + "\n"
@@ -4351,7 +4626,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
           `construct: rendered the ${level} SRD for "${brief.idea}"`,
           `  files:    ${r.files.length} (${r.srd.functional.length} FR \xB7 ${r.srd.nonFunctional.length} NFR \xB7 ${r.srd.architecture.adrs.length} ADR)`,
           ...design ? [`  design:   ${design.components.length} components \xB7 ${design.tokens.length} tokens \xB7 a11y ${design.accessibility.standard}`] : [],
-          `  manifest: ${join14(out, "SRD.json")}`,
+          `  manifest: ${join15(out, "SRD.json")}`,
           `  next:     construct check --out ${out}`
         ].join("\n") + "\n"
       );
@@ -4434,11 +4709,17 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
         process.stdout.write(JSON.stringify(plan ? readyFrontier(plan) : null, null, 2) + "\n");
         return;
       }
-      const has = (rel) => existsSync10(join14(out, rel)) ? "\u2713" : "\xB7";
+      const has = (rel) => existsSync11(join15(out, rel)) ? "\u2713" : "\xB7";
       const planLine = plan ? `  \u2713 BUILD-PLAN.json (build: ${plan.tasks.filter((t) => t.status === "done").length}/${plan.tasks.length} tasks done)` : `  \xB7 BUILD-PLAN.json (build plan)`;
+      const bs = loadBrainstorm(out);
+      const bsLine = bs ? (() => {
+        const c = brainstormCounts(bs);
+        return `  \u2713 brainstorm.json (${c.kept} kept \xB7 ${c.parked} parked \xB7 ${c.proposed} proposed \xB7 ${c.rejected} rejected)`;
+      })() : `  \xB7 brainstorm.json (optional divergence)`;
       process.stdout.write(
         [
           `construct status: ${out}`,
+          bsLine,
           `  ${has("brief.json")} brief.json`,
           `  ${has("evidence/evidence.json")} evidence/evidence.json (research)`,
           `  ${has("SRD.json")} SRD.json (render)`,
@@ -4458,10 +4739,10 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
   }
 }
 function loadEvidence4(runDir) {
-  const path = join14(runDir, "evidence", "evidence.json");
-  if (!existsSync10(path)) return [];
+  const path = join15(runDir, "evidence", "evidence.json");
+  if (!existsSync11(path)) return [];
   try {
-    const data = JSON.parse(readFileSync9(path, "utf8"));
+    const data = JSON.parse(readFileSync10(path, "utf8"));
     return Array.isArray(data) ? data.filter(isEvidenceItem) : [];
   } catch {
     return [];

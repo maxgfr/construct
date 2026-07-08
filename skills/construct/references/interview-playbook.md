@@ -21,8 +21,12 @@ Check the fit before question 1; a wrong fit wastes the whole loop.
 - **Several products in one ask.** Scope to ONE: name the split, recommend
   which to spec first, park the rest. One run = one product.
 - **No articulable idea.** `init` needs a one-liner. If the user can't state
-  the problem in a sentence, help them get to one first — don't start a run
-  on "an AI thing".
+  the problem in a sentence, help them get to one first — run
+  `construct brainstorm` and diverge until a real shape emerges
+  (`references/brainstorm-playbook.md`). Don't start a run on "an AI thing".
+- **Wants to explore first.** Even with a one-liner, a user who wants to think
+  through options before committing should start with
+  `construct brainstorm` (divergent), then return here (convergent).
 
 ## Pruning the interview
 

@@ -1,6 +1,6 @@
 ---
 name: construct
-description: "Use when the user wants to turn a product idea into a serious, buildable requirements document (an SRD/PRD) — or build the app from one. Triggers: write an SRD or PRD, spec out a product, write/define requirements, product specification, idea to spec, build from spec, one PRD per module, PRD folder. construct interviews the user, grounds every major decision in real research — competitors and market signal, comparable open-source projects and their issues/PRs, candidate-tech docs and StackOverflow pitfalls — then renders a complete SRD suite: vision, scope, functional requirements with Given/When/Then acceptance criteria, NFRs, data model, interfaces, ADRs, competitive landscape, build plan, traceability. Modules mode renders one PRD per module (prd/<module>/PRD.md); render --prd emits one PRD per requirement. A hard structural gate plus an advisory grounding report validate it; for building, it emits a BUILD-PLAN.json task DAG and construct verify referees the app against the SRD."
+description: "Use when the user wants to turn a product idea into a serious, buildable requirements document (an SRD/PRD) — or build the app from one. Triggers: write an SRD or PRD, spec out a product, write/define requirements, idea to spec, brainstorm an idea, build from spec, one PRD per module, PRD folder. construct interviews the user, grounds every major decision in real research — competitors and market signal, comparable open-source projects and their issues/PRs, candidate-tech docs and StackOverflow pitfalls — then renders a complete SRD suite: vision, scope, functional requirements with Given/When/Then acceptance criteria, NFRs, data model, interfaces, ADRs, competitive landscape, build plan, traceability. Modules mode renders one PRD per module (prd/<module>/PRD.md); render --prd emits one PRD per requirement. A hard structural gate plus an advisory grounding report validate it; for building, it emits a BUILD-PLAN.json task DAG and construct verify referees the app against the SRD."
 license: MIT
 metadata:
   version: 1.9.3
@@ -27,6 +27,11 @@ One committed, dependency-free bundle: `node scripts/construct.mjs <command>`.
 No `npm install`, no API keys. Run `--help` for the full surface. Key commands:
 
 - `init --idea "<one-liner>" --out <run>` — scaffold a run folder + `brief.json`.
+- `brainstorm --out <run> [--merge] [--json]` — optional DIVERGENT step before
+  the interview: scaffold a board of candidate ideas (`brainstorm.json` +
+  `BRAINSTORM.md`), then `--merge` folds every **kept** idea into `brief.json`
+  and every **parked** idea into `openQuestions` (a gate-blocking 🧠). Idempotent.
+  See `references/brainstorm-playbook.md`.
 - `research --out <run> [--angles market,oss,tech,semantic] [--q "<focus>"] [--semantic]`
   — gather evidence across angles into `<run>/evidence/` (an `EVIDENCE.md` +
   `evidence.json` dossier with `[E#]` ids). Default angles: `market,oss,tech`.
@@ -67,6 +72,13 @@ No `npm install`, no API keys. Run `--help` for the full surface. Key commands:
 
 You are invoked once and expected to return a complete, grounded SRD. Drive the
 loop to completion; only pause to ask the user a real decision.
+
+0. **Brainstorm — optional, divergent, before the interview.** When the user
+   can't yet articulate a crisp idea, or wants to explore options first, run
+   `construct brainstorm --out <run>` (after `init`) and generate candidate
+   ideas WITH the user across the six angles, then `--merge` the kept ones into
+   `brief.json`. Skip it when the user already knows what they want. Follow
+   `references/brainstorm-playbook.md`.
 
 1. **Interview the user — one question at a time.** Establish the product before
    researching. Follow `references/interview-playbook.md`: problem, target
@@ -233,6 +245,7 @@ See `references/semantic-setup.md`.
 
 ## References
 
+- `references/brainstorm-playbook.md` — the optional divergent step: generating candidate ideas across six angles and merging the kept ones into the brief.
 - `references/interview-playbook.md` — how to elicit the brief, one question at a time.
 - `references/research-playbook.md` — picking angles and digging deeper to "good enough".
 - `references/orchestration.md` — the three-tier dynamic-workflow model and the subagent patterns: research fan-out, red team, judge panel, claim-support review fan-out, build fan-out (and the one-writer rule).
