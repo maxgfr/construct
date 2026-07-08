@@ -4,8 +4,6 @@ import { keywords } from "./util.js";
 import { srdManifestPath } from "./srd.js";
 import type { ClaimEvidencePair, ClaimVerdict, ClaimVerifyResult, EvidenceItem, SRD, VerdictKind } from "./types.js";
 
-// Bounds the review loop (claim↔evidence pairs adjudicated per run).
-export const REVIEW_MAX = 40;
 const VALID_VERDICTS: VerdictKind[] = ["supported", "partial", "refuted", "unsupported"];
 
 export interface ReviewWorklist {
@@ -111,14 +109,17 @@ export function runReview(runDir: string, opts: { maxReview?: number } = {}): Re
     }
   }
 
-  const max = Math.max(1, Math.floor(opts.maxReview ?? REVIEW_MAX));
-  const kept =
+  // Every cited pair is adjudicated by default — a silent cap ranked by raw
+  // retrieval score used to drop exactly the highest-value low-score evidence
+  // (issue/PR citations). `--max-review N` still caps explicitly, and then the
+  // dropped pairs are named in VERIFY.md so the omission is impossible to miss.
+  const max = opts.maxReview === undefined ? Number.POSITIVE_INFINITY : Math.max(1, Math.floor(opts.maxReview));
+  const sorted =
     pairs.length > max
-      ? pairs
-          .slice()
-          .sort((a, b) => b.score - a.score || a.claimId.localeCompare(b.claimId) || a.evidenceId.localeCompare(b.evidenceId))
-          .slice(0, max)
+      ? pairs.slice().sort((a, b) => b.score - a.score || a.claimId.localeCompare(b.claimId) || a.evidenceId.localeCompare(b.evidenceId))
       : pairs;
+  const kept = sorted.slice(0, Math.min(sorted.length, max));
+  const dropped = sorted.slice(kept.length);
   const worklist: ReviewWorklist = { run: runDir, pairs: kept.map(({ score, ...rest }) => rest) };
 
   const todo = {
@@ -126,11 +127,11 @@ export function runReview(runDir: string, opts: { maxReview?: number } = {}): Re
     pairs: worklist.pairs.map((p) => ({ ...p, verdict: null as VerdictKind | null, note: "" })),
   };
   writeFileSync(join(runDir, "VERIFY.todo.json"), JSON.stringify(todo, null, 2));
-  writeFileSync(join(runDir, "VERIFY.md"), renderWorklistMd(worklist, pairs.length, kept.length));
+  writeFileSync(join(runDir, "VERIFY.md"), renderWorklistMd(worklist, pairs.length, dropped));
   return worklist;
 }
 
-function renderWorklistMd(wl: ReviewWorklist, total: number, kept: number): string {
+function renderWorklistMd(wl: ReviewWorklist, total: number, dropped: (ClaimEvidencePair & { score: number })[]): string {
   const out: string[] = [];
   out.push(`# Claim-support review worklist`);
   out.push("");
@@ -140,7 +141,13 @@ function renderWorklistMd(wl: ReviewWorklist, total: number, kept: number): stri
       `add a short \`note\`, save it (e.g. as \`verdicts.json\`), then run ` +
       `\`construct review --apply verdicts.json --out <run>\`.`,
   );
-  if (kept < total) out.push(`\n_Showing ${kept} of ${total} pair(s) — capped at the highest-score evidence._`);
+  if (dropped.length) {
+    out.push("");
+    out.push(`> **DROPPED (--max-review): ${dropped.length} of ${total} pair(s) are NOT in this worklist and will NOT be adjudicated.**`);
+    out.push(`> Their claims can pass \`check --semantic\` without their evidence ever being judged.`);
+    out.push(`> Re-run \`construct review\` without --max-review to review everything. Dropped:`);
+    for (const d of dropped) out.push(`> - ${d.claimId} · ${d.evidenceId} (${d.source})`);
+  }
   out.push("");
   for (const p of wl.pairs) {
     out.push(`## ${p.claimId} · ${p.evidenceId} (${p.source})`);

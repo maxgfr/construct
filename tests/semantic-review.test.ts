@@ -106,6 +106,34 @@ describe("runReview (worklist)", () => {
     expect(r.pairs.length).toBe(1);
     rmSync(dir, { recursive: true, force: true });
   });
+
+  it("reviews EVERY cited pair by default — no implicit 40-pair cap", () => {
+    const dir = scratch();
+    const many = Array.from({ length: 45 }, (_, i) => ({ id: `FR-${String(i + 1).padStart(3, "0")}`, ev: ["E1"] }));
+    run(dir, many, EVIDENCE);
+    const r = runReview(dir);
+    expect(r.pairs.length).toBe(45); // the old default silently kept the top-40 by score
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("an explicit cap names the DROPPED pairs loudly in VERIFY.md", () => {
+    const dir = scratch();
+    run(
+      dir,
+      [
+        { id: "FR-001", ev: ["E1"] },
+        { id: "FR-002", ev: ["E2"] },
+      ],
+      EVIDENCE,
+    );
+    runReview(dir, { maxReview: 1 });
+    const md = readFileSync(join(dir, "VERIFY.md"), "utf8");
+    expect(md).toMatch(/DROPPED/);
+    expect(md).toMatch(/FR-002 · E2/); // E2 has the lower score → dropped
+    expect(md).toMatch(/NOT .*adjudicated/i);
+    expect(md).toMatch(/without --max-review/);
+    rmSync(dir, { recursive: true, force: true });
+  });
 });
 
 describe("applyVerdicts (semantic gate)", () => {

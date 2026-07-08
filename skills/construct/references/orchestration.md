@@ -126,8 +126,9 @@ serial reduce (merge fragments → `review --apply`) → deterministic gate
 (`check --semantic`).*
 
 `construct review --out <run>` mechanises grounding adjudication: it pairs every
-grounded SRD claim with each cited `[E#]` item's snippet (capped at
-`--max-review`, default 40 highest-score) and writes the worklist to
+grounded SRD claim with each cited `[E#]` item's snippet (EVERY cited pair by
+default; `--max-review N` caps at the N highest-score pairs and names the
+dropped ones in VERIFY.md) and writes the worklist to
 `VERIFY.todo.json` + `VERIFY.md`. **Each pair is independent** — the ideal
 fan-out unit, and the engine already accepts the sharded-then-merged shape.
 
@@ -210,9 +211,11 @@ the failure modes live in `references/build-playbook.md`.
   evidence conflicts, or the decision is hard to reverse). Hard cap: ≤2
   panels per SRD; if a third ADR seems contested, take it to the user as a
   question instead.
-- Claim-support (pattern 4): cheap per branch; cap = `--max-review` (default
-  40). Batch pairs to keep fan-out modest. Always worth one pass over the
-  load-bearing FRs/ADRs before presenting.
+- Claim-support (pattern 4): cheap per branch; every cited pair is in the
+  worklist by default (`--max-review N` caps explicitly — the dropped pairs
+  are named in VERIFY.md and stay unadjudicated). Batch pairs to keep fan-out
+  modest. Always worth one pass over the load-bearing FRs/ADRs before
+  presenting.
 - Build (pattern 5): one agent per ready task, bounded by the frontier width
   minus the shared-file tasks you serialise. Speedup only — never run the
   milestone gate (`verify --run-tests --strict`) until the whole frontier is
