@@ -83,6 +83,22 @@ export function matchEvidence(text: string, evidence: EvidenceItem[], n: number,
   return out;
 }
 
+// Does the evidence item literally NAME this entity? Word-bounded,
+// case-insensitive, whitespace-normalized phrase match over title+snippet.
+// Stricter than matchEvidence's token overlap on purpose: a listicle that
+// shares tokens with a product name ("a new wave of money apps" vs the
+// competitor "Money Wave") is NOT a mention, and auto-citing it would wash the
+// citation onto a product the page never discusses.
+export function mentionsEntity(name: string, e: EvidenceItem): boolean {
+  const phrase = name.trim().toLowerCase().replace(/\s+/g, " ");
+  if (!phrase) return false;
+  const hay = `${e.title} ${e.snippet}`.toLowerCase().replace(/\s+/g, " ");
+  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // Lookarounds instead of \b so punctuation-bearing names (Next.js, C++)
+  // stay word-bounded at their alphanumeric edges.
+  return new RegExp(`(?<![a-z0-9])${escaped}(?![a-z0-9])`).test(hay);
+}
+
 // Keyword signals that link a functional requirement to a non-core NFR category,
 // so the traceability matrix carries real per-FR signal (privacy/a11y stop being
 // orphaned).
@@ -474,7 +490,14 @@ export function buildSRD(brief: Brief, evidence: EvidenceItem[], opts: { level: 
   // --- Competitive landscape (notes derived from the matched evidence). -----
   const evById = new Map(evidence.map((e) => [e.id, e]));
   const competitors: CompetitorRow[] = brief.competitors.map((name) => {
-    const ev = matchEvidence(name, evidence, 2, ["market"]);
+    // Only evidence that literally names the competitor may ground it — token
+    // overlap alone clones one listicle's [E#] onto every product it brushes.
+    const ev = matchEvidence(
+      name,
+      evidence.filter((e) => mentionsEntity(name, e)),
+      2,
+      ["market"],
+    );
     return { name, note: noteFrom(ev, evById) || `Comparable product / alternative to "${productName}".`, evidence: ev };
   });
   const ossByKey = new Map<string, OssRow>();
