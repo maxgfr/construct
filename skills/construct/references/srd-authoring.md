@@ -42,10 +42,17 @@ is to raise it from "structurally complete" to "actually good."
 
 ## Keep the model and the tree in sync
 
-`SRD.json` is the source of truth the `check` reads for structure. If you edit a
-rendered `.md` by hand (e.g. add entities), mirror the change into `SRD.json`
-(or re-render from an enriched brief). The structural gate verifies references
-close: every `FR.entities/interfaces/nfrs` must name something that exists.
+`SRD.json` is the source of truth the `check` reads for structure. **The
+recommended enrich loop is to edit `SRD.json` directly, then run
+`construct render --out <run> --from-srd`** — this re-emits the whole markdown
+tree from the edited manifest WITHOUT rebuilding it from the brief, so the
+human-facing `.md` and the gated manifest never drift. (Editing a rendered
+`.md` by hand instead means mirroring the change back into `SRD.json` yourself,
+or the next plain `render` overwrites it.) `--from-srd` normalises the JSON on
+its first pass (parse→stringify), so a second run is a byte-identical no-op; it
+honours `--merge` and `--prd` and preserves BUILD-PLAN progress. The structural
+gate verifies references close: every `FR.entities/interfaces/nfrs` must name
+something that exists.
 
 **Modules mode.** When the brief declares `modules`, the full FR blocks live in
 `prd/<module>/PRD.md` and `requirements/FUNCTIONAL.md` is only the cross-module

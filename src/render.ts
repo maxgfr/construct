@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { buildSRD, srdManifestPath } from "./srd.js";
 import { derivePlan, mergePlan, loadPlan, writePlan } from "./plan.js";
@@ -63,6 +63,36 @@ export function renderSRD(brief: Brief, evidence: EvidenceItem[], opts: RenderOp
   // Design renders at complex unless opted out; light never renders it.
   const wantDesign = opts.level === "complex" && !opts.noDesign;
   const srd = buildSRD(brief, evidence, { level: opts.level, generatedAt: opts.generatedAt, design: wantDesign });
+  return emitSRD(srd, { out: opts.out, merge: opts.merge, prd: opts.prd });
+}
+
+// Re-emit the SRD tree from an already-built (or hand-edited) SRD manifest,
+// WITHOUT rebuilding it from a brief + evidence. This is the enrich→re-render
+// path: an author sharpens SRD.json (the gated source of truth) and re-renders
+// the human-facing markdown tree from it, so the two never drift.
+export function renderFromSRD(runDir: string, opts: { merge: boolean; prd: boolean }): RenderResult {
+  const manifest = srdManifestPath(runDir);
+  if (!existsSync(manifest)) {
+    throw new Error(`No SRD.json in ${runDir} — render the SRD first (construct render), then edit it and re-run with --from-srd.`);
+  }
+  let srd: SRD;
+  try {
+    srd = JSON.parse(readFileSync(manifest, "utf8")) as SRD;
+  } catch (e) {
+    throw new Error(`SRD.json is unreadable: ${(e as Error).message}`);
+  }
+  // Light shape guards so a corrupt manifest fails with a domain message
+  // instead of a raw TypeError deep inside a template.
+  if (!Array.isArray(srd.functional) || !Array.isArray(srd.nonFunctional) || !srd.architecture || !Array.isArray(srd.architecture.adrs)) {
+    throw new Error(`SRD.json in ${runDir} is not a valid SRD manifest (missing functional/nonFunctional/architecture).`);
+  }
+  return emitSRD(srd, { out: runDir, merge: opts.merge, prd: opts.prd });
+}
+
+// Write the full SRD tree from a built SRD model. Pure apart from the
+// filesystem write — shared by renderSRD (build then emit) and renderFromSRD
+// (load then emit).
+function emitSRD(srd: SRD, opts: { out: string; merge: boolean; prd?: boolean }): RenderResult {
   const files: string[] = [];
   const out = opts.out;
 

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { renderSRD } from "../src/render.js";
+import { renderSRD, renderFromSRD } from "../src/render.js";
 import { slugTitle } from "../src/templates.js";
 import type { Brief, EvidenceItem, SRD } from "../src/types.js";
 
@@ -119,6 +119,56 @@ describe("renderSRD", () => {
     for (const f of ["requirements/FUNCTIONAL.md", "SRD.json", "SRD.md", "TRACEABILITY.md", "design/DESIGN-TOKENS.md", "design/COMPONENTS.md"]) {
       expect(readFileSync(join(a, f), "utf8")).toBe(readFileSync(join(b, f), "utf8"));
     }
+  });
+});
+
+describe("renderFromSRD (re-emit from an edited SRD.json)", () => {
+  it("re-emits the tree from a hand-edited SRD.json without a brief or evidence", () => {
+    const out = freshDir();
+    renderSRD(brief, evidence, { level: "complex", out, merge: false, generatedAt: "T" });
+    // Hand-sharpen one acceptance criterion directly in the manifest.
+    const srd = JSON.parse(readFileSync(join(out, "SRD.json"), "utf8")) as SRD;
+    srd.functional[0]!.acceptance[0]!.then = "the saved article opens offline within 500 ms";
+    writeFileSync(join(out, "SRD.json"), JSON.stringify(srd, null, 2));
+    // Remove the brief + evidence: --from-srd must not depend on them.
+    rmSync(join(out, "brief.json"), { force: true });
+    rmSync(join(out, "evidence"), { recursive: true, force: true });
+
+    const r = renderFromSRD(out, { merge: false, prd: false });
+    expect(r.files).toContain("SRD.json");
+    const fn = readFileSync(join(out, "requirements/FUNCTIONAL.md"), "utf8");
+    expect(fn).toContain("the saved article opens offline within 500 ms"); // the edit survived, not rebuilt away
+  });
+
+  it("is idempotent — a second --from-srd pass is byte-identical", () => {
+    const out = freshDir();
+    renderSRD(brief, evidence, { level: "complex", out, merge: true, generatedAt: "T" });
+    renderFromSRD(out, { merge: true, prd: false });
+    const snap = (f: string) => readFileSync(join(out, f), "utf8");
+    const files = ["SRD.json", "requirements/FUNCTIONAL.md", "BUILD-PLAN.json", "TRACEABILITY.md"];
+    const first = files.map(snap);
+    renderFromSRD(out, { merge: true, prd: false });
+    files.forEach((f, i) => expect(snap(f), f).toBe(first[i]));
+  });
+
+  it("honours --merge and --prd, and preserves a done BUILD-PLAN task status", () => {
+    const out = freshDir();
+    renderSRD(brief, evidence, { level: "complex", out, merge: false, generatedAt: "T" });
+    // Mark the first plan task done — mergePlan must preserve it across re-emit.
+    const plan = JSON.parse(readFileSync(join(out, "BUILD-PLAN.json"), "utf8")) as { tasks: { id: string; status?: string }[] };
+    plan.tasks[0]!.status = "done";
+    writeFileSync(join(out, "BUILD-PLAN.json"), JSON.stringify(plan, null, 2));
+
+    renderFromSRD(out, { merge: true, prd: true });
+    expect(existsSync(join(out, "SRD.md"))).toBe(true); // --merge
+    expect(existsSync(join(out, "requirements/prd/README.md"))).toBe(true); // --prd
+    const plan2 = JSON.parse(readFileSync(join(out, "BUILD-PLAN.json"), "utf8")) as { tasks: { id: string; status?: string }[] };
+    expect(plan2.tasks.find((t) => t.id === plan.tasks[0]!.id)!.status).toBe("done");
+  });
+
+  it("throws a clean domain error when SRD.json is missing", () => {
+    const out = freshDir();
+    expect(() => renderFromSRD(out, { merge: false, prd: false })).toThrow(/SRD\.json/);
   });
 });
 
