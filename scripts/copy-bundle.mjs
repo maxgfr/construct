@@ -10,10 +10,22 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const source = join(root, "scripts", "construct.mjs");
-const targets = [join(root, "skills", "construct", "scripts", "construct.mjs")];
+const skill = join(root, "skills", "construct");
 
-for (const target of targets) {
+// The engine bundle + the optional semantic Docker stack (compose file and its
+// SearXNG settings). All three must ship INSIDE the skill dir so the installed
+// skill is self-contained — the compose lives at skills/construct/ so it is
+// `../docker-compose.yml` from the bundle, and its `./docker/searxng` bind mount
+// resolves to the shipped sibling.
+const pairs = [
+  ["scripts/construct.mjs", "scripts/construct.mjs"],
+  ["docker-compose.yml", "docker-compose.yml"],
+  ["docker/searxng/settings.yml", "docker/searxng/settings.yml"],
+];
+
+for (const [from, to] of pairs) {
+  const source = join(root, from);
+  const target = join(skill, to);
   mkdirSync(dirname(target), { recursive: true });
   copyFileSync(source, target);
   console.log(`copy-bundle: ${source} -> ${target}`);

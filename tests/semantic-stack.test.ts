@@ -42,6 +42,15 @@ describe("semanticControl", () => {
     expect(sh).not.toHaveBeenCalled();
   });
 
+  it("reports a targeted error (not a raw docker failure) when the compose file is not found", () => {
+    have.mockReturnValue(true);
+    const r = semanticControl("up", null); // inject a missing compose path
+    expect(r.code).toBe(1);
+    expect(r.message).toMatch(/docker-compose\.yml not found/i);
+    expect(r.message).toMatch(/reinstall|npx skills add|semantic-setup/i);
+    expect(sh).not.toHaveBeenCalled();
+  });
+
   it("status prints `docker compose ps` output and is always exit 0", () => {
     have.mockReturnValue(true);
     sh.mockReturnValue(okSh({ stdout: "NAME     STATUS\nollama   Up 2m" }));
