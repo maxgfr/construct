@@ -248,6 +248,25 @@ var PRIORITIES = ["must", "should", "could"];
 function slugId(s) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
 }
+var KNOWN_CONSTRAINT_KEYS = ["budget", "timeline", "team", "compliance"];
+function normalizeConstraints(raw, line, arr, warn) {
+  const c = raw ?? {};
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    for (const k of Object.keys(c)) {
+      if (!KNOWN_CONSTRAINT_KEYS.includes(k)) {
+        warn(
+          `constraints.${k} is not a recognized constraint (known: ${KNOWN_CONSTRAINT_KEYS.join(", ")}) \u2014 ignored; fold it into the nearest field or openQuestions.`
+        );
+      }
+    }
+  }
+  return {
+    budget: line(c.budget),
+    timeline: line(c.timeline),
+    team: line(c.team),
+    compliance: arr(c.compliance, "constraints.compliance")
+  };
+}
 function normalizeBrief(data, warn = () => {
 }) {
   const d = data ?? {};
@@ -255,6 +274,11 @@ function normalizeBrief(data, warn = () => {
   const arr = (v, field) => {
     if (v === void 0 || v === null) return [];
     if (!Array.isArray(v)) {
+      if (typeof v === "string") {
+        const s = v.replace(/\s+/g, " ").trim();
+        warn(`${field}: expected an array \u2014 coerced the bare string into a one-element array.`);
+        return s ? [s] : [];
+      }
       warn(`${field} is not an array \u2014 ignored.`);
       return [];
     }
@@ -365,12 +389,7 @@ function normalizeBrief(data, warn = () => {
     },
     goals: arr(d.goals, "goals"),
     nonGoals: arr(d.nonGoals, "nonGoals"),
-    constraints: {
-      budget: line(d.constraints?.budget),
-      timeline: line(d.constraints?.timeline),
-      team: line(d.constraints?.team),
-      compliance: arr(d.constraints?.compliance, "constraints.compliance")
-    },
+    constraints: normalizeConstraints(d.constraints, line, arr, warn),
     candidateTech: arr(d.candidateTech, "candidateTech"),
     competitors: arr(d.competitors, "competitors"),
     ossSeeds: arr(d.ossSeeds, "ossSeeds"),

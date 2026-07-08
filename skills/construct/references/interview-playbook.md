@@ -69,6 +69,23 @@ Check the fit before question 1; a wrong fit wastes the whole loop.
     These render as `🧠 Decide:` callouts and **block the structural gate** until
     resolved — so only put real, deferred decisions here.
 
+## Field types
+
+Several brief fields are **arrays of strings** — write them as JSON arrays, not
+prose:
+
+- `product.users`, `goals`, `nonGoals`, `candidateTech`, `competitors`,
+  `ossSeeds`, `nfrPriorities`, `openQuestions`,
+- `constraints.compliance`, `design.platforms`, `design.referenceSystems`.
+
+A bare string in one of these is **coerced** into a one-element array with a
+warning (so nothing is lost), but authoring the array directly is clearer:
+`"users": ["solo devs", "small teams"]`, not `"users": "solo devs and teams"`.
+
+`constraints` reads **only** `budget`, `timeline`, `team`, `compliance` — any
+other key (e.g. `constraints.deployment`) is dropped with a named warning. Fold
+a stray constraint into the nearest recognized field or into `openQuestions`.
+
 ## Tips
 
 - Prefer multiple-choice or "A or B?" phrasing; it's easier to answer.

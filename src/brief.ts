@@ -65,6 +65,35 @@ function slugId(s: string): string {
     .slice(0, 60);
 }
 
+const KNOWN_CONSTRAINT_KEYS = ["budget", "timeline", "team", "compliance"] as const;
+
+// Rebuild the constraints object from only the four recognized keys, and warn —
+// naming the offender — when the brief carries any other key (a common mistake,
+// e.g. `constraints.deployment`, that would otherwise vanish silently).
+function normalizeConstraints(
+  raw: Brief["constraints"] | undefined,
+  line: (v: unknown) => string | undefined,
+  arr: (v: unknown, field: string) => string[],
+  warn: (msg: string) => void,
+): Brief["constraints"] {
+  const c = (raw ?? {}) as Record<string, unknown>;
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    for (const k of Object.keys(c)) {
+      if (!(KNOWN_CONSTRAINT_KEYS as readonly string[]).includes(k)) {
+        warn(
+          `constraints.${k} is not a recognized constraint (known: ${KNOWN_CONSTRAINT_KEYS.join(", ")}) — ignored; fold it into the nearest field or openQuestions.`,
+        );
+      }
+    }
+  }
+  return {
+    budget: line(c.budget),
+    timeline: line(c.timeline),
+    team: line(c.team),
+    compliance: arr(c.compliance, "constraints.compliance"),
+  };
+}
+
 // Coerce a parsed object into a Brief, tolerating missing arrays/objects so a
 // hand-edited brief never crashes the renderer. Tolerance must not mean silent
 // loss: anything dropped or rewritten is reported through `warn`.
@@ -76,6 +105,13 @@ export function normalizeBrief(data: unknown, warn: (msg: string) => void = () =
   const arr = (v: unknown, field: string): string[] => {
     if (v === undefined || v === null) return [];
     if (!Array.isArray(v)) {
+      // A bare string is a common brief mistake — coerce it into a one-element
+      // array (with a warning) rather than dropping the user's real value.
+      if (typeof v === "string") {
+        const s = v.replace(/\s+/g, " ").trim();
+        warn(`${field}: expected an array — coerced the bare string into a one-element array.`);
+        return s ? [s] : [];
+      }
       warn(`${field} is not an array — ignored.`);
       return [];
     }
@@ -194,12 +230,7 @@ export function normalizeBrief(data: unknown, warn: (msg: string) => void = () =
     },
     goals: arr(d.goals, "goals"),
     nonGoals: arr(d.nonGoals, "nonGoals"),
-    constraints: {
-      budget: line(d.constraints?.budget),
-      timeline: line(d.constraints?.timeline),
-      team: line(d.constraints?.team),
-      compliance: arr(d.constraints?.compliance, "constraints.compliance"),
-    },
+    constraints: normalizeConstraints(d.constraints, line, arr, warn),
     candidateTech: arr(d.candidateTech, "candidateTech"),
     competitors: arr(d.competitors, "competitors"),
     ossSeeds: arr(d.ossSeeds, "ossSeeds"),
