@@ -409,6 +409,10 @@ export interface CheckResult {
   // (missing/unreadable/verdict-less VERIFY.json) and `--allow-unverified` was
   // not passed. Fail-closed: its presence means `ok` is false.
   semanticError?: string;
+  // Present when the SRD carries resolved citations but the caller did NOT pass
+  // `--semantic`: the claim-support gate never engaged, so the citations are
+  // unverified. Advisory only — reported loudly, never flips `ok`.
+  semanticSkipped?: { citedClaims: number; verifyExists: boolean };
 }
 
 // ---------------------------------------------------------------------------

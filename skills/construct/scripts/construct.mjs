@@ -1611,6 +1611,13 @@ function matchEvidence(text, evidence, n, onlySources) {
   }
   return out;
 }
+function mentionsEntity(name, e) {
+  const phrase = name.trim().toLowerCase().replace(/\s+/g, " ");
+  if (!phrase) return false;
+  const hay = `${e.title} ${e.snippet}`.toLowerCase().replace(/\s+/g, " ");
+  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![a-z0-9])${escaped}(?![a-z0-9])`).test(hay);
+}
 var NFR_SIGNALS = {
   privacy: /privac|gdpr|personal data|consent|self[- ]?host|own (your|the) data|no account/i,
   accessibility: /accessib|a11y|screen reader|wcag|keyboard/i,
@@ -1917,7 +1924,12 @@ function buildSRD(brief, evidence, opts) {
   const interfaces = inferInterfaces(brief, functional);
   const evById = new Map(evidence.map((e) => [e.id, e]));
   const competitors = brief.competitors.map((name) => {
-    const ev = matchEvidence(name, evidence, 2, ["market"]);
+    const ev = matchEvidence(
+      name,
+      evidence.filter((e) => mentionsEntity(name, e)),
+      2,
+      ["market"]
+    );
     return { name, note: noteFrom(ev, evById) || `Comparable product / alternative to "${productName}".`, evidence: ev };
   });
   const ossByKey = /* @__PURE__ */ new Map();
@@ -3497,7 +3509,12 @@ function checkRun(runDir, opts = {}) {
   }
   const ok = structuralOk && (grounding?.ok ?? true);
   const result = { ok, structural: { ok: structuralOk, errors, warnings }, coverage, grounding };
-  if (opts.semantic) applySemantic(runDir, result, opts.allowUnverified ?? false);
+  if (opts.semantic) {
+    applySemantic(runDir, result, opts.allowUnverified ?? false);
+  } else if (coverage.resolved.length > 0) {
+    const citedClaims = coverage.frGrounded + coverage.nfrGrounded + coverage.adrGrounded;
+    result.semanticSkipped = { citedClaims, verifyExists: existsSync6(join11(runDir, "VERIFY.json")) };
+  }
   return result;
 }
 function pct(part, total) {
@@ -3527,6 +3544,16 @@ function formatCheckReport(r, runDir) {
     lines.push(
       g.ok ? `  \u2713 PASS \u2014 ${g.actualPct}% of groundable claims are grounded (threshold ${g.threshold}%)` : `  \u2717 FAIL \u2014 ${g.actualPct}% of groundable claims are grounded, below the ${g.threshold}% threshold`
     );
+  }
+  if (r.semanticSkipped) {
+    const s = r.semanticSkipped;
+    lines.push(``);
+    lines.push(`Semantic gate: SKIPPED`);
+    lines.push(`  \u26A0 ${s.citedClaims} cited claim(s) were never adversarially verified \u2014 a citation`);
+    lines.push(
+      s.verifyExists ? `    proves nothing until reviewed. A VERIFY.json exists \u2014 re-run with --semantic to gate on it.` : `    proves nothing until reviewed. Run \`construct review --out <run>\`, adjudicate the`
+    );
+    if (!s.verifyExists) lines.push(`    worklist, then \`construct check --semantic\`.`);
   }
   if (r.semanticError) {
     lines.push(``);

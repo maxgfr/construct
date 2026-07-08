@@ -357,6 +357,43 @@ describe("checkRun — manifest & content edge cases", () => {
   });
 });
 
+describe("checkRun — semantic-skip warning (cited claims without --semantic)", () => {
+  it("reports the skipped semantic gate when the SRD carries resolved citations", () => {
+    const dir = renderRun(); // sample brief + evidence → citations resolve
+    const r = checkRun(dir);
+    expect(r.coverage.resolved.length).toBeGreaterThan(0); // precondition
+    expect(r.semanticSkipped).toBeDefined();
+    expect(r.semanticSkipped!.citedClaims).toBeGreaterThan(0);
+    expect(r.ok).toBe(true); // never gates
+    const report = formatCheckReport(r, dir);
+    expect(report).toMatch(/Semantic gate: SKIPPED/);
+    expect(report).toMatch(/never .*verified|not .*verified/i);
+    expect(report).toContain("construct review");
+  });
+
+  it("stays silent when there are no citations to verify", () => {
+    const dir = renderRun({ withEvidence: false, briefOverride: { competitors: [], ossSeeds: [] } });
+    const r = checkRun(dir);
+    expect(r.coverage.resolved.length).toBe(0);
+    expect(r.semanticSkipped).toBeUndefined();
+    expect(formatCheckReport(r, dir)).not.toMatch(/Semantic gate: SKIPPED/);
+  });
+
+  it("stays silent when --semantic engages the gate", () => {
+    const dir = renderRun();
+    const r = checkRun(dir, { semantic: true, allowUnverified: true });
+    expect(r.semanticSkipped).toBeUndefined();
+  });
+
+  it("points at VERIFY.json when one already exists", () => {
+    const dir = renderRun();
+    writeFileSync(join(dir, "VERIFY.json"), JSON.stringify({ ok: true, verdicts: [] }));
+    const r = checkRun(dir);
+    expect(r.semanticSkipped?.verifyExists).toBe(true);
+    expect(formatCheckReport(r, dir)).toMatch(/--semantic/);
+  });
+});
+
 describe("checkRun --semantic composition edge cases", () => {
   // A verdict pair as `review --apply` persists it (verdict: null = unadjudicated).
   const pair = (claimId: string, verdict: string | null) => ({

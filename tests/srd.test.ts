@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { buildSRD, matchEvidence, deriveA11yStandard } from "../src/srd.js";
+import { buildSRD, matchEvidence, mentionsEntity, deriveA11yStandard } from "../src/srd.js";
 import { DESIGN_TOKEN_CATEGORIES } from "../src/types.js";
 import type { Brief, EvidenceItem } from "../src/types.js";
 
@@ -50,6 +50,62 @@ describe("matchEvidence", () => {
       { id: "E2", source: "oss", title: "repo b", ref: "acme/clipper", score: 1, snippet: "full text search ranking" },
     ] as EvidenceItem[];
     expect(matchEvidence("full text search", ev, 2)).toEqual(["E1", "E2"]);
+  });
+});
+
+describe("mentionsEntity", () => {
+  const item = (text: string) => ({ id: "E1", source: "market", title: "", ref: "r", score: 1, snippet: text }) as EvidenceItem;
+
+  it("matches the whole name as a word-bounded, case-insensitive phrase", () => {
+    expect(mentionsEntity("Pocket", item("Pocket lets you save articles"))).toBe(true);
+    expect(mentionsEntity("pocket", item("Compare POCKET and others"))).toBe(true);
+    expect(mentionsEntity("Money Wave", item("We benchmarked Money Wave against Mint"))).toBe(true);
+  });
+
+  it("does not match inside a larger word", () => {
+    expect(mentionsEntity("Wave", item("microwave ovens on sale"))).toBe(false);
+    expect(mentionsEntity("Mint", item("badminton rackets"))).toBe(false);
+  });
+
+  it("does not treat token overlap as a mention", () => {
+    expect(mentionsEntity("Money Wave", item("a new wave of money apps"))).toBe(false);
+  });
+
+  it("handles punctuation-bearing names literally", () => {
+    expect(mentionsEntity("Next.js", item("Choosing Next.js for the frontend"))).toBe(true);
+    expect(mentionsEntity("Next.js", item("what comes next js-wise"))).toBe(false);
+  });
+
+  it("checks the title as well as the snippet", () => {
+    expect(mentionsEntity("Pocket", { id: "E1", source: "market", title: "Pocket review", ref: "r", score: 1, snippet: "save it" } as EvidenceItem)).toBe(true);
+  });
+});
+
+describe("buildSRD — competitor grounding requires a literal mention (no citation washing)", () => {
+  const listicle = [
+    {
+      id: "E1",
+      source: "market",
+      title: "Best read-later apps",
+      ref: "https://x/listicle",
+      url: "https://x/listicle",
+      score: 2,
+      snippet: "Pocket lets you save articles for later. A new wave of money apps also bundle reading lists.",
+    },
+  ] as EvidenceItem[];
+  const washBrief: Brief = { ...brief, competitors: ["Pocket", "Money Wave"] };
+
+  it("keeps the citation for a competitor the evidence literally names", () => {
+    const srd = buildSRD(washBrief, listicle, { level: "light", generatedAt: "T" });
+    const pocket = srd.competitive.competitors.find((c) => c.name === "Pocket")!;
+    expect(pocket.evidence).toEqual(["E1"]);
+  });
+
+  it("attaches nothing when the name is only token-overlapped, never mentioned", () => {
+    const srd = buildSRD(washBrief, listicle, { level: "light", generatedAt: "T" });
+    const wave = srd.competitive.competitors.find((c) => c.name === "Money Wave")!;
+    expect(wave.evidence).toEqual([]); // "wave … money" overlap ≠ a mention of Money Wave
+    expect(wave.note).toMatch(/Comparable product/); // falls back to the generic note, not E1's digest
   });
 });
 

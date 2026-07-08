@@ -397,7 +397,14 @@ export function checkRun(runDir: string, opts: { minGrounding?: number; semantic
 
   const ok = structuralOk && (grounding?.ok ?? true);
   const result: CheckResult = { ok, structural: { ok: structuralOk, errors, warnings }, coverage, grounding };
-  if (opts.semantic) applySemantic(runDir, result, opts.allowUnverified ?? false);
+  if (opts.semantic) {
+    applySemantic(runDir, result, opts.allowUnverified ?? false);
+  } else if (coverage.resolved.length > 0) {
+    // Citations exist but the support gate never engaged — surface it loudly
+    // (advisory): a citation proves nothing until the review adjudicates it.
+    const citedClaims = coverage.frGrounded + coverage.nfrGrounded + coverage.adrGrounded;
+    result.semanticSkipped = { citedClaims, verifyExists: existsSync(join(runDir, "VERIFY.json")) };
+  }
   return result;
 }
 
@@ -431,6 +438,18 @@ export function formatCheckReport(r: CheckResult, runDir: string): string {
         ? `  ✓ PASS — ${g.actualPct}% of groundable claims are grounded (threshold ${g.threshold}%)`
         : `  ✗ FAIL — ${g.actualPct}% of groundable claims are grounded, below the ${g.threshold}% threshold`,
     );
+  }
+  if (r.semanticSkipped) {
+    const s = r.semanticSkipped;
+    lines.push(``);
+    lines.push(`Semantic gate: SKIPPED`);
+    lines.push(`  ⚠ ${s.citedClaims} cited claim(s) were never adversarially verified — a citation`);
+    lines.push(
+      s.verifyExists
+        ? `    proves nothing until reviewed. A VERIFY.json exists — re-run with --semantic to gate on it.`
+        : `    proves nothing until reviewed. Run \`construct review --out <run>\`, adjudicate the`,
+    );
+    if (!s.verifyExists) lines.push(`    worklist, then \`construct check --semantic\`.`);
   }
   if (r.semanticError) {
     lines.push(``);
