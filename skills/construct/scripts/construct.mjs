@@ -2989,8 +2989,224 @@ function renderSRD(brief, evidence, opts) {
 }
 
 // src/check.ts
-import { existsSync as existsSync5, readFileSync as readFileSync4, readdirSync as readdirSync3, statSync as statSync2 } from "fs";
-import { join as join10, relative as relative2, sep as sep2 } from "path";
+import { existsSync as existsSync6, readFileSync as readFileSync5, readdirSync as readdirSync3, statSync as statSync2 } from "fs";
+import { join as join11, relative as relative2, sep as sep2 } from "path";
+
+// src/review.ts
+import { existsSync as existsSync5, readFileSync as readFileSync4, writeFileSync as writeFileSync5 } from "fs";
+import { join as join10 } from "path";
+var REVIEW_MAX = 40;
+var VALID_VERDICTS = ["supported", "partial", "refuted", "unsupported"];
+function loadEvidence(path) {
+  if (!existsSync5(path)) return [];
+  try {
+    const data = JSON.parse(readFileSync4(path, "utf8"));
+    return Array.isArray(data) ? data.filter(
+      (e) => !!e && typeof e === "object" && typeof e.id === "string" && typeof e.source === "string"
+    ) : [];
+  } catch {
+    return [];
+  }
+}
+function srdClaims(srd) {
+  const out = [];
+  for (const f of srd.functional) {
+    const ac = f.acceptance.map((a) => `${a.given} / ${a.when} / ${a.then}`).join("; ");
+    out.push({ id: f.id, kind: "FR", text: `${f.title}: ${f.description}${ac ? " \u2014 " + ac : ""}`, ev: f.rationaleEvidence });
+  }
+  for (const n of srd.nonFunctional) {
+    out.push({ id: n.id, kind: "NFR", text: `${n.category}: ${n.statement}${n.metric ? ` (${n.metric})` : ""}`, ev: n.rationaleEvidence });
+  }
+  for (const a of srd.architecture.adrs) {
+    out.push({ id: `ADR-${a.id}`, kind: "ADR", text: `${a.title}: ${a.decision}`, ev: a.evidence });
+  }
+  srd.competitive.competitors.forEach((c, i) => out.push({ id: `COMP-${i + 1}`, kind: "competitor", text: `${c.name}: ${c.note}`, ev: c.evidence }));
+  srd.competitive.oss.forEach((o, i) => out.push({ id: `OSS-${i + 1}`, kind: "oss", text: `${o.name}: ${o.note}`, ev: o.evidence }));
+  return out;
+}
+function claimDigest(snippet, claim, cap = 600) {
+  if (snippet.length <= cap) return snippet;
+  const kws = keywords(claim).map((k) => k.toLowerCase());
+  if (!kws.length) return snippet.slice(0, cap);
+  const step = 150;
+  let best = 0;
+  let bestCov = -1;
+  for (let start = 0; start === 0 || start + cap / 2 < snippet.length; start += step) {
+    const w = snippet.slice(start, start + cap).toLowerCase();
+    let cov = 0;
+    for (const kw of kws) if (w.includes(kw)) cov++;
+    if (cov >= bestCov) {
+      bestCov = cov;
+      best = start;
+    }
+  }
+  return (best > 0 ? "\u2026 " : "") + snippet.slice(best, best + cap).trim();
+}
+function runReview(runDir, opts = {}) {
+  const manifest = srdManifestPath(runDir);
+  if (!existsSync5(manifest)) throw new Error(`No SRD.json in ${runDir} \u2014 render the SRD first (construct render).`);
+  let srd;
+  try {
+    srd = JSON.parse(readFileSync4(manifest, "utf8"));
+  } catch (e) {
+    throw new Error(`SRD.json is unreadable: ${e.message}`);
+  }
+  const evidence = loadEvidence(join10(runDir, "evidence", "evidence.json"));
+  const byId = new Map(evidence.map((e) => [e.id, e]));
+  const pairs = [];
+  for (const c of srdClaims(srd)) {
+    for (const id of [...new Set(c.ev)]) {
+      const e = byId.get(id);
+      if (!e) continue;
+      pairs.push({
+        claimId: c.id,
+        kind: c.kind,
+        claim: c.text.trim().slice(0, 400),
+        evidenceId: id,
+        source: e.source,
+        digest: claimDigest(e.snippet || e.title || e.ref, c.text),
+        score: e.score
+      });
+    }
+  }
+  const max = Math.max(1, Math.floor(opts.maxReview ?? REVIEW_MAX));
+  const kept = pairs.length > max ? pairs.slice().sort((a, b) => b.score - a.score || a.claimId.localeCompare(b.claimId) || a.evidenceId.localeCompare(b.evidenceId)).slice(0, max) : pairs;
+  const worklist = { run: runDir, pairs: kept.map(({ score, ...rest }) => rest) };
+  const todo = {
+    run: runDir,
+    pairs: worklist.pairs.map((p) => ({ ...p, verdict: null, note: "" }))
+  };
+  writeFileSync5(join10(runDir, "VERIFY.todo.json"), JSON.stringify(todo, null, 2));
+  writeFileSync5(join10(runDir, "VERIFY.md"), renderWorklistMd(worklist, pairs.length, kept.length));
+  return worklist;
+}
+function renderWorklistMd(wl, total, kept) {
+  const out = [];
+  out.push(`# Claim-support review worklist`);
+  out.push("");
+  out.push(
+    `For each pair, open the cited evidence and judge whether it **supports** the claim. In \`VERIFY.todo.json\`, set each \`verdict\` to one of supported \xB7 partial \xB7 refuted \xB7 unsupported, add a short \`note\`, save it (e.g. as \`verdicts.json\`), then run \`construct review --apply verdicts.json --out <run>\`.`
+  );
+  if (kept < total) out.push(`
+_Showing ${kept} of ${total} pair(s) \u2014 capped at the highest-score evidence._`);
+  out.push("");
+  for (const p of wl.pairs) {
+    out.push(`## ${p.claimId} \xB7 ${p.evidenceId} (${p.source})`);
+    out.push(`**Claim (${p.kind}):** ${p.claim}`);
+    out.push(`**Cited evidence:** ${p.digest}`);
+    out.push(`**Verdict:** _____ \xB7 **Note:** _____`);
+    out.push("");
+  }
+  return out.join("\n");
+}
+function applyVerdicts(runDir, verdictsPath) {
+  if (!existsSync5(verdictsPath)) throw new Error(`verdicts file not found: ${verdictsPath}`);
+  let raw;
+  try {
+    raw = JSON.parse(readFileSync4(verdictsPath, "utf8"));
+  } catch (e) {
+    throw new Error(`verdicts file is not valid JSON (${verdictsPath}): ${e.message}`);
+  }
+  const list = Array.isArray(raw) ? raw : raw && typeof raw === "object" && Array.isArray(raw.pairs) ? raw.pairs : null;
+  if (list === null) {
+    throw new Error(`verdicts file must be a JSON array of verdicts or an object with a "pairs" array (${verdictsPath}).`);
+  }
+  const verdicts = [];
+  const seen = /* @__PURE__ */ new Set();
+  const key = (claimId, evidenceId) => `${claimId}::${evidenceId}`;
+  for (const v of list) {
+    if (!v || typeof v.claimId !== "string" || typeof v.evidenceId !== "string") continue;
+    const verdict = VALID_VERDICTS.includes(v.verdict) ? v.verdict : void 0;
+    verdicts.push({
+      claimId: v.claimId,
+      kind: v.kind,
+      claim: typeof v.claim === "string" ? v.claim : "",
+      evidenceId: v.evidenceId,
+      source: v.source,
+      digest: typeof v.digest === "string" ? v.digest : "",
+      verdict,
+      note: typeof v.note === "string" ? v.note : ""
+    });
+    seen.add(key(v.claimId, v.evidenceId));
+  }
+  const todoPath = join10(runDir, "VERIFY.todo.json");
+  if (existsSync5(todoPath)) {
+    try {
+      const todo = JSON.parse(readFileSync4(todoPath, "utf8"));
+      for (const p of todo.pairs ?? []) {
+        if (!p || typeof p.claimId !== "string" || typeof p.evidenceId !== "string") continue;
+        if (seen.has(key(p.claimId, p.evidenceId))) continue;
+        verdicts.push({
+          claimId: p.claimId,
+          kind: p.kind,
+          claim: p.claim ?? "",
+          evidenceId: p.evidenceId,
+          source: p.source,
+          digest: p.digest ?? "",
+          verdict: void 0,
+          note: ""
+        });
+        seen.add(key(p.claimId, p.evidenceId));
+      }
+    } catch {
+    }
+  }
+  const result = reduceVerdicts(verdicts);
+  writeFileSync5(join10(runDir, "VERIFY.json"), JSON.stringify({ ...result, verdicts }, null, 2));
+  return result;
+}
+function reduceVerdicts(verdicts) {
+  const counts = { supported: 0, partial: 0, refuted: 0, unsupported: 0 };
+  for (const v of verdicts) if (v.verdict && counts[v.verdict] !== void 0) counts[v.verdict]++;
+  const byClaim = /* @__PURE__ */ new Map();
+  for (const v of verdicts) {
+    const group = byClaim.get(v.claimId) ?? [];
+    group.push(v);
+    byClaim.set(v.claimId, group);
+  }
+  const failures = [];
+  const unadjudicated = [];
+  for (const [claimId, group] of byClaim) {
+    const adjudicated = group.filter((g) => !!g.verdict);
+    if (adjudicated.length < group.length) unadjudicated.push(claimId);
+    const refuted = adjudicated.find((g) => g.verdict === "refuted");
+    const hasSupport = adjudicated.some((g) => g.verdict === "supported" || g.verdict === "partial");
+    if (refuted) {
+      failures.push({ claimId, evidenceId: refuted.evidenceId, verdict: "refuted", note: refuted.note });
+    } else if (adjudicated.length === group.length && adjudicated.length > 0 && !hasSupport) {
+      const u = adjudicated.find((g) => g.verdict === "unsupported") ?? adjudicated[0];
+      failures.push({ claimId, evidenceId: u.evidenceId, verdict: u.verdict, note: u.note });
+    }
+  }
+  return {
+    ok: failures.length === 0,
+    pairs: verdicts.length,
+    adjudicated: verdicts.filter((v) => !!v.verdict).length,
+    supported: counts.supported,
+    partial: counts.partial,
+    refuted: counts.refuted,
+    unsupported: counts.unsupported,
+    failures,
+    unadjudicated
+  };
+}
+function formatReviewReport(r) {
+  const lines = [];
+  lines.push(`construct review: ${r.adjudicated}/${r.pairs} pair(s) adjudicated`);
+  lines.push(`  supported: ${r.supported} \xB7 partial: ${r.partial} \xB7 refuted: ${r.refuted} \xB7 unsupported: ${r.unsupported}`);
+  for (const f of r.failures.slice(0, 12)) {
+    lines.push(`  \u2717 ${f.claimId} (${f.evidenceId}): ${f.verdict}${f.note ? " \u2014 " + f.note : ""}`);
+  }
+  if (r.unadjudicated.length) {
+    lines.push(`  \u26A0 ${r.unadjudicated.length} claim(s) not fully adjudicated: ${r.unadjudicated.join(", ")}`);
+  }
+  lines.push(
+    !r.ok ? `  \u2717 some claims are refuted or unsupported` : r.unadjudicated.length ? `  \u2713 no refuted or unsupported claims (${r.unadjudicated.length} still unadjudicated \u2014 see above)` : `  \u2713 every grounded claim is backed by its cited evidence`
+  );
+  return lines.join("\n");
+}
+
+// src/check.ts
 var DESIGN_REQUIRED_FILES = [
   "design/PRINCIPLES.md",
   "design/DESIGN-TOKENS.md",
@@ -3021,7 +3237,7 @@ function mdFiles(runDir) {
       continue;
     }
     for (const name of entries) {
-      const abs = join10(dir, name);
+      const abs = join11(dir, name);
       let st;
       try {
         st = statSync2(abs);
@@ -3039,13 +3255,13 @@ function mdFiles(runDir) {
   }
   return out.sort();
 }
-function loadEvidence(runDir) {
-  const path = join10(runDir, "evidence", "evidence.json");
-  if (!existsSync5(path)) {
+function loadEvidence2(runDir) {
+  const path = join11(runDir, "evidence", "evidence.json");
+  if (!existsSync6(path)) {
     return { evidence: [], note: `No evidence/evidence.json \u2014 grounding coverage is 0 (run \`construct research\` to ground the SRD).` };
   }
   try {
-    const data = JSON.parse(readFileSync4(path, "utf8"));
+    const data = JSON.parse(readFileSync5(path, "utf8"));
     const evidence = Array.isArray(data) ? data.filter(
       (e) => !!e && typeof e === "object" && typeof e.id === "string" && typeof e.source === "string"
     ) : [];
@@ -3093,28 +3309,46 @@ function computeCoverage(srd, evidence) {
 }
 var TEMPLATED_THEN_RE = /is persisted and visible to the user$/;
 var TEMPLATED_METRIC_RE = /^A measurable target for "/;
-function applySemantic(runDir, result) {
-  const p = join10(runDir, "VERIFY.json");
-  if (!existsSync5(p)) {
-    result.structural.warnings.push("--semantic: no VERIFY.json \u2014 run `construct review` then `review --apply <verdicts.json>` first; semantic gate skipped.");
+function applySemantic(runDir, result, allowUnverified) {
+  const p = join11(runDir, "VERIFY.json");
+  const skip = (reason, hint) => {
+    if (allowUnverified) {
+      result.structural.warnings.push(`--semantic: ${reason} \u2014 ${hint}; semantic gate skipped (--allow-unverified).`);
+    } else {
+      result.semanticError = `${reason} \u2014 ${hint}, or pass --allow-unverified to degrade this to a warning.`;
+      result.ok = false;
+    }
+  };
+  if (!existsSync6(p)) {
+    skip("no VERIFY.json", "run `construct review` then `review --apply <verdicts.json>` first");
     return;
   }
+  let sem;
   try {
-    const sem = JSON.parse(readFileSync4(p, "utf8"));
-    result.semantic = sem;
-    if (!sem.ok) result.ok = false;
-    if (sem.unadjudicated?.length) {
-      result.structural.warnings.push(`${sem.unadjudicated.length} claim(s) not fully adjudicated by review.`);
-    }
+    sem = JSON.parse(readFileSync5(p, "utf8"));
   } catch (e) {
-    result.structural.warnings.push(`--semantic: VERIFY.json is unreadable (${e.message}).`);
+    skip(`VERIFY.json is unreadable (${e.message})`, "re-run `review --apply <verdicts.json>` to regenerate it");
+    return;
+  }
+  if (!Array.isArray(sem.verdicts)) {
+    skip("VERIFY.json carries no verdicts[] (legacy or hand-edited)", "re-run `review --apply <verdicts.json>` to regenerate it");
+    return;
+  }
+  const reduced = reduceVerdicts(sem.verdicts);
+  if (reduced.ok !== sem.ok) {
+    result.structural.warnings.push("VERIFY.json's persisted summary disagreed with its verdicts \u2014 recomputed at check time.");
+  }
+  result.semantic = { ...reduced, verdicts: sem.verdicts };
+  if (!reduced.ok) result.ok = false;
+  if (reduced.unadjudicated.length) {
+    result.structural.warnings.push(`${reduced.unadjudicated.length} claim(s) not fully adjudicated by review.`);
   }
 }
 function checkDesign(runDir, srd, errors, warnings) {
   const ds = srd.design;
   if (!ds) return;
   for (const f of DESIGN_REQUIRED_FILES) {
-    if (!existsSync5(join10(runDir, f))) errors.push(`Missing required design file: ${f} (re-render at --level complex).`);
+    if (!existsSync6(join11(runDir, f))) errors.push(`Missing required design file: ${f} (re-render at --level complex).`);
   }
   const frIds = new Set(srd.functional.map((f) => f.id));
   if (ds.components.length === 0) errors.push("Design system has no components \u2014 a complex SRD's design must name its UI components.");
@@ -3136,8 +3370,8 @@ function checkDesign(runDir, srd, errors, warnings) {
   for (const r of ds.accessibility.requirements) {
     if (!r.acceptance.length) errors.push(`Accessibility requirement ${r.id} has no acceptance criteria.`);
   }
-  const tokenDoc = join10(runDir, "design", "DESIGN-TOKENS.md");
-  if (existsSync5(tokenDoc) && readFileSync4(tokenDoc, "utf8").includes(DESIGN_TOKENS_SEEDED_BANNER)) {
+  const tokenDoc = join11(runDir, "design", "DESIGN-TOKENS.md");
+  if (existsSync6(tokenDoc) && readFileSync5(tokenDoc, "utf8").includes(DESIGN_TOKENS_SEEDED_BANNER)) {
     warnings.push("Design tokens are still seeded defaults \u2014 replace them with the product's real brand values (see references/design-system-authoring.md).");
   }
 }
@@ -3145,11 +3379,11 @@ function checkModules(runDir, srd, errors, warnings) {
   const mods = srd.modules;
   if (!mods?.length) return;
   const moduleIds = new Set(mods.map((m) => m.id));
-  if (!existsSync5(join10(runDir, "prd", "README.md"))) {
+  if (!existsSync6(join11(runDir, "prd", "README.md"))) {
     errors.push(`Missing required module-PRD index: prd/README.md (re-render).`);
   }
   for (const m of mods) {
-    if (!existsSync5(join10(runDir, "prd", m.id, "PRD.md"))) {
+    if (!existsSync6(join11(runDir, "prd", m.id, "PRD.md"))) {
       errors.push(`Missing required module PRD: prd/${m.id}/PRD.md (re-render).`);
     }
     for (const dep of m.dependsOn) {
@@ -3180,22 +3414,22 @@ function checkRun(runDir, opts = {}) {
     resolved: []
   };
   for (const f of REQUIRED_FILES) {
-    if (!existsSync5(join10(runDir, f))) errors.push(`Missing required file: ${f} (run \`construct render --out ${runDir}\`).`);
+    if (!existsSync6(join11(runDir, f))) errors.push(`Missing required file: ${f} (run \`construct render --out ${runDir}\`).`);
   }
   const manifest = srdManifestPath(runDir);
-  if (!existsSync5(manifest)) {
+  if (!existsSync6(manifest)) {
     errors.push(`No SRD.json in ${runDir} \u2014 render the SRD first.`);
     return { ok: false, structural: { ok: false, errors, warnings }, coverage: emptyCoverage };
   }
   let srd;
   try {
-    srd = JSON.parse(readFileSync4(manifest, "utf8"));
+    srd = JSON.parse(readFileSync5(manifest, "utf8"));
   } catch (e) {
     errors.push(`SRD.json is unreadable: ${e.message}`);
     return { ok: false, structural: { ok: false, errors, warnings }, coverage: emptyCoverage };
   }
   for (const rel of mdFiles(runDir)) {
-    const text = readFileSync4(join10(runDir, rel), "utf8");
+    const text = readFileSync5(join11(runDir, rel), "utf8");
     if (DECISION_RE.test(text)) errors.push(`Unresolved decision (\u{1F9E0}) in ${rel} \u2014 resolve it before the SRD is complete.`);
     else if (PLACEHOLDER_RE.test(text)) warnings.push(`Possible leftover placeholder (TODO/TBD/FIXME) in ${rel} \u2014 confirm it is intentional.`);
   }
@@ -3247,7 +3481,7 @@ function checkRun(runDir, opts = {}) {
   if (templatedMetrics) {
     warnings.push(`${templatedMetrics} NFR metric(s) are still generic placeholders \u2014 set measurable targets (see references/acceptance-criteria.md).`);
   }
-  const { evidence, note } = loadEvidence(runDir);
+  const { evidence, note } = loadEvidence2(runDir);
   if (note) warnings.push(note);
   const coverage = computeCoverage(srd, evidence);
   if (coverage.dangling.length) {
@@ -3263,7 +3497,7 @@ function checkRun(runDir, opts = {}) {
   }
   const ok = structuralOk && (grounding?.ok ?? true);
   const result = { ok, structural: { ok: structuralOk, errors, warnings }, coverage, grounding };
-  if (opts.semantic) applySemantic(runDir, result);
+  if (opts.semantic) applySemantic(runDir, result, opts.allowUnverified ?? false);
   return result;
 }
 function pct(part, total) {
@@ -3294,6 +3528,11 @@ function formatCheckReport(r, runDir) {
       g.ok ? `  \u2713 PASS \u2014 ${g.actualPct}% of groundable claims are grounded (threshold ${g.threshold}%)` : `  \u2717 FAIL \u2014 ${g.actualPct}% of groundable claims are grounded, below the ${g.threshold}% threshold`
     );
   }
+  if (r.semanticError) {
+    lines.push(``);
+    lines.push(`Semantic claim-support gate (--semantic):`);
+    lines.push(`  \u2717 FAIL \u2014 ${r.semanticError}`);
+  }
   if (r.semantic) {
     const s = r.semantic;
     lines.push(``);
@@ -3308,13 +3547,13 @@ function formatCheckReport(r, runDir) {
 }
 
 // src/analyze.ts
-import { existsSync as existsSync6, readFileSync as readFileSync5 } from "fs";
-import { join as join11 } from "path";
-function loadEvidence2(runDir) {
-  const path = join11(runDir, "evidence", "evidence.json");
-  if (!existsSync6(path)) return [];
+import { existsSync as existsSync7, readFileSync as readFileSync6 } from "fs";
+import { join as join12 } from "path";
+function loadEvidence3(runDir) {
+  const path = join12(runDir, "evidence", "evidence.json");
+  if (!existsSync7(path)) return [];
   try {
-    const data = JSON.parse(readFileSync5(path, "utf8"));
+    const data = JSON.parse(readFileSync6(path, "utf8"));
     return Array.isArray(data) ? data.filter(
       (e) => !!e && typeof e === "object" && typeof e.id === "string" && typeof e.source === "string"
     ) : [];
@@ -3323,10 +3562,10 @@ function loadEvidence2(runDir) {
   }
 }
 function loadMetaNotes(runDir) {
-  const path = join11(runDir, "evidence", "meta.json");
-  if (!existsSync6(path)) return [];
+  const path = join12(runDir, "evidence", "meta.json");
+  if (!existsSync7(path)) return [];
   try {
-    const meta = JSON.parse(readFileSync5(path, "utf8"));
+    const meta = JSON.parse(readFileSync6(path, "utf8"));
     return Array.isArray(meta.notes) ? meta.notes.filter((n) => typeof n === "string") : [];
   } catch {
     return [];
@@ -3337,7 +3576,7 @@ function featureText(f) {
 }
 function analyzeRun(runDir) {
   const brief = loadBrief(runDir);
-  const evidence = loadEvidence2(runDir);
+  const evidence = loadEvidence3(runDir);
   const notes = loadMetaNotes(runDir);
   const drill = (cmd, q) => `construct ${cmd} --out ${runDir} --q "${q.replace(/"/g, "'")}"`;
   const bySource = {};
@@ -3397,8 +3636,8 @@ function formatGapReport(r, runDir) {
 }
 
 // src/verify.ts
-import { existsSync as existsSync7, readFileSync as readFileSync6 } from "fs";
-import { isAbsolute, join as join12, resolve as resolve2 } from "path";
+import { existsSync as existsSync8, readFileSync as readFileSync7 } from "fs";
+import { isAbsolute, join as join13, resolve as resolve2 } from "path";
 var TEST_FILE_RE = /\.(test|spec)\.[^./]+$|_(test|spec)\.[^./]+$|(^|\/)test_[^/]+\.[^./]+$/i;
 var TEST_SUFFIX_RE = /(^|\/)[^/]*[A-Z]\w*Tests?\.(java|kt|kts|cs|scala|groovy)$/;
 var TEST_DIR_RE = /(^|\/)(tests?|__tests__|spec|specs|e2e)\//i;
@@ -3436,7 +3675,7 @@ function verifyRun(runDir, opts = {}) {
   const warnings = [];
   const frTestCoverage = [];
   const planPath = buildPlanPath(runDir);
-  if (!existsSync7(planPath)) {
+  if (!existsSync8(planPath)) {
     errors.push(`No BUILD-PLAN.json in ${runDir} \u2014 render the SRD first (construct render).`);
     return { ok: false, errors, warnings, frTestCoverage };
   }
@@ -3450,13 +3689,13 @@ function verifyRun(runDir, opts = {}) {
     return { ok: false, errors, warnings, frTestCoverage };
   }
   const manifest = srdManifestPath(runDir);
-  if (!existsSync7(manifest)) {
+  if (!existsSync8(manifest)) {
     errors.push(`No SRD.json in ${runDir} \u2014 the plan cannot be verified against a missing SRD.`);
     return { ok: false, errors, warnings, frTestCoverage };
   }
   let srd;
   try {
-    srd = JSON.parse(readFileSync6(manifest, "utf8"));
+    srd = JSON.parse(readFileSync7(manifest, "utf8"));
   } catch (e) {
     errors.push(`SRD.json is unreadable: ${e.message}`);
     return { ok: false, errors, warnings, frTestCoverage };
@@ -3500,13 +3739,13 @@ function verifyRun(runDir, opts = {}) {
     const ok2 = errors.length === 0;
     return { ok: ok2, errors, warnings, frTestCoverage };
   }
-  if (!existsSync7(appDir)) {
+  if (!existsSync8(appDir)) {
     errors.push(`App directory does not exist: ${appDir}.`);
     return { ok: false, errors, warnings, frTestCoverage };
   }
   for (const t of doneTasks) {
     for (const rel of [...t.artifacts, ...t.tests]) {
-      if (!existsSync7(join12(appDir, rel))) errors.push(`${t.id} is done but its declared file is missing: ${rel}.`);
+      if (!existsSync8(join13(appDir, rel))) errors.push(`${t.id} is done but its declared file is missing: ${rel}.`);
     }
     if (t.frIds.length && t.tests.length === 0) {
       warnings.push(`${t.id} is done but declares no tests \u2014 record the test files that exercise ${t.frIds.join(", ")}.`);
@@ -3593,220 +3832,6 @@ function formatVerifyReport(r, runDir) {
   return lines.join("\n");
 }
 
-// src/review.ts
-import { existsSync as existsSync8, readFileSync as readFileSync7, writeFileSync as writeFileSync5 } from "fs";
-import { join as join13 } from "path";
-var REVIEW_MAX = 40;
-var VALID_VERDICTS = ["supported", "partial", "refuted", "unsupported"];
-function loadEvidence3(path) {
-  if (!existsSync8(path)) return [];
-  try {
-    const data = JSON.parse(readFileSync7(path, "utf8"));
-    return Array.isArray(data) ? data.filter(
-      (e) => !!e && typeof e === "object" && typeof e.id === "string" && typeof e.source === "string"
-    ) : [];
-  } catch {
-    return [];
-  }
-}
-function srdClaims(srd) {
-  const out = [];
-  for (const f of srd.functional) {
-    const ac = f.acceptance.map((a) => `${a.given} / ${a.when} / ${a.then}`).join("; ");
-    out.push({ id: f.id, kind: "FR", text: `${f.title}: ${f.description}${ac ? " \u2014 " + ac : ""}`, ev: f.rationaleEvidence });
-  }
-  for (const n of srd.nonFunctional) {
-    out.push({ id: n.id, kind: "NFR", text: `${n.category}: ${n.statement}${n.metric ? ` (${n.metric})` : ""}`, ev: n.rationaleEvidence });
-  }
-  for (const a of srd.architecture.adrs) {
-    out.push({ id: `ADR-${a.id}`, kind: "ADR", text: `${a.title}: ${a.decision}`, ev: a.evidence });
-  }
-  srd.competitive.competitors.forEach((c, i) => out.push({ id: `COMP-${i + 1}`, kind: "competitor", text: `${c.name}: ${c.note}`, ev: c.evidence }));
-  srd.competitive.oss.forEach((o, i) => out.push({ id: `OSS-${i + 1}`, kind: "oss", text: `${o.name}: ${o.note}`, ev: o.evidence }));
-  return out;
-}
-function claimDigest(snippet, claim, cap = 600) {
-  if (snippet.length <= cap) return snippet;
-  const kws = keywords(claim).map((k) => k.toLowerCase());
-  if (!kws.length) return snippet.slice(0, cap);
-  const step = 150;
-  let best = 0;
-  let bestCov = -1;
-  for (let start = 0; start === 0 || start + cap / 2 < snippet.length; start += step) {
-    const w = snippet.slice(start, start + cap).toLowerCase();
-    let cov = 0;
-    for (const kw of kws) if (w.includes(kw)) cov++;
-    if (cov >= bestCov) {
-      bestCov = cov;
-      best = start;
-    }
-  }
-  return (best > 0 ? "\u2026 " : "") + snippet.slice(best, best + cap).trim();
-}
-function runReview(runDir, opts = {}) {
-  const manifest = srdManifestPath(runDir);
-  if (!existsSync8(manifest)) throw new Error(`No SRD.json in ${runDir} \u2014 render the SRD first (construct render).`);
-  let srd;
-  try {
-    srd = JSON.parse(readFileSync7(manifest, "utf8"));
-  } catch (e) {
-    throw new Error(`SRD.json is unreadable: ${e.message}`);
-  }
-  const evidence = loadEvidence3(join13(runDir, "evidence", "evidence.json"));
-  const byId = new Map(evidence.map((e) => [e.id, e]));
-  const pairs = [];
-  for (const c of srdClaims(srd)) {
-    for (const id of [...new Set(c.ev)]) {
-      const e = byId.get(id);
-      if (!e) continue;
-      pairs.push({
-        claimId: c.id,
-        kind: c.kind,
-        claim: c.text.trim().slice(0, 400),
-        evidenceId: id,
-        source: e.source,
-        digest: claimDigest(e.snippet || e.title || e.ref, c.text),
-        score: e.score
-      });
-    }
-  }
-  const max = Math.max(1, Math.floor(opts.maxReview ?? REVIEW_MAX));
-  const kept = pairs.length > max ? pairs.slice().sort((a, b) => b.score - a.score || a.claimId.localeCompare(b.claimId) || a.evidenceId.localeCompare(b.evidenceId)).slice(0, max) : pairs;
-  const worklist = { run: runDir, pairs: kept.map(({ score, ...rest }) => rest) };
-  const todo = {
-    run: runDir,
-    pairs: worklist.pairs.map((p) => ({ ...p, verdict: null, note: "" }))
-  };
-  writeFileSync5(join13(runDir, "VERIFY.todo.json"), JSON.stringify(todo, null, 2));
-  writeFileSync5(join13(runDir, "VERIFY.md"), renderWorklistMd(worklist, pairs.length, kept.length));
-  return worklist;
-}
-function renderWorklistMd(wl, total, kept) {
-  const out = [];
-  out.push(`# Claim-support review worklist`);
-  out.push("");
-  out.push(
-    `For each pair, open the cited evidence and judge whether it **supports** the claim. In \`VERIFY.todo.json\`, set each \`verdict\` to one of supported \xB7 partial \xB7 refuted \xB7 unsupported, add a short \`note\`, save it (e.g. as \`verdicts.json\`), then run \`construct review --apply verdicts.json --out <run>\`.`
-  );
-  if (kept < total) out.push(`
-_Showing ${kept} of ${total} pair(s) \u2014 capped at the highest-score evidence._`);
-  out.push("");
-  for (const p of wl.pairs) {
-    out.push(`## ${p.claimId} \xB7 ${p.evidenceId} (${p.source})`);
-    out.push(`**Claim (${p.kind}):** ${p.claim}`);
-    out.push(`**Cited evidence:** ${p.digest}`);
-    out.push(`**Verdict:** _____ \xB7 **Note:** _____`);
-    out.push("");
-  }
-  return out.join("\n");
-}
-function applyVerdicts(runDir, verdictsPath) {
-  if (!existsSync8(verdictsPath)) throw new Error(`verdicts file not found: ${verdictsPath}`);
-  let raw;
-  try {
-    raw = JSON.parse(readFileSync7(verdictsPath, "utf8"));
-  } catch (e) {
-    throw new Error(`verdicts file is not valid JSON (${verdictsPath}): ${e.message}`);
-  }
-  const list = Array.isArray(raw) ? raw : raw && typeof raw === "object" && Array.isArray(raw.pairs) ? raw.pairs : null;
-  if (list === null) {
-    throw new Error(`verdicts file must be a JSON array of verdicts or an object with a "pairs" array (${verdictsPath}).`);
-  }
-  const verdicts = [];
-  const seen = /* @__PURE__ */ new Set();
-  const key = (claimId, evidenceId) => `${claimId}::${evidenceId}`;
-  for (const v of list) {
-    if (!v || typeof v.claimId !== "string" || typeof v.evidenceId !== "string") continue;
-    const verdict = VALID_VERDICTS.includes(v.verdict) ? v.verdict : void 0;
-    verdicts.push({
-      claimId: v.claimId,
-      kind: v.kind,
-      claim: typeof v.claim === "string" ? v.claim : "",
-      evidenceId: v.evidenceId,
-      source: v.source,
-      digest: typeof v.digest === "string" ? v.digest : "",
-      verdict,
-      note: typeof v.note === "string" ? v.note : ""
-    });
-    seen.add(key(v.claimId, v.evidenceId));
-  }
-  const todoPath = join13(runDir, "VERIFY.todo.json");
-  if (existsSync8(todoPath)) {
-    try {
-      const todo = JSON.parse(readFileSync7(todoPath, "utf8"));
-      for (const p of todo.pairs ?? []) {
-        if (!p || typeof p.claimId !== "string" || typeof p.evidenceId !== "string") continue;
-        if (seen.has(key(p.claimId, p.evidenceId))) continue;
-        verdicts.push({
-          claimId: p.claimId,
-          kind: p.kind,
-          claim: p.claim ?? "",
-          evidenceId: p.evidenceId,
-          source: p.source,
-          digest: p.digest ?? "",
-          verdict: void 0,
-          note: ""
-        });
-        seen.add(key(p.claimId, p.evidenceId));
-      }
-    } catch {
-    }
-  }
-  const result = reduceVerdicts(verdicts);
-  writeFileSync5(join13(runDir, "VERIFY.json"), JSON.stringify({ ...result, verdicts }, null, 2));
-  return result;
-}
-function reduceVerdicts(verdicts) {
-  const counts = { supported: 0, partial: 0, refuted: 0, unsupported: 0 };
-  for (const v of verdicts) if (v.verdict && counts[v.verdict] !== void 0) counts[v.verdict]++;
-  const byClaim = /* @__PURE__ */ new Map();
-  for (const v of verdicts) {
-    const group = byClaim.get(v.claimId) ?? [];
-    group.push(v);
-    byClaim.set(v.claimId, group);
-  }
-  const failures = [];
-  const unadjudicated = [];
-  for (const [claimId, group] of byClaim) {
-    const adjudicated = group.filter((g) => !!g.verdict);
-    if (adjudicated.length < group.length) unadjudicated.push(claimId);
-    const refuted = adjudicated.find((g) => g.verdict === "refuted");
-    const hasSupport = adjudicated.some((g) => g.verdict === "supported" || g.verdict === "partial");
-    if (refuted) {
-      failures.push({ claimId, evidenceId: refuted.evidenceId, verdict: "refuted", note: refuted.note });
-    } else if (adjudicated.length === group.length && adjudicated.length > 0 && !hasSupport) {
-      const u = adjudicated.find((g) => g.verdict === "unsupported") ?? adjudicated[0];
-      failures.push({ claimId, evidenceId: u.evidenceId, verdict: u.verdict, note: u.note });
-    }
-  }
-  return {
-    ok: failures.length === 0,
-    pairs: verdicts.length,
-    adjudicated: verdicts.filter((v) => !!v.verdict).length,
-    supported: counts.supported,
-    partial: counts.partial,
-    refuted: counts.refuted,
-    unsupported: counts.unsupported,
-    failures,
-    unadjudicated
-  };
-}
-function formatReviewReport(r) {
-  const lines = [];
-  lines.push(`construct review: ${r.adjudicated}/${r.pairs} pair(s) adjudicated`);
-  lines.push(`  supported: ${r.supported} \xB7 partial: ${r.partial} \xB7 refuted: ${r.refuted} \xB7 unsupported: ${r.unsupported}`);
-  for (const f of r.failures.slice(0, 12)) {
-    lines.push(`  \u2717 ${f.claimId} (${f.evidenceId}): ${f.verdict}${f.note ? " \u2014 " + f.note : ""}`);
-  }
-  if (r.unadjudicated.length) {
-    lines.push(`  \u26A0 ${r.unadjudicated.length} claim(s) not fully adjudicated: ${r.unadjudicated.join(", ")}`);
-  }
-  lines.push(
-    !r.ok ? `  \u2717 some claims are refuted or unsupported` : r.unadjudicated.length ? `  \u2713 no refuted or unsupported claims (${r.unadjudicated.length} still unadjudicated \u2014 see above)` : `  \u2713 every grounded claim is backed by its cited evidence`
-  );
-  return lines.join("\n");
-}
-
 // src/cli.ts
 var HELP = `construct v${VERSION}
 Turn a product idea into a grounded, buildable SRD suite. Interview \u2192 research
@@ -3819,7 +3844,7 @@ Usage:
   construct analyze  --out <run> [--json]
   construct web|oss|tech|so --out <run> [--q "<focus>"] [--url <u,...>] [--seeds <u,...>]
   construct render   --out <run> [--level light|complex] [--merge] [--no-design] [--prd]
-  construct check    --out <run> [--min-grounding <0-100>] [--semantic] [--json]
+  construct check    --out <run> [--min-grounding <0-100>] [--semantic [--allow-unverified]] [--json]
   construct review   --out <run> [--apply <verdicts.json>] [--max-review N] [--json]
   construct verify   --out <run> [--app <dir>] [--run-tests] [--strict] [--json]
   construct status   --out <run> [--json]
@@ -3859,6 +3884,9 @@ Options:
   --level <l>          light | complex                           (default: light)
   --min-grounding <n>  For 'check': fail unless \u2265 n% of claims are grounded (opt-in)
   --semantic           For 'check': fold in the 'review' claim-support verdicts
+                       (fail-closed: no/unreadable VERIFY.json fails the check)
+  --allow-unverified   For 'check --semantic': degrade a missing/unreadable
+                       VERIFY.json to a warning instead of failing
   --apply <file>       For 'review': consume an adjudicated verdicts file + gate
   --app <dir>          For 'verify': the built app directory (default: conventions.appDir)
   --run-tests          For 'verify': also execute testCommand + per-task verify commands
@@ -3900,7 +3928,7 @@ var VALUE_FLAGS = /* @__PURE__ */ new Set([
   "apply",
   "max-review"
 ]);
-var BOOL_FLAGS = /* @__PURE__ */ new Set(["semantic", "merge", "json", "refresh", "run-tests", "strict", "no-design", "prd"]);
+var BOOL_FLAGS = /* @__PURE__ */ new Set(["semantic", "merge", "json", "refresh", "run-tests", "strict", "no-design", "prd", "allow-unverified"]);
 function fail(message) {
   process.stderr.write(`construct: ${message}
 `);
@@ -4149,7 +4177,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
           fail("invalid --min-grounding (expected a number between 0 and 100)");
         }
       }
-      const res = checkRun(out, { minGrounding, semantic: p.bools.has("semantic") });
+      const res = checkRun(out, { minGrounding, semantic: p.bools.has("semantic"), allowUnverified: p.bools.has("allow-unverified") });
       if (p.bools.has("json")) {
         process.stdout.write(JSON.stringify(res, null, 2) + "\n");
       } else {

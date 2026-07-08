@@ -160,12 +160,75 @@ describe("check --semantic composition (additive)", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("warns (does not add a semantic verdict) when no VERIFY.json exists", () => {
+  it("fails closed when no VERIFY.json exists (names --allow-unverified)", () => {
     const dir = scratch();
     run(dir, [{ id: "FR-001", ev: ["E1"] }], EVIDENCE);
     const r = checkRun(dir, { semantic: true });
     expect(r.semantic).toBeUndefined();
+    expect(r.ok).toBe(false);
+    expect(r.semanticError).toMatch(/VERIFY\.json/);
+    expect(r.semanticError).toMatch(/--allow-unverified/);
+    expect(r.semanticError?.toLowerCase()).toContain("review");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("--allow-unverified degrades a missing VERIFY.json to the advisory warning", () => {
+    const dir = scratch();
+    run(dir, [{ id: "FR-001", ev: ["E1"] }], EVIDENCE);
+    const r = checkRun(dir, { semantic: true, allowUnverified: true });
+    expect(r.semantic).toBeUndefined();
+    expect(r.semanticError).toBeUndefined();
     expect(r.structural.warnings.join(" ").toLowerCase()).toContain("review");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("recomputes ok from verdicts[] — a tampered persisted ok:true with a refuted verdict still fails", () => {
+    const dir = scratch();
+    run(dir, [{ id: "FR-001", ev: ["E1"] }], EVIDENCE);
+    runReview(dir);
+    applyVerdicts(dir, writeVerdicts(dir, { E1: "supported" }));
+    // Tamper the OUTPUT: flip the verdict but keep the persisted summary green.
+    const p = join(dir, "VERIFY.json");
+    const sem = JSON.parse(readFileSync(p, "utf8"));
+    sem.verdicts[0].verdict = "refuted";
+    expect(sem.ok).toBe(true); // the doctored summary still claims a pass
+    writeFileSync(p, JSON.stringify(sem, null, 2));
+
+    const r = checkRun(dir, { semantic: true });
+    expect(r.semantic?.ok).toBe(false); // recomputed from verdicts[], not trusted
+    expect(r.ok).toBe(false);
+    expect(r.structural.warnings.join(" ")).toMatch(/recomputed/i);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("fails closed on a legacy VERIFY.json without verdicts[] unless --allow-unverified", () => {
+    const dir = scratch();
+    run(dir, [{ id: "FR-001", ev: ["E1"] }], EVIDENCE);
+    writeFileSync(
+      join(dir, "VERIFY.json"),
+      JSON.stringify({ ok: true, pairs: 1, adjudicated: 1, supported: 1, partial: 0, refuted: 0, unsupported: 0, failures: [], unadjudicated: [] }),
+    );
+    const strict = checkRun(dir, { semantic: true });
+    expect(strict.ok).toBe(false);
+    expect(strict.semanticError).toMatch(/verdicts/i);
+    expect(strict.semanticError).toMatch(/--allow-unverified/);
+    const lax = checkRun(dir, { semantic: true, allowUnverified: true });
+    expect(lax.semanticError).toBeUndefined();
+    expect(lax.structural.warnings.join(" ")).toMatch(/verdicts/i);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("fails closed on an unreadable VERIFY.json unless --allow-unverified", () => {
+    const dir = scratch();
+    run(dir, [{ id: "FR-001", ev: ["E1"] }], EVIDENCE);
+    writeFileSync(join(dir, "VERIFY.json"), "}broken{");
+    const strict = checkRun(dir, { semantic: true });
+    expect(strict.ok).toBe(false);
+    expect(strict.semanticError).toMatch(/unreadable/i);
+    expect(strict.semanticError).toMatch(/--allow-unverified/);
+    const lax = checkRun(dir, { semantic: true, allowUnverified: true });
+    expect(lax.semanticError).toBeUndefined();
+    expect(lax.structural.warnings.join(" ").toLowerCase()).toContain("unreadable");
     rmSync(dir, { recursive: true, force: true });
   });
 });

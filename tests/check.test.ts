@@ -358,22 +358,49 @@ describe("checkRun — manifest & content edge cases", () => {
 });
 
 describe("checkRun --semantic composition edge cases", () => {
-  it("folds in unadjudicated claims from VERIFY.json as a warning (still passes)", () => {
+  // A verdict pair as `review --apply` persists it (verdict: null = unadjudicated).
+  const pair = (claimId: string, verdict: string | null) => ({
+    claimId,
+    kind: "FR",
+    claim: `${claimId} claim`,
+    evidenceId: "E1",
+    source: "oss",
+    digest: "d",
+    verdict,
+    note: "",
+  });
+
+  it("folds in unadjudicated claims from VERIFY.json's verdicts[] as a warning (still passes)", () => {
     const dir = renderRun();
     writeFileSync(
       join(dir, "VERIFY.json"),
-      JSON.stringify({ ok: true, pairs: 2, adjudicated: 1, supported: 1, partial: 0, refuted: 0, unsupported: 0, failures: [], unadjudicated: ["FR-002"] }),
+      JSON.stringify({
+        ok: true,
+        pairs: 2,
+        adjudicated: 1,
+        supported: 1,
+        partial: 0,
+        refuted: 0,
+        unsupported: 0,
+        failures: [],
+        unadjudicated: ["FR-002"],
+        verdicts: [pair("FR-001", "supported"), pair("FR-002", null)],
+      }),
     );
     const r = checkRun(dir, { semantic: true });
     expect(r.semantic?.ok).toBe(true);
     expect(r.structural.warnings.join(" ")).toMatch(/not fully adjudicated/);
   });
 
-  it("warns when VERIFY.json is unreadable", () => {
+  it("fails closed when VERIFY.json is unreadable; --allow-unverified degrades to the warning", () => {
     const dir = renderRun();
     writeFileSync(join(dir, "VERIFY.json"), "}broken{");
-    const r = checkRun(dir, { semantic: true });
-    expect(r.structural.warnings.join(" ")).toMatch(/VERIFY\.json is unreadable/);
+    const strict = checkRun(dir, { semantic: true });
+    expect(strict.ok).toBe(false);
+    expect(strict.semanticError).toMatch(/VERIFY\.json is unreadable/);
+    const lax = checkRun(dir, { semantic: true, allowUnverified: true });
+    expect(lax.semanticError).toBeUndefined();
+    expect(lax.structural.warnings.join(" ")).toMatch(/VERIFY\.json is unreadable/);
   });
 });
 

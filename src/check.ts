@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import type { Stats } from "node:fs";
 import { join, relative, sep } from "node:path";
+import { reduceVerdicts } from "./review.js";
 import { srdManifestPath } from "./srd.js";
 import { REQUIRED_NFR, DESIGN_TOKEN_CATEGORIES, DESIGN_TOKENS_SEEDED_BANNER } from "./types.js";
 import type { CheckResult, SRD, EvidenceItem, CoverageReport, ClaimVerifyResult } from "./types.js";
@@ -141,22 +142,45 @@ const TEMPLATED_METRIC_RE = /^A measurable target for "/;
 // Fold the resolved claim-support record (VERIFY.json, written by `review
 // --apply`) into a check result when `--semantic` is requested. Strictly
 // additive: it can only ADD a failure (a refuted/unsupported claim), never relax
-// the structural gate. Missing VERIFY.json warns (run `review` first), never fails.
-function applySemantic(runDir: string, result: CheckResult): void {
+// the structural gate. FAIL-CLOSED: passing `--semantic` asserts the support
+// gate actually engaged, so a missing/unreadable/verdict-less VERIFY.json fails
+// the check unless `--allow-unverified` degrades it to the advisory warning.
+// The verdict itself is re-reduced from `verdicts[]` on every check — the
+// persisted summary is never trusted, so a stale or hand-tampered `ok` can not
+// green-light the gate.
+function applySemantic(runDir: string, result: CheckResult, allowUnverified: boolean): void {
   const p = join(runDir, "VERIFY.json");
+  const skip = (reason: string, hint: string) => {
+    if (allowUnverified) {
+      result.structural.warnings.push(`--semantic: ${reason} — ${hint}; semantic gate skipped (--allow-unverified).`);
+    } else {
+      result.semanticError = `${reason} — ${hint}, or pass --allow-unverified to degrade this to a warning.`;
+      result.ok = false;
+    }
+  };
   if (!existsSync(p)) {
-    result.structural.warnings.push("--semantic: no VERIFY.json — run `construct review` then `review --apply <verdicts.json>` first; semantic gate skipped.");
+    skip("no VERIFY.json", "run `construct review` then `review --apply <verdicts.json>` first");
     return;
   }
+  let sem: ClaimVerifyResult;
   try {
-    const sem = JSON.parse(readFileSync(p, "utf8")) as ClaimVerifyResult;
-    result.semantic = sem;
-    if (!sem.ok) result.ok = false;
-    if (sem.unadjudicated?.length) {
-      result.structural.warnings.push(`${sem.unadjudicated.length} claim(s) not fully adjudicated by review.`);
-    }
+    sem = JSON.parse(readFileSync(p, "utf8")) as ClaimVerifyResult;
   } catch (e) {
-    result.structural.warnings.push(`--semantic: VERIFY.json is unreadable (${(e as Error).message}).`);
+    skip(`VERIFY.json is unreadable (${(e as Error).message})`, "re-run `review --apply <verdicts.json>` to regenerate it");
+    return;
+  }
+  if (!Array.isArray(sem.verdicts)) {
+    skip("VERIFY.json carries no verdicts[] (legacy or hand-edited)", "re-run `review --apply <verdicts.json>` to regenerate it");
+    return;
+  }
+  const reduced = reduceVerdicts(sem.verdicts);
+  if (reduced.ok !== sem.ok) {
+    result.structural.warnings.push("VERIFY.json's persisted summary disagreed with its verdicts — recomputed at check time.");
+  }
+  result.semantic = { ...reduced, verdicts: sem.verdicts };
+  if (!reduced.ok) result.ok = false;
+  if (reduced.unadjudicated.length) {
+    result.structural.warnings.push(`${reduced.unadjudicated.length} claim(s) not fully adjudicated by review.`);
   }
 }
 
@@ -238,7 +262,7 @@ function checkModules(runDir: string, srd: SRD, errors: string[], warnings: stri
 // advisory coverage report itself never flips `ok`). With `opts.semantic`, ALSO
 // folds in the VERIFY.json claim-support verdicts (fails on a refuted/unsupported
 // claim) — additive: plain `check` (no opts) is byte-for-byte unchanged.
-export function checkRun(runDir: string, opts: { minGrounding?: number; semantic?: boolean } = {}): CheckResult {
+export function checkRun(runDir: string, opts: { minGrounding?: number; semantic?: boolean; allowUnverified?: boolean } = {}): CheckResult {
   const errors: string[] = [];
   const warnings: string[] = [];
 
@@ -373,7 +397,7 @@ export function checkRun(runDir: string, opts: { minGrounding?: number; semantic
 
   const ok = structuralOk && (grounding?.ok ?? true);
   const result: CheckResult = { ok, structural: { ok: structuralOk, errors, warnings }, coverage, grounding };
-  if (opts.semantic) applySemantic(runDir, result);
+  if (opts.semantic) applySemantic(runDir, result, opts.allowUnverified ?? false);
   return result;
 }
 
@@ -407,6 +431,11 @@ export function formatCheckReport(r: CheckResult, runDir: string): string {
         ? `  ✓ PASS — ${g.actualPct}% of groundable claims are grounded (threshold ${g.threshold}%)`
         : `  ✗ FAIL — ${g.actualPct}% of groundable claims are grounded, below the ${g.threshold}% threshold`,
     );
+  }
+  if (r.semanticError) {
+    lines.push(``);
+    lines.push(`Semantic claim-support gate (--semantic):`);
+    lines.push(`  ✗ FAIL — ${r.semanticError}`);
   }
   if (r.semantic) {
     const s = r.semantic;

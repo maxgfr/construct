@@ -32,7 +32,7 @@ Usage:
   construct analyze  --out <run> [--json]
   construct web|oss|tech|so --out <run> [--q "<focus>"] [--url <u,...>] [--seeds <u,...>]
   construct render   --out <run> [--level light|complex] [--merge] [--no-design] [--prd]
-  construct check    --out <run> [--min-grounding <0-100>] [--semantic] [--json]
+  construct check    --out <run> [--min-grounding <0-100>] [--semantic [--allow-unverified]] [--json]
   construct review   --out <run> [--apply <verdicts.json>] [--max-review N] [--json]
   construct verify   --out <run> [--app <dir>] [--run-tests] [--strict] [--json]
   construct status   --out <run> [--json]
@@ -72,6 +72,9 @@ Options:
   --level <l>          light | complex                           (default: light)
   --min-grounding <n>  For 'check': fail unless ≥ n% of claims are grounded (opt-in)
   --semantic           For 'check': fold in the 'review' claim-support verdicts
+                       (fail-closed: no/unreadable VERIFY.json fails the check)
+  --allow-unverified   For 'check --semantic': degrade a missing/unreadable
+                       VERIFY.json to a warning instead of failing
   --apply <file>       For 'review': consume an adjudicated verdicts file + gate
   --app <dir>          For 'verify': the built app directory (default: conventions.appDir)
   --run-tests          For 'verify': also execute testCommand + per-task verify commands
@@ -114,7 +117,7 @@ const VALUE_FLAGS = new Set([
   "apply",
   "max-review",
 ]);
-const BOOL_FLAGS = new Set(["semantic", "merge", "json", "refresh", "run-tests", "strict", "no-design", "prd"]);
+const BOOL_FLAGS = new Set(["semantic", "merge", "json", "refresh", "run-tests", "strict", "no-design", "prd", "allow-unverified"]);
 
 function fail(message: string): never {
   process.stderr.write(`construct: ${message}\n`);
@@ -397,7 +400,7 @@ async function main(): Promise<void> {
           fail("invalid --min-grounding (expected a number between 0 and 100)");
         }
       }
-      const res = checkRun(out, { minGrounding, semantic: p.bools.has("semantic") });
+      const res = checkRun(out, { minGrounding, semantic: p.bools.has("semantic"), allowUnverified: p.bools.has("allow-unverified") });
       if (p.bools.has("json")) {
         process.stdout.write(JSON.stringify(res, null, 2) + "\n");
       } else {

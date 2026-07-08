@@ -321,11 +321,32 @@ describe("e2e: claim-support gate (review → apply → check --semantic)", () =
     expect(todo.pairs).toHaveLength(2);
   });
 
-  it("warns (does not fail) when no VERIFY.json exists", () => {
+  it("fails closed (exit 1) when --semantic has no VERIFY.json", () => {
     const run = rendered();
     const gate = cli(["check", "--out", run, "--semantic"]);
+    expect(gate.status).toBe(1);
+    expect(gate.stdout.toLowerCase()).toContain("verify.json");
+    expect(gate.stdout).toContain("--allow-unverified");
+  });
+
+  it("--allow-unverified restores the advisory skip (exit 0) when VERIFY.json is missing", () => {
+    const run = rendered();
+    const gate = cli(["check", "--out", run, "--semantic", "--allow-unverified"]);
     expect(gate.status).toBe(0);
     expect(gate.stdout.toLowerCase()).toContain("no verify.json");
+  });
+
+  it("recomputes the semantic verdict — a hand-tampered ok:true with a refuted verdict still fails", () => {
+    const run = rendered();
+    cli(["review", "--out", run]);
+    cli(["review", "--out", run, "--apply", verdictsFor(run, () => "supported")]);
+    const p = join(run, "VERIFY.json");
+    const sem = JSON.parse(readFileSync(p, "utf8"));
+    sem.verdicts[0].verdict = "refuted"; // doctored output, stale green summary
+    writeFileSync(p, JSON.stringify(sem, null, 2));
+    const gate = cli(["check", "--out", run, "--semantic"]);
+    expect(gate.status).toBe(1);
+    expect(gate.stdout).toContain("FAIL");
   });
 
   // --- Regression guards for the hardening fixes (were: leaked ENOENT / silent vacuous pass) ---
