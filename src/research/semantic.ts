@@ -119,27 +119,38 @@ export async function semanticRescore(results: SourceResult[], query: string): P
   return { available: true, results: out, notes };
 }
 
-// Locate docker-compose.yml relative to the bundle (scripts/construct.mjs sits
-// one level under the repo root, alongside the committed compose file).
-function composeFile(): string {
+// Locate docker-compose.yml relative to the bundle. In the INSTALLED skill the
+// bundle sits at skills/construct/scripts/construct.mjs and the compose ships as
+// skills/construct/docker-compose.yml (`../` from the bundle). In the repo the
+// compiled/source bundle resolves the root copy (`../../`). Returns null when no
+// copy exists, so semanticControl can emit a targeted error instead of shelling
+// `docker compose -f <missing path>` and dumping an opaque failure.
+export function composeFile(): string | null {
   const here = dirname(fileURLToPath(import.meta.url));
-  for (const cand of [join(here, "..", "docker-compose.yml"), join(here, "docker-compose.yml")]) {
+  for (const cand of [join(here, "..", "docker-compose.yml"), join(here, "docker-compose.yml"), join(here, "..", "..", "docker-compose.yml")]) {
     if (existsSync(cand)) return cand;
   }
-  return join(here, "..", "docker-compose.yml");
+  return null;
 }
 
 // Control the optional local Docker stack (Qdrant + Ollama embeddings + SearXNG).
 // SearXNG powers the market angle's web discovery; Ollama powers semantic
 // rescoring; Qdrant is provisioned for future large-corpus indexing.
-export function semanticControl(action: string): { message: string; code: number } {
+export function semanticControl(action: string, composeFilePath: string | null = composeFile()): { message: string; code: number } {
   if (!["up", "down", "status"].includes(action)) {
     return { message: `construct semantic: unknown action "${action}" (use: up | down | status)`, code: 1 };
   }
   if (!have("docker")) {
     return { message: "construct semantic: docker not found. Install Docker, then retry. See references/semantic-setup.md.", code: 1 };
   }
-  const file = composeFile();
+  if (!composeFilePath) {
+    return {
+      message:
+        "construct semantic: docker-compose.yml not found next to the bundle — reinstall the skill (`npx skills add maxgfr/construct`), or run from the repo. See references/semantic-setup.md.",
+      code: 1,
+    };
+  }
+  const file = composeFilePath;
 
   if (action === "down") {
     const r = sh("docker", ["compose", "-f", file, "--profile", "all", "down"], { timeoutMs: COMPOSE_DOWN_TIMEOUT_MS });

@@ -29,6 +29,12 @@ node scripts/construct.mjs semantic status   # docker compose ps
 node scripts/construct.mjs semantic down     # stops everything
 ```
 
+The `docker-compose.yml` and its `docker/searxng/settings.yml` **ship inside the
+installed skill** (next to the bundle), so `construct semantic up|down|status`
+works from the install directory — no repo checkout needed. If the engine can't
+find the compose file it says so explicitly (reinstall via `npx skills add
+maxgfr/construct`) rather than emitting a raw docker error.
+
 `semantic up` runs `docker compose --profile all up -d` then
 `ollama pull nomic-embed-text`. Start a subset directly:
 

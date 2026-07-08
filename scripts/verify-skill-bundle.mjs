@@ -74,6 +74,19 @@ else readFileSync(rootEngine).equals(readFileSync(pkgEngine))
   ? ok(`embedded engine skills/${name}/${engine} is byte-identical to ${engine}`)
   : bad(`skills/${name}/${engine} differs from ${engine} — run \`node scripts/copy-bundle.mjs\` and commit`);
 
+// 5. The optional semantic Docker stack ships inside the skill, byte-identical
+// to the repo-root source (else `construct semantic up|down|status` and the
+// --semantic embedding rescore cannot run from the installed layout).
+for (const rel of ["docker-compose.yml", "docker/searxng/settings.yml"]) {
+  const rootFile = join(root, rel);
+  const pkgFile = join(skillDir, rel);
+  if (!existsSync(rootFile)) bad(`missing ${rel} at repo root`);
+  else if (!existsSync(pkgFile)) bad(`missing skills/${name}/${rel} — run \`node scripts/copy-bundle.mjs\``);
+  else readFileSync(rootFile).equals(readFileSync(pkgFile))
+    ? ok(`semantic stack skills/${name}/${rel} is byte-identical to ${rel}`)
+    : bad(`skills/${name}/${rel} differs from ${rel} — run \`node scripts/copy-bundle.mjs\` and commit`);
+}
+
 if (errors.length) {
   console.error(`\nverify-skill-bundle: ${errors.length} problem(s) — the published skill would not install correctly.`);
   process.exit(1);

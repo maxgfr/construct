@@ -2150,19 +2150,25 @@ ${it.snippet}`);
 }
 function composeFile() {
   const here = dirname(fileURLToPath(import.meta.url));
-  for (const cand of [join5(here, "..", "docker-compose.yml"), join5(here, "docker-compose.yml")]) {
+  for (const cand of [join5(here, "..", "docker-compose.yml"), join5(here, "docker-compose.yml"), join5(here, "..", "..", "docker-compose.yml")]) {
     if (existsSync4(cand)) return cand;
   }
-  return join5(here, "..", "docker-compose.yml");
+  return null;
 }
-function semanticControl(action) {
+function semanticControl(action, composeFilePath = composeFile()) {
   if (!["up", "down", "status"].includes(action)) {
     return { message: `construct semantic: unknown action "${action}" (use: up | down | status)`, code: 1 };
   }
   if (!have("docker")) {
     return { message: "construct semantic: docker not found. Install Docker, then retry. See references/semantic-setup.md.", code: 1 };
   }
-  const file = composeFile();
+  if (!composeFilePath) {
+    return {
+      message: "construct semantic: docker-compose.yml not found next to the bundle \u2014 reinstall the skill (`npx skills add maxgfr/construct`), or run from the repo. See references/semantic-setup.md.",
+      code: 1
+    };
+  }
+  const file = composeFilePath;
   if (action === "down") {
     const r = sh("docker", ["compose", "-f", file, "--profile", "all", "down"], { timeoutMs: COMPOSE_DOWN_TIMEOUT_MS });
     return { message: r.ok ? "construct semantic: stack stopped." : `construct semantic: down failed.

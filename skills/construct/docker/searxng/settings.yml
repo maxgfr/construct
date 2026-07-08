@@ -1,0 +1,17 @@
+# Minimal SearXNG config for construct's keyless web discovery. The important
+# bit is enabling the JSON output format so `construct web` can query it
+# programmatically (`/search?format=json`). Change the secret_key for anything
+# beyond local use.
+use_default_settings: true
+
+server:
+  secret_key: "construct-dev-secret-change-me"
+  limiter: false
+  image_proxy: false
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  formats:
+    - html
+    - json

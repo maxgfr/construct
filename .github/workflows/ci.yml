@@ -63,6 +63,8 @@ jobs:
           test -f "$DIR/SKILL.md"            || { echo "::error::SKILL.md not installed"; exit 1; }
           test -f "$DIR/scripts/construct.mjs" || { echo "::error::engine not bundled — skills add dropped scripts/"; exit 1; }
           test -d "$DIR/references"          || { echo "::error::references/ not bundled"; exit 1; }
+          test -f "$DIR/docker-compose.yml"  || { echo "::error::docker-compose.yml not bundled — semantic stack inoperable as-installed"; exit 1; }
+          test -f "$DIR/docker/searxng/settings.yml" || { echo "::error::searxng settings not bundled — SearXNG mount would fail"; exit 1; }
           node "$DIR/scripts/construct.mjs" --help > /dev/null || { echo "::error::installed engine does not run"; exit 1; }
           echo "install-bundle: skill installed whole and the engine runs."
 
