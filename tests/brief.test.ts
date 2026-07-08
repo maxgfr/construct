@@ -58,7 +58,7 @@ describe("normalizeBrief", () => {
         idea: "y",
         goals: ["ok", 42],
         featureWishlist: [{ title: "Real feature" }, { notes: "no title" }, { title: "Hot one", priority: "high" }],
-        competitors: "not-an-array",
+        nfrPriorities: { not: "an array or string" },
       },
       (w) => warnings.push(w),
     );
@@ -67,14 +67,39 @@ describe("normalizeBrief", () => {
         "goals: dropped 1 non-string/empty entry.",
         "featureWishlist[1] has no usable title — dropped.",
         'featureWishlist[2].priority "high" is not must|should|could — treated as should.',
-        "competitors is not an array — ignored.",
+        "nfrPriorities is not an array — ignored.",
       ].sort(),
     );
     // The returned shape is the same as before — tolerant, never crashing.
     expect(b.goals).toEqual(["ok"]);
     expect(b.featureWishlist.map((f) => f.title)).toEqual(["Real feature", "Hot one"]);
     expect(b.featureWishlist[1]!.priority).toBeUndefined();
-    expect(b.competitors).toEqual([]);
+    expect(b.nfrPriorities).toEqual([]);
+  });
+
+  it("coerces a bare-string array field into a one-element array (never silently drops it)", () => {
+    const warnings: string[] = [];
+    const b = normalizeBrief({ idea: "y", product: { users: "solo developers" }, competitors: "Pocket" }, (w) => warnings.push(w));
+    expect(b.product.users).toEqual(["solo developers"]);
+    expect(b.competitors).toEqual(["Pocket"]);
+    expect(warnings.join(" ")).toMatch(/product\.users: expected an array — coerced/);
+    expect(warnings.join(" ")).toMatch(/competitors: expected an array — coerced/);
+  });
+
+  it("warns naming an unknown constraints key and lists the known ones", () => {
+    const warnings: string[] = [];
+    const b = normalizeBrief({ idea: "y", constraints: { deployment: "on-prem", budget: "none" } }, (w) => warnings.push(w));
+    expect(b.constraints.budget).toBe("none");
+    const joined = warnings.join(" ");
+    expect(joined).toMatch(/constraints\.deployment is not a recognized constraint/);
+    expect(joined).toMatch(/budget, timeline, team, compliance/);
+  });
+
+  it("still drops a genuine non-string non-array with the ignored warning", () => {
+    const warnings: string[] = [];
+    const b = normalizeBrief({ idea: "y", goals: 42 }, (w) => warnings.push(w));
+    expect(b.goals).toEqual([]);
+    expect(warnings.join(" ")).toMatch(/goals is not an array — ignored/);
   });
 
   it("stays silent when nothing is coerced", () => {
