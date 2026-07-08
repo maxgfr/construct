@@ -8,12 +8,13 @@ function soRes(questionId: number) {
     items: [
       {
         question_id: questionId,
-        title: `pitfall ${questionId}`,
+        // Title shares the idea keyword ("booking") so the off-topic filter keeps it.
+        title: `booking pitfall ${questionId}`,
         body: "<p>watch out</p>",
         score: 3,
         answer_count: 2,
         is_answered: true,
-        tags: ["x"],
+        tags: ["booking"],
         link: `https://stackoverflow.com/q/${questionId}`,
       },
     ],

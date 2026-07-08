@@ -1282,40 +1282,75 @@ ${ex[0].snippet}`;
 }
 
 // src/research/stackoverflow.ts
-async function stackoverflow(question, perSource) {
+function soTagFor(tech) {
+  return tech.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9.+-]/g, "").replace(/^-+|-+$/g, "");
+}
+async function soQuery(q, perSource, tag) {
+  const pat = process.env.STACK_PAT ? `&access_token=${process.env.STACK_PAT}` : "";
+  const tagged = tag ? `&tagged=${encodeURIComponent(tag)}` : "";
+  const url = `https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=relevance&q=${q}&site=stackoverflow&filter=withbody&pagesize=${perSource}${tagged}${pat}`;
+  const r = await httpGet(url, { accept: "application/json" });
+  return { ok: r.ok, status: r.status, body: r.body, url };
+}
+async function stackoverflow(question, perSource, opts = {}) {
   const kws = rankedKeywords(question).slice(0, 5).join(" ");
   if (!kws) return { source: "so", items: [], notes: ["No keywords to search StackOverflow."] };
   const q = encodeURIComponent(kws);
-  const pat = process.env.STACK_PAT ? `&access_token=${process.env.STACK_PAT}` : "";
-  const url = `https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=relevance&q=${q}&site=stackoverflow&filter=withbody&pagesize=${perSource}${pat}`;
-  const r = await httpGet(url, { accept: "application/json" });
+  const notes = [];
+  let r = await soQuery(q, perSource, opts.tag);
   if (!r.ok) {
     return { source: "so", items: [], notes: [`StackOverflow search unavailable (status ${r.status}).`] };
   }
+  let data;
   try {
-    const data = JSON.parse(r.body);
-    const items = (data.items ?? []).map((it) => {
-      const body = htmlToText(String(it.body ?? "")).slice(0, 1200);
-      const accepted = it.is_answered ? "answered" : "unanswered";
-      return {
-        source: "so",
-        title: htmlToText(String(it.title ?? "(question)")).slice(0, 160),
-        ref: `so:${it.question_id}`,
-        location: it.link,
-        score: Number(it.score ?? 0),
-        snippet: `score: ${it.score ?? 0} \xB7 ${accepted} \xB7 answers: ${it.answer_count ?? 0}` + (it.tags?.length ? ` \xB7 tags: ${it.tags.slice(0, 6).join(", ")}` : "") + `
-
-${body || "(no body)"}`,
-        url: it.link,
-        meta: { questionId: it.question_id, isAnswered: it.is_answered, answerCount: it.answer_count }
-      };
-    });
-    const notes = data.quota_remaining !== void 0 && data.quota_remaining < 20 ? [`StackExchange anonymous quota low (${data.quota_remaining} left).`] : [];
-    if (items.length === 0) notes.push("No StackOverflow questions matched.");
-    return { source: "so", items, notes };
+    data = JSON.parse(r.body);
   } catch {
     return { source: "so", items: [], notes: ["StackOverflow search returned an unparseable response."] };
   }
+  if (opts.tag && (data.items ?? []).length === 0) {
+    r = await soQuery(q, perSource, void 0);
+    if (r.ok) {
+      try {
+        data = JSON.parse(r.body);
+        notes.push(`No tagged:${opts.tag} results \u2014 retried without the tag.`);
+      } catch {
+      }
+    }
+  }
+  const wantKws = new Set(keywords(question).map((k) => k.toLowerCase()));
+  const items = [];
+  let filtered = 0;
+  for (const raw of data.items ?? []) {
+    const it = raw;
+    const title = htmlToText(String(it.title ?? "(question)")).slice(0, 160);
+    const tags = Array.isArray(it.tags) ? it.tags : [];
+    if (wantKws.size) {
+      const hay = new Set(keywords(`${title} ${tags.join(" ")}`).map((k) => k.toLowerCase()));
+      const overlaps = [...wantKws].some((k) => hay.has(k)) || tags.some((t) => wantKws.has(t.toLowerCase()));
+      if (!overlaps) {
+        filtered++;
+        continue;
+      }
+    }
+    const body = htmlToText(String(it.body ?? "")).slice(0, 1200);
+    const accepted = it.is_answered ? "answered" : "unanswered";
+    items.push({
+      source: "so",
+      title,
+      ref: `so:${it.question_id}`,
+      location: it.link,
+      score: Number(it.score ?? 0),
+      snippet: `score: ${it.score ?? 0} \xB7 ${accepted} \xB7 answers: ${it.answer_count ?? 0}` + (tags.length ? ` \xB7 tags: ${tags.slice(0, 6).join(", ")}` : "") + `
+
+${body || "(no body)"}`,
+      url: it.link,
+      meta: { questionId: it.question_id, isAnswered: it.is_answered, answerCount: it.answer_count }
+    });
+  }
+  if (filtered) notes.push(`Filtered ${filtered} off-topic StackOverflow result(s) (no keyword overlap with the query).`);
+  if (data.quota_remaining !== void 0 && data.quota_remaining < 20) notes.push(`StackExchange anonymous quota low (${data.quota_remaining} left).`);
+  if (items.length === 0) notes.push("No StackOverflow questions matched.");
+  return { source: "so", items, notes };
 }
 
 // src/research/tech.ts
@@ -1352,7 +1387,7 @@ async function techAngle(ctx) {
   const per = Math.max(2, Math.ceil(ctx.perSource / Math.max(1, techs.length)));
   for (const tech of techs) {
     const q = `${tech} ${topKw}`.trim();
-    const r = await stackoverflow(q, per);
+    const r = await stackoverflow(q, per, { tag: soTagFor(tech) });
     for (const it of r.items) {
       if (!seen.has(it.ref)) {
         seen.add(it.ref);
