@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [1.10.0](https://github.com/maxgfr/construct/compare/v1.9.3...v1.10.0) (2026-07-08)
+
+
+### Bug Fixes
+
+* **brief:** coerce bare-string array fields and name unknown constraints keys ([99fbf8b](https://github.com/maxgfr/construct/commit/99fbf8b918250546eb82b3c9b883a5207c20474d))
+* **check:** fail closed on --semantic and re-reduce verdicts at check time ([bcea5a1](https://github.com/maxgfr/construct/commit/bcea5a1b533cce59df341cfc8fe40360a43bb267))
+* **research:** strip consent boilerplate and surface low-signal snippets ([08db4c0](https://github.com/maxgfr/construct/commit/08db4c0c05e5edb13ffdb8b796035d290e25b60d))
+* **research:** tag-scoped StackOverflow queries and an off-topic post-filter ([ed563cb](https://github.com/maxgfr/construct/commit/ed563cb840c91f58a49097f169f80ac982a430cd)), closes [hi#vote](https://github.com/hi/issues/vote)
+* **semantic:** ship docker-compose + searxng settings inside the skill bundle ([38210a2](https://github.com/maxgfr/construct/commit/38210a238a970a16f32382b3fce298882f21f05a))
+* **srd,check:** competitor grounding requires a literal mention; warn loudly when cited claims skip the semantic gate ([5517ded](https://github.com/maxgfr/construct/commit/5517ded59893ede3a8c0047c52080e55544b92ac))
+* **srd,check:** templated acceptance criteria fail at complex; adjectival prefixes never become entities ([ca73c92](https://github.com/maxgfr/construct/commit/ca73c92485b457c963cd04b71d31d36ad6b6d952))
+
+
+### Features
+
+* **brainstorm:** divergent ideation mode with a deterministic merge into the brief ([adf510e](https://github.com/maxgfr/construct/commit/adf510e1c9f6e459ebf84dd99d10870d8f1a42a2))
+* **render:** --from-srd re-emits the tree from SRD.json without rebuilding ([77eb171](https://github.com/maxgfr/construct/commit/77eb171756370aa8cf76655d7b59de3cb803f594))
+* **review:** adjudicate every cited pair by default; --max-review caps explicitly and loudly ([9cb4399](https://github.com/maxgfr/construct/commit/9cb439920489c6155a85ad2850a34b2e6e56ec16))
+
 ## [1.9.3](https://github.com/maxgfr/construct/compare/v1.9.2...v1.9.3) (2026-07-07)
 
 
