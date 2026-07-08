@@ -2,7 +2,7 @@
 
 // src/cli.ts
 import { resolve as resolve3, join as join14 } from "path";
-import { existsSync as existsSync9, readFileSync as readFileSync8 } from "fs";
+import { existsSync as existsSync10, readFileSync as readFileSync9 } from "fs";
 import { pathToFileURL, fileURLToPath as fileURLToPath2 } from "url";
 import { realpathSync } from "fs";
 
@@ -1665,7 +1665,7 @@ async function runResearch(ctx, builtAt) {
 }
 
 // src/render.ts
-import { mkdirSync as mkdirSync4, writeFileSync as writeFileSync4, rmSync as rmSync2 } from "fs";
+import { existsSync as existsSync5, mkdirSync as mkdirSync4, readFileSync as readFileSync4, writeFileSync as writeFileSync4, rmSync as rmSync2 } from "fs";
 import { join as join9, dirname as dirname2 } from "path";
 
 // src/srd.ts
@@ -3068,6 +3068,25 @@ function writeFile(out, rel, content, files) {
 function renderSRD(brief, evidence, opts) {
   const wantDesign = opts.level === "complex" && !opts.noDesign;
   const srd = buildSRD(brief, evidence, { level: opts.level, generatedAt: opts.generatedAt, design: wantDesign });
+  return emitSRD(srd, { out: opts.out, merge: opts.merge, prd: opts.prd });
+}
+function renderFromSRD(runDir, opts) {
+  const manifest = srdManifestPath(runDir);
+  if (!existsSync5(manifest)) {
+    throw new Error(`No SRD.json in ${runDir} \u2014 render the SRD first (construct render), then edit it and re-run with --from-srd.`);
+  }
+  let srd;
+  try {
+    srd = JSON.parse(readFileSync4(manifest, "utf8"));
+  } catch (e) {
+    throw new Error(`SRD.json is unreadable: ${e.message}`);
+  }
+  if (!Array.isArray(srd.functional) || !Array.isArray(srd.nonFunctional) || !srd.architecture || !Array.isArray(srd.architecture.adrs)) {
+    throw new Error(`SRD.json in ${runDir} is not a valid SRD manifest (missing functional/nonFunctional/architecture).`);
+  }
+  return emitSRD(srd, { out: runDir, merge: opts.merge, prd: opts.prd });
+}
+function emitSRD(srd, opts) {
   const files = [];
   const out = opts.out;
   rmSync2(join9(out, "architecture", "decisions"), { recursive: true, force: true });
@@ -3120,17 +3139,17 @@ function renderSRD(brief, evidence, opts) {
 }
 
 // src/check.ts
-import { existsSync as existsSync6, readFileSync as readFileSync5, readdirSync as readdirSync3, statSync as statSync2 } from "fs";
+import { existsSync as existsSync7, readFileSync as readFileSync6, readdirSync as readdirSync3, statSync as statSync2 } from "fs";
 import { join as join11, relative as relative2, sep as sep2 } from "path";
 
 // src/review.ts
-import { existsSync as existsSync5, readFileSync as readFileSync4, writeFileSync as writeFileSync5 } from "fs";
+import { existsSync as existsSync6, readFileSync as readFileSync5, writeFileSync as writeFileSync5 } from "fs";
 import { join as join10 } from "path";
 var VALID_VERDICTS = ["supported", "partial", "refuted", "unsupported"];
 function loadEvidence(path) {
-  if (!existsSync5(path)) return [];
+  if (!existsSync6(path)) return [];
   try {
-    const data = JSON.parse(readFileSync4(path, "utf8"));
+    const data = JSON.parse(readFileSync5(path, "utf8"));
     return Array.isArray(data) ? data.filter(
       (e) => !!e && typeof e === "object" && typeof e.id === "string" && typeof e.source === "string"
     ) : [];
@@ -3174,10 +3193,10 @@ function claimDigest(snippet, claim, cap = 600) {
 }
 function runReview(runDir, opts = {}) {
   const manifest = srdManifestPath(runDir);
-  if (!existsSync5(manifest)) throw new Error(`No SRD.json in ${runDir} \u2014 render the SRD first (construct render).`);
+  if (!existsSync6(manifest)) throw new Error(`No SRD.json in ${runDir} \u2014 render the SRD first (construct render).`);
   let srd;
   try {
-    srd = JSON.parse(readFileSync4(manifest, "utf8"));
+    srd = JSON.parse(readFileSync5(manifest, "utf8"));
   } catch (e) {
     throw new Error(`SRD.json is unreadable: ${e.message}`);
   }
@@ -3241,10 +3260,10 @@ function renderWorklistMd(wl, total, dropped) {
   return out.join("\n");
 }
 function applyVerdicts(runDir, verdictsPath) {
-  if (!existsSync5(verdictsPath)) throw new Error(`verdicts file not found: ${verdictsPath}`);
+  if (!existsSync6(verdictsPath)) throw new Error(`verdicts file not found: ${verdictsPath}`);
   let raw;
   try {
-    raw = JSON.parse(readFileSync4(verdictsPath, "utf8"));
+    raw = JSON.parse(readFileSync5(verdictsPath, "utf8"));
   } catch (e) {
     throw new Error(`verdicts file is not valid JSON (${verdictsPath}): ${e.message}`);
   }
@@ -3271,9 +3290,9 @@ function applyVerdicts(runDir, verdictsPath) {
     seen.add(key(v.claimId, v.evidenceId));
   }
   const todoPath = join10(runDir, "VERIFY.todo.json");
-  if (existsSync5(todoPath)) {
+  if (existsSync6(todoPath)) {
     try {
-      const todo = JSON.parse(readFileSync4(todoPath, "utf8"));
+      const todo = JSON.parse(readFileSync5(todoPath, "utf8"));
       for (const p of todo.pairs ?? []) {
         if (!p || typeof p.claimId !== "string" || typeof p.evidenceId !== "string") continue;
         if (seen.has(key(p.claimId, p.evidenceId))) continue;
@@ -3398,11 +3417,11 @@ function mdFiles(runDir) {
 }
 function loadEvidence2(runDir) {
   const path = join11(runDir, "evidence", "evidence.json");
-  if (!existsSync6(path)) {
+  if (!existsSync7(path)) {
     return { evidence: [], note: `No evidence/evidence.json \u2014 grounding coverage is 0 (run \`construct research\` to ground the SRD).` };
   }
   try {
-    const data = JSON.parse(readFileSync5(path, "utf8"));
+    const data = JSON.parse(readFileSync6(path, "utf8"));
     const evidence = Array.isArray(data) ? data.filter(
       (e) => !!e && typeof e === "object" && typeof e.id === "string" && typeof e.source === "string"
     ) : [];
@@ -3460,13 +3479,13 @@ function applySemantic(runDir, result, allowUnverified) {
       result.ok = false;
     }
   };
-  if (!existsSync6(p)) {
+  if (!existsSync7(p)) {
     skip("no VERIFY.json", "run `construct review` then `review --apply <verdicts.json>` first");
     return;
   }
   let sem;
   try {
-    sem = JSON.parse(readFileSync5(p, "utf8"));
+    sem = JSON.parse(readFileSync6(p, "utf8"));
   } catch (e) {
     skip(`VERIFY.json is unreadable (${e.message})`, "re-run `review --apply <verdicts.json>` to regenerate it");
     return;
@@ -3489,7 +3508,7 @@ function checkDesign(runDir, srd, errors, warnings) {
   const ds = srd.design;
   if (!ds) return;
   for (const f of DESIGN_REQUIRED_FILES) {
-    if (!existsSync6(join11(runDir, f))) errors.push(`Missing required design file: ${f} (re-render at --level complex).`);
+    if (!existsSync7(join11(runDir, f))) errors.push(`Missing required design file: ${f} (re-render at --level complex).`);
   }
   const frIds = new Set(srd.functional.map((f) => f.id));
   if (ds.components.length === 0) errors.push("Design system has no components \u2014 a complex SRD's design must name its UI components.");
@@ -3512,7 +3531,7 @@ function checkDesign(runDir, srd, errors, warnings) {
     if (!r.acceptance.length) errors.push(`Accessibility requirement ${r.id} has no acceptance criteria.`);
   }
   const tokenDoc = join11(runDir, "design", "DESIGN-TOKENS.md");
-  if (existsSync6(tokenDoc) && readFileSync5(tokenDoc, "utf8").includes(DESIGN_TOKENS_SEEDED_BANNER)) {
+  if (existsSync7(tokenDoc) && readFileSync6(tokenDoc, "utf8").includes(DESIGN_TOKENS_SEEDED_BANNER)) {
     warnings.push("Design tokens are still seeded defaults \u2014 replace them with the product's real brand values (see references/design-system-authoring.md).");
   }
 }
@@ -3520,11 +3539,11 @@ function checkModules(runDir, srd, errors, warnings) {
   const mods = srd.modules;
   if (!mods?.length) return;
   const moduleIds = new Set(mods.map((m) => m.id));
-  if (!existsSync6(join11(runDir, "prd", "README.md"))) {
+  if (!existsSync7(join11(runDir, "prd", "README.md"))) {
     errors.push(`Missing required module-PRD index: prd/README.md (re-render).`);
   }
   for (const m of mods) {
-    if (!existsSync6(join11(runDir, "prd", m.id, "PRD.md"))) {
+    if (!existsSync7(join11(runDir, "prd", m.id, "PRD.md"))) {
       errors.push(`Missing required module PRD: prd/${m.id}/PRD.md (re-render).`);
     }
     for (const dep of m.dependsOn) {
@@ -3555,22 +3574,22 @@ function checkRun(runDir, opts = {}) {
     resolved: []
   };
   for (const f of REQUIRED_FILES) {
-    if (!existsSync6(join11(runDir, f))) errors.push(`Missing required file: ${f} (run \`construct render --out ${runDir}\`).`);
+    if (!existsSync7(join11(runDir, f))) errors.push(`Missing required file: ${f} (run \`construct render --out ${runDir}\`).`);
   }
   const manifest = srdManifestPath(runDir);
-  if (!existsSync6(manifest)) {
+  if (!existsSync7(manifest)) {
     errors.push(`No SRD.json in ${runDir} \u2014 render the SRD first.`);
     return { ok: false, structural: { ok: false, errors, warnings }, coverage: emptyCoverage };
   }
   let srd;
   try {
-    srd = JSON.parse(readFileSync5(manifest, "utf8"));
+    srd = JSON.parse(readFileSync6(manifest, "utf8"));
   } catch (e) {
     errors.push(`SRD.json is unreadable: ${e.message}`);
     return { ok: false, structural: { ok: false, errors, warnings }, coverage: emptyCoverage };
   }
   for (const rel of mdFiles(runDir)) {
-    const text = readFileSync5(join11(runDir, rel), "utf8");
+    const text = readFileSync6(join11(runDir, rel), "utf8");
     if (DECISION_RE.test(text)) errors.push(`Unresolved decision (\u{1F9E0}) in ${rel} \u2014 resolve it before the SRD is complete.`);
     else if (PLACEHOLDER_RE.test(text)) warnings.push(`Possible leftover placeholder (TODO/TBD/FIXME) in ${rel} \u2014 confirm it is intentional.`);
   }
@@ -3642,7 +3661,7 @@ function checkRun(runDir, opts = {}) {
     applySemantic(runDir, result, opts.allowUnverified ?? false);
   } else if (coverage.resolved.length > 0) {
     const citedClaims = coverage.frGrounded + coverage.nfrGrounded + coverage.adrGrounded;
-    result.semanticSkipped = { citedClaims, verifyExists: existsSync6(join11(runDir, "VERIFY.json")) };
+    result.semanticSkipped = { citedClaims, verifyExists: existsSync7(join11(runDir, "VERIFY.json")) };
   }
   return result;
 }
@@ -3703,13 +3722,13 @@ function formatCheckReport(r, runDir) {
 }
 
 // src/analyze.ts
-import { existsSync as existsSync7, readFileSync as readFileSync6 } from "fs";
+import { existsSync as existsSync8, readFileSync as readFileSync7 } from "fs";
 import { join as join12 } from "path";
 function loadEvidence3(runDir) {
   const path = join12(runDir, "evidence", "evidence.json");
-  if (!existsSync7(path)) return [];
+  if (!existsSync8(path)) return [];
   try {
-    const data = JSON.parse(readFileSync6(path, "utf8"));
+    const data = JSON.parse(readFileSync7(path, "utf8"));
     return Array.isArray(data) ? data.filter(
       (e) => !!e && typeof e === "object" && typeof e.id === "string" && typeof e.source === "string"
     ) : [];
@@ -3719,9 +3738,9 @@ function loadEvidence3(runDir) {
 }
 function loadMetaNotes(runDir) {
   const path = join12(runDir, "evidence", "meta.json");
-  if (!existsSync7(path)) return [];
+  if (!existsSync8(path)) return [];
   try {
-    const meta = JSON.parse(readFileSync6(path, "utf8"));
+    const meta = JSON.parse(readFileSync7(path, "utf8"));
     return Array.isArray(meta.notes) ? meta.notes.filter((n) => typeof n === "string") : [];
   } catch {
     return [];
@@ -3796,7 +3815,7 @@ function formatGapReport(r, runDir) {
 }
 
 // src/verify.ts
-import { existsSync as existsSync8, readFileSync as readFileSync7 } from "fs";
+import { existsSync as existsSync9, readFileSync as readFileSync8 } from "fs";
 import { isAbsolute, join as join13, resolve as resolve2 } from "path";
 var TEST_FILE_RE = /\.(test|spec)\.[^./]+$|_(test|spec)\.[^./]+$|(^|\/)test_[^/]+\.[^./]+$/i;
 var TEST_SUFFIX_RE = /(^|\/)[^/]*[A-Z]\w*Tests?\.(java|kt|kts|cs|scala|groovy)$/;
@@ -3835,7 +3854,7 @@ function verifyRun(runDir, opts = {}) {
   const warnings = [];
   const frTestCoverage = [];
   const planPath = buildPlanPath(runDir);
-  if (!existsSync8(planPath)) {
+  if (!existsSync9(planPath)) {
     errors.push(`No BUILD-PLAN.json in ${runDir} \u2014 render the SRD first (construct render).`);
     return { ok: false, errors, warnings, frTestCoverage };
   }
@@ -3849,13 +3868,13 @@ function verifyRun(runDir, opts = {}) {
     return { ok: false, errors, warnings, frTestCoverage };
   }
   const manifest = srdManifestPath(runDir);
-  if (!existsSync8(manifest)) {
+  if (!existsSync9(manifest)) {
     errors.push(`No SRD.json in ${runDir} \u2014 the plan cannot be verified against a missing SRD.`);
     return { ok: false, errors, warnings, frTestCoverage };
   }
   let srd;
   try {
-    srd = JSON.parse(readFileSync7(manifest, "utf8"));
+    srd = JSON.parse(readFileSync8(manifest, "utf8"));
   } catch (e) {
     errors.push(`SRD.json is unreadable: ${e.message}`);
     return { ok: false, errors, warnings, frTestCoverage };
@@ -3899,13 +3918,13 @@ function verifyRun(runDir, opts = {}) {
     const ok2 = errors.length === 0;
     return { ok: ok2, errors, warnings, frTestCoverage };
   }
-  if (!existsSync8(appDir)) {
+  if (!existsSync9(appDir)) {
     errors.push(`App directory does not exist: ${appDir}.`);
     return { ok: false, errors, warnings, frTestCoverage };
   }
   for (const t of doneTasks) {
     for (const rel of [...t.artifacts, ...t.tests]) {
-      if (!existsSync8(join13(appDir, rel))) errors.push(`${t.id} is done but its declared file is missing: ${rel}.`);
+      if (!existsSync9(join13(appDir, rel))) errors.push(`${t.id} is done but its declared file is missing: ${rel}.`);
     }
     if (t.frIds.length && t.tests.length === 0) {
       warnings.push(`${t.id} is done but declares no tests \u2014 record the test files that exercise ${t.frIds.join(", ")}.`);
@@ -4004,6 +4023,7 @@ Usage:
   construct analyze  --out <run> [--json]
   construct web|oss|tech|so --out <run> [--q "<focus>"] [--url <u,...>] [--seeds <u,...>]
   construct render   --out <run> [--level light|complex] [--merge] [--no-design] [--prd]
+  construct render   --out <run> --from-srd [--merge] [--prd]
   construct check    --out <run> [--min-grounding <0-100>] [--semantic [--allow-unverified]] [--json]
   construct review   --out <run> [--apply <verdicts.json>] [--max-review N] [--json]
   construct verify   --out <run> [--app <dir>] [--run-tests] [--strict] [--json]
@@ -4021,6 +4041,9 @@ Commands:
              (design/: principles, tokens, components, screens, accessibility);
              --no-design opts out. --prd also emits requirements/prd/ \u2014 one
              standalone PRD per functional requirement + an index.
+             --from-srd re-emits the tree from an edited SRD.json WITHOUT
+             rebuilding it (the enrich\u2192re-render path; keeps markdown in sync
+             with the gated manifest).
   check      Hard structural gate + advisory grounding-coverage report.
              --semantic also folds in the review verdicts (fails on a claim its
              cited evidence does not support).
@@ -4091,7 +4114,7 @@ var VALUE_FLAGS = /* @__PURE__ */ new Set([
   "apply",
   "max-review"
 ]);
-var BOOL_FLAGS = /* @__PURE__ */ new Set(["semantic", "merge", "json", "refresh", "run-tests", "strict", "no-design", "prd", "allow-unverified"]);
+var BOOL_FLAGS = /* @__PURE__ */ new Set(["semantic", "merge", "json", "refresh", "run-tests", "strict", "no-design", "prd", "allow-unverified", "from-srd"]);
 function fail(message) {
   process.stderr.write(`construct: ${message}
 `);
@@ -4294,6 +4317,20 @@ async function main() {
     }
     case "render": {
       const out = requireOut(p);
+      if (p.bools.has("from-srd")) {
+        if (p.values.level) process.stderr.write("construct: --level is ignored with --from-srd (the manifest's level is authoritative).\n");
+        if (p.bools.has("no-design"))
+          process.stderr.write("construct: --no-design is ignored with --from-srd (re-run a full render to change the design subtree).\n");
+        const r2 = renderFromSRD(out, { merge: p.bools.has("merge"), prd: p.bools.has("prd") });
+        process.stderr.write(
+          [
+            `construct: re-emitted the SRD tree from ${join14(out, "SRD.json")}`,
+            `  files:    ${r2.files.length} (${r2.srd.functional.length} FR \xB7 ${r2.srd.nonFunctional.length} NFR \xB7 ${r2.srd.architecture.adrs.length} ADR)`,
+            `  next:     construct check --out ${out}`
+          ].join("\n") + "\n"
+        );
+        return;
+      }
       const brief = loadBrief(out, warnBrief);
       const v = validateBrief(brief);
       if (!v.ok) fail(`brief is incomplete:
@@ -4397,7 +4434,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
         process.stdout.write(JSON.stringify(plan ? readyFrontier(plan) : null, null, 2) + "\n");
         return;
       }
-      const has = (rel) => existsSync9(join14(out, rel)) ? "\u2713" : "\xB7";
+      const has = (rel) => existsSync10(join14(out, rel)) ? "\u2713" : "\xB7";
       const planLine = plan ? `  \u2713 BUILD-PLAN.json (build: ${plan.tasks.filter((t) => t.status === "done").length}/${plan.tasks.length} tasks done)` : `  \xB7 BUILD-PLAN.json (build plan)`;
       process.stdout.write(
         [
@@ -4422,9 +4459,9 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
 }
 function loadEvidence4(runDir) {
   const path = join14(runDir, "evidence", "evidence.json");
-  if (!existsSync9(path)) return [];
+  if (!existsSync10(path)) return [];
   try {
-    const data = JSON.parse(readFileSync8(path, "utf8"));
+    const data = JSON.parse(readFileSync9(path, "utf8"));
     return Array.isArray(data) ? data.filter(isEvidenceItem) : [];
   } catch {
     return [];

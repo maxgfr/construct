@@ -13,7 +13,7 @@ import { techAngle } from "./research/tech.js";
 import { stackoverflow } from "./research/stackoverflow.js";
 import { webFetchUrls } from "./research/web.js";
 import { assignIds, renderEvidenceMarkdown } from "./research/dossier.js";
-import { renderSRD } from "./render.js";
+import { renderSRD, renderFromSRD } from "./render.js";
 import { checkRun, formatCheckReport } from "./check.js";
 import { analyzeRun, formatGapReport } from "./analyze.js";
 import { verifyRun, formatVerifyReport } from "./verify.js";
@@ -32,6 +32,7 @@ Usage:
   construct analyze  --out <run> [--json]
   construct web|oss|tech|so --out <run> [--q "<focus>"] [--url <u,...>] [--seeds <u,...>]
   construct render   --out <run> [--level light|complex] [--merge] [--no-design] [--prd]
+  construct render   --out <run> --from-srd [--merge] [--prd]
   construct check    --out <run> [--min-grounding <0-100>] [--semantic [--allow-unverified]] [--json]
   construct review   --out <run> [--apply <verdicts.json>] [--max-review N] [--json]
   construct verify   --out <run> [--app <dir>] [--run-tests] [--strict] [--json]
@@ -49,6 +50,9 @@ Commands:
              (design/: principles, tokens, components, screens, accessibility);
              --no-design opts out. --prd also emits requirements/prd/ — one
              standalone PRD per functional requirement + an index.
+             --from-srd re-emits the tree from an edited SRD.json WITHOUT
+             rebuilding it (the enrich→re-render path; keeps markdown in sync
+             with the gated manifest).
   check      Hard structural gate + advisory grounding-coverage report.
              --semantic also folds in the review verdicts (fails on a claim its
              cited evidence does not support).
@@ -120,7 +124,7 @@ const VALUE_FLAGS = new Set([
   "apply",
   "max-review",
 ]);
-const BOOL_FLAGS = new Set(["semantic", "merge", "json", "refresh", "run-tests", "strict", "no-design", "prd", "allow-unverified"]);
+const BOOL_FLAGS = new Set(["semantic", "merge", "json", "refresh", "run-tests", "strict", "no-design", "prd", "allow-unverified", "from-srd"]);
 
 function fail(message: string): never {
   process.stderr.write(`construct: ${message}\n`);
@@ -354,6 +358,22 @@ async function main(): Promise<void> {
 
     case "render": {
       const out = requireOut(p);
+      // --from-srd re-emits the tree from an edited SRD.json without rebuilding
+      // it from the brief + evidence — the enrich→re-render path.
+      if (p.bools.has("from-srd")) {
+        if (p.values.level) process.stderr.write("construct: --level is ignored with --from-srd (the manifest's level is authoritative).\n");
+        if (p.bools.has("no-design"))
+          process.stderr.write("construct: --no-design is ignored with --from-srd (re-run a full render to change the design subtree).\n");
+        const r = renderFromSRD(out, { merge: p.bools.has("merge"), prd: p.bools.has("prd") });
+        process.stderr.write(
+          [
+            `construct: re-emitted the SRD tree from ${join(out, "SRD.json")}`,
+            `  files:    ${r.files.length} (${r.srd.functional.length} FR · ${r.srd.nonFunctional.length} NFR · ${r.srd.architecture.adrs.length} ADR)`,
+            `  next:     construct check --out ${out}`,
+          ].join("\n") + "\n",
+        );
+        return;
+      }
       const brief = loadBrief(out, warnBrief);
       const v = validateBrief(brief);
       if (!v.ok) fail(`brief is incomplete:\n${v.errors.map((e) => "  - " + e).join("\n")}`);

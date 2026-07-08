@@ -105,6 +105,25 @@ describe("e2e: render lifecycle", () => {
     expect(cli(["render", "--out", run, "--level", "complex", "--merge"]).status).toBe(0);
     expect(existsSync(join(run, "SRD.md"))).toBe(true);
   });
+
+  it("render --from-srd re-emits an edited SRD.json and check still passes", () => {
+    const run = rendered("complex");
+    const srd = JSON.parse(readFileSync(join(run, "SRD.json"), "utf8")) as SRD;
+    srd.functional[0]!.acceptance[0]!.then = "the saved article opens offline within 500 ms";
+    writeFileSync(join(run, "SRD.json"), JSON.stringify(srd, null, 2));
+
+    const r = cli(["render", "--out", run, "--from-srd"]);
+    expect(r.status, r.stderr).toBe(0);
+    expect(readFileSync(join(run, "requirements/FUNCTIONAL.md"), "utf8")).toContain("the saved article opens offline within 500 ms");
+    expect(cli(["check", "--out", run]).status).toBe(0);
+  });
+
+  it("render --from-srd fails with a clean message when SRD.json is missing", () => {
+    const run = seeded(); // no SRD.json yet
+    const r = cli(["render", "--out", run, "--from-srd"]);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/SRD\.json/);
+  });
 });
 
 describe("e2e: modules mode (per-module PRDs)", () => {
