@@ -169,9 +169,55 @@ export function htmlToText(html: string): string {
     .join("\n");
 }
 
+// Consent/cookie-banner boilerplate that survives htmlToText (it lives in body
+// <div>/<dialog>, not <nav>/<footer>) and, on a low-keyword page, gets captured
+// as the "excerpt". Drop a line when it hits ≥2 distinct patterns, or 1 pattern
+// on a short line (a standalone "Accept all cookies" button).
+const CONSENT_PATTERNS = [
+  /\bcookies?\b/i,
+  /\bconsent\b/i,
+  /\bgdpr\b/i,
+  /\bccpa\b/i,
+  /accept all\b/i,
+  /reject all\b/i,
+  /manage (?:preferences|choices|cookies|settings)/i,
+  /privacy (?:policy|preferences|choices)/i,
+  /tracking technolog/i,
+  /advertising partners/i,
+  /legitimate interest/i,
+];
+
+// Strip consent-banner lines from extracted text. Deterministic and
+// conservative — real prose that merely mentions "cookies" once in a long
+// sentence is kept.
+export function stripConsentBoilerplate(text: string): { text: string; dropped: number } {
+  let dropped = 0;
+  const kept = text.split("\n").filter((line) => {
+    const hits = CONSENT_PATTERNS.reduce((n, re) => n + (re.test(line) ? 1 : 0), 0);
+    const isBanner = hits >= 2 || (hits === 1 && line.trim().length < 120);
+    if (isBanner) dropped++;
+    return !isBanner;
+  });
+  return { text: kept.join("\n"), dropped };
+}
+
+// Pull the page's meta description (or og:description) from raw HTML before
+// htmlToText strips <head> — a useful low-signal fallback when no line of the
+// body matches the question.
+function metaDescriptionOf(html: string): string | undefined {
+  const m =
+    /<meta[^>]+name=["']description["'][^>]*content=["']([^"']+)["']/i.exec(html) ||
+    /<meta[^>]+content=["']([^"']+)["'][^>]*name=["']description["']/i.exec(html) ||
+    /<meta[^>]+property=["']og:description["'][^>]*content=["']([^"']+)["']/i.exec(html);
+  const d = m?.[1]?.replace(/\s+/g, " ").trim();
+  return d || undefined;
+}
+
 // Fetch a URL and return its readable text (HTML stripped to prose). Used by
-// the external-docs and web sources.
-export async function fetchAndExtract(url: string): Promise<{ text: string; note?: string }> {
+// the external-docs and web sources. Also returns the page's meta description
+// (when present) as a low-signal fallback for pinned pages whose body doesn't
+// match the question.
+export async function fetchAndExtract(url: string): Promise<{ text: string; note?: string; metaDescription?: string }> {
   let res = await httpGet(url, { accept: "text/html,text/plain,*/*" });
   // Some sites block the polite bot UA — retry once as a browser before giving up.
   if (!res.ok && (res.status === 403 || res.status === 429)) {
@@ -184,8 +230,10 @@ export async function fetchAndExtract(url: string): Promise<{ text: string; note
     return { text: "", note: `Could not fetch ${url} (status ${res.status}${res.error ? ", " + res.error : ""}).` };
   }
   const isHtml = /html/i.test(res.contentType) || /^\s*</.test(res.body);
-  const text = isHtml ? htmlToText(res.body) : res.body;
-  return { text };
+  const metaDescription = isHtml ? metaDescriptionOf(res.body) : undefined;
+  const rawText = isHtml ? htmlToText(res.body) : res.body;
+  const text = isHtml ? stripConsentBoilerplate(rawText).text : rawText;
+  return { text, ...(metaDescription ? { metaDescription } : {}) };
 }
 
 // Turn fetched page text into ranked evidence excerpts around the question's
@@ -245,6 +293,9 @@ export function excerptsFromText(
       score: Number((h.cov + 1).toFixed(3)),
       snippet,
       url,
+      // cov=0 means no line matched the question — this is the top-of-page
+      // fallback, likely boilerplate. Flag it so review/analyze down-weight it.
+      ...(h.cov === 0 ? { meta: { lowSignal: true } } : {}),
     });
   }
   return items;

@@ -50,6 +50,20 @@ describe("analyzeRun — the post-research gap signal", () => {
     expect(seed).toMatch(/^construct oss --out .* --seeds https:\/\/github\.com\/wallabag\/wallabag$/);
   });
 
+  it("notes low-signal snippets in the dossier", () => {
+    const withLow = [
+      ...evidence,
+      { id: "E99", source: "docs", title: "banner", ref: "https://x/pricing", score: 0, snippet: "cookie banner", meta: { lowSignal: true } },
+    ] as EvidenceItem[];
+    const out = mkdtempSync(join(tmpdir(), "construct-analyze-"));
+    dirs.push(out);
+    writeFileSync(join(out, "brief.json"), JSON.stringify(brief));
+    mkdirSync(join(out, "evidence"), { recursive: true });
+    writeFileSync(join(out, "evidence", "evidence.json"), JSON.stringify(withLow));
+    const r = analyzeRun(out);
+    expect(r.notes.join(" ")).toMatch(/low-signal/i);
+  });
+
   it("flags everything when there is no evidence dossier", () => {
     const r = analyzeRun(makeRun({ withEvidence: false }));
     expect(r.evidenceCount).toBe(0);

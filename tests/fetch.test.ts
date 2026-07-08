@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { excerptsFromText, fetchAndExtract, htmlToText, httpGet, httpJson } from "../src/research/fetch.js";
+import { excerptsFromText, fetchAndExtract, htmlToText, httpGet, httpJson, stripConsentBoilerplate } from "../src/research/fetch.js";
 
 function res(body: string, opts: { ok?: boolean; status?: number; contentType?: string; retryAfter?: string } = {}) {
   return {
@@ -108,6 +108,40 @@ describe("excerptsFromText", () => {
     expect(items.length).toBe(2);
     expect(items[0]!.title).toBe("Web — https://x/doc");
     expect(items[1]!.title).toMatch(/\(lines \d+–\d+\)/);
+  });
+
+  it("marks the top-of-page fallback excerpt low-signal when nothing matches the question", () => {
+    const lines = Array.from({ length: 20 }, (_, i) => `unrelated filler line ${i}`);
+    const items = excerptsFromText(lines.join("\n"), "https://x/doc", "Web — https://x/doc", "market", "quantum entanglement", 4);
+    expect(items.length).toBe(1); // the cov=0 top-of-page fallback
+    expect(items[0]!.meta?.lowSignal).toBe(true);
+  });
+
+  it("does not mark a real keyword-matched excerpt low-signal", () => {
+    const lines = Array.from({ length: 20 }, (_, i) => `filler ${i}`);
+    lines[5] = "the search index configuration matters";
+    const items = excerptsFromText(lines.join("\n"), "https://x/doc", "Web — https://x/doc", "market", "search index", 4);
+    expect(items[0]!.meta?.lowSignal).toBeUndefined();
+  });
+});
+
+describe("stripConsentBoilerplate", () => {
+  it("drops cookie/consent lines and keeps the article prose", () => {
+    const text = [
+      "We use cookies and similar tracking technologies. Accept all cookies or manage preferences.",
+      "The article explains how full-text search indexing works.",
+    ].join("\n");
+    const { text: cleaned, dropped } = stripConsentBoilerplate(text);
+    expect(dropped).toBeGreaterThan(0);
+    expect(cleaned).toMatch(/full-text search indexing/);
+    expect(cleaned).not.toMatch(/Accept all cookies/);
+  });
+
+  it("leaves ordinary prose untouched", () => {
+    const text = "PostgreSQL uses MVCC for concurrency control.\nMeilisearch offers typo tolerance out of the box.";
+    const { text: cleaned, dropped } = stripConsentBoilerplate(text);
+    expect(dropped).toBe(0);
+    expect(cleaned).toBe(text);
   });
 });
 

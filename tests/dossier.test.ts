@@ -26,6 +26,14 @@ describe("assignIds", () => {
     expect(ev[1]).toMatchObject({ id: "E2", source: "market", ref: "b.com" });
     expect(ev[2]).toMatchObject({ id: "E3", source: "docs" });
   });
+
+  it("preserves an item's meta (e.g. lowSignal) through id assignment", () => {
+    const withMeta: SourceResult[] = [
+      { source: "docs", items: [{ source: "docs", title: "t", ref: "r", score: 1, snippet: "s", meta: { lowSignal: true } }], notes: [] },
+    ];
+    const ev = assignIds(withMeta);
+    expect(ev[0]!.meta?.lowSignal).toBe(true);
+  });
 });
 
 describe("renderEvidenceMarkdown", () => {

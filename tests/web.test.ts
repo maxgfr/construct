@@ -85,6 +85,19 @@ describe("webFetchUrls", () => {
     expect(fetched.length).toBe(4); // all four, despite perSource=2
     expect(items.every((i) => i.source === "docs")).toBe(true);
   });
+
+  it("marks a pinned page low-signal and prefers its meta description when nothing matches", async () => {
+    const page = `<html><head><meta name="description" content="Official pricing and rate limits for the API."></head><body><div id="cookie">We use cookies. Accept all cookies to continue.</div><p>Totally unrelated marketing filler about our mission.</p></body></html>`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => res(page)),
+    );
+    const { items } = await webFetchUrls(["https://docs.example/pricing"], "quantum entanglement teleportation", 6, "docs", true);
+    expect(items.length).toBe(1);
+    expect(items[0]!.meta?.lowSignal).toBe(true);
+    expect(items[0]!.snippet).toMatch(/Official pricing and rate limits/); // meta description, not the cookie banner
+    expect(items[0]!.snippet).not.toMatch(/Accept all cookies/);
+  });
 });
 
 describe("marketAngle — pinned URLs (research --url)", () => {
