@@ -81,6 +81,37 @@ describe("mentionsEntity", () => {
   });
 });
 
+describe("inferEntities — adjectival prefixes never become entities", () => {
+  const clean = (features: Brief["featureWishlist"]): Brief => ({
+    ...brief,
+    idea: "a simple app",
+    candidateTech: [],
+    competitors: [],
+    featureWishlist: features,
+  });
+
+  it("does not promote 'Multi' from recurring multi-* feature titles", () => {
+    const srd = buildSRD(
+      clean([
+        { title: "Multi-currency accounts", priority: "must" },
+        { title: "Multi-currency transfers", priority: "should" },
+      ]),
+      [],
+      { level: "light", generatedAt: "T" },
+    );
+    const names = srd.architecture.dataModel.map((e) => e.name);
+    expect(names).not.toContain("Multi");
+    expect(names).toContain("Currency"); // the real recurring noun survives
+  });
+
+  it("skips the prefix when picking a verb-led must-have's direct object", () => {
+    const srd = buildSRD(clean([{ title: "Create multi-currency wallets", priority: "must" }]), [], { level: "light", generatedAt: "T" });
+    const names = srd.architecture.dataModel.map((e) => e.name);
+    expect(names).not.toContain("Multi");
+    expect(names.length).toBeGreaterThan(0); // the head noun, not the prefix, is the object
+  });
+});
+
 describe("buildSRD — competitor grounding requires a literal mention (no citation washing)", () => {
   const listicle = [
     {

@@ -4,36 +4,103 @@
   "product": {
     "name": "Readpile",
     "problem": "People save articles to read later but never find them again; hosted services lock data in and die.",
-    "users": ["self-hosting individuals", "small teams sharing a knowledge base"],
+    "users": [
+      "self-hosting individuals",
+      "small teams sharing a knowledge base"
+    ],
     "valueProp": "Own your reading queue: a private, fast, searchable archive of everything you save."
   },
   "goals": [
     "A user can save and reliably re-find any article within seconds",
     "Reach 1,000 self-hosted installs in the first year"
   ],
-  "nonGoals": ["A hosted multi-tenant SaaS offering", "A social/sharing network"],
+  "nonGoals": [
+    "A hosted multi-tenant SaaS offering",
+    "A social/sharing network"
+  ],
   "constraints": {
     "budget": "side-project, near-zero infra budget",
     "timeline": "MVP in 8 weeks",
     "team": "one full-stack developer",
-    "compliance": ["GDPR (self-hosted, user owns data)"]
+    "compliance": [
+      "GDPR (self-hosted, user owns data)"
+    ]
   },
-  "candidateTech": ["PostgreSQL", "Meilisearch", "Next.js"],
-  "competitors": ["Pocket", "Instapaper", "Omnivore"],
-  "ossSeeds": ["https://github.com/omnivore-app/omnivore", "https://github.com/wallabag/wallabag"],
+  "candidateTech": [
+    "PostgreSQL",
+    "Meilisearch",
+    "Next.js"
+  ],
+  "competitors": [
+    "Pocket",
+    "Instapaper",
+    "Omnivore"
+  ],
+  "ossSeeds": [
+    "https://github.com/omnivore-app/omnivore",
+    "https://github.com/wallabag/wallabag"
+  ],
   "modules": [
-    { "id": "capture", "name": "Capture", "description": "Getting content into the archive: saving, extraction, imports." },
-    { "id": "search", "name": "Search", "description": "Finding saved content again, fast.", "dependsOn": ["capture"] },
-    { "id": "library", "name": "Library", "description": "Organizing and reading the archive.", "dependsOn": ["capture"] }
+    {
+      "id": "capture",
+      "name": "Capture",
+      "description": "Getting content into the archive: saving, extraction, imports."
+    },
+    {
+      "id": "search",
+      "name": "Search",
+      "description": "Finding saved content again, fast.",
+      "dependsOn": [
+        "capture"
+      ]
+    },
+    {
+      "id": "library",
+      "name": "Library",
+      "description": "Organizing and reading the archive.",
+      "dependsOn": [
+        "capture"
+      ]
+    }
   ],
   "featureWishlist": [
-    { "title": "Save an article from a URL or browser extension", "priority": "must", "notes": "Extract clean readable content and store it offline.", "module": "capture" },
-    { "title": "Full-text search across all saved articles", "priority": "must", "notes": "Sub-second search with typo tolerance.", "module": "search" },
-    { "title": "Tag and organize saved articles", "priority": "should", "module": "library" },
-    { "title": "Import an existing Pocket or Instapaper export", "priority": "should", "module": "capture" },
-    { "title": "Read articles offline on mobile", "priority": "could", "module": "library" }
+    {
+      "title": "Save an article from a URL or browser extension",
+      "priority": "must",
+      "notes": "Extract clean readable content and store it offline, so that the saved copy renders without the original site being reachable.",
+      "module": "capture"
+    },
+    {
+      "title": "Full-text search across all saved articles",
+      "priority": "must",
+      "notes": "Sub-second search with typo tolerance, so that a reader re-finds any saved article in under 1 second.",
+      "module": "search"
+    },
+    {
+      "title": "Tag and organize saved articles",
+      "priority": "should",
+      "module": "library",
+      "notes": "Tags are freeform and user-owned, so that a user re-finds any article by tag in one search."
+    },
+    {
+      "title": "Import an existing Pocket or Instapaper export",
+      "priority": "should",
+      "module": "capture",
+      "notes": "Parse the official export formats, so that an import never loses an article's original save date or tags."
+    },
+    {
+      "title": "Read articles offline on mobile",
+      "priority": "could",
+      "module": "library",
+      "notes": "Cache saved articles locally, so that previously synced articles open without a network connection."
+    }
   ],
-  "nfrPriorities": ["performance", "security", "reliability", "privacy"],
+  "nfrPriorities": [
+    "performance",
+    "security",
+    "reliability",
+    "privacy"
+  ],
   "openQuestions": [],
   "createdAt": "2026-06-08T00:00:00.000Z"
 }

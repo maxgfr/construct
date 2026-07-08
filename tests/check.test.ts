@@ -218,12 +218,28 @@ describe("checkRun — opt-in grounding threshold (--min-grounding)", () => {
   });
 });
 
-describe("checkRun — renderer-templated criteria nudges", () => {
-  it("warns when acceptance criteria still carry the renderer's template", () => {
-    // The fixture's "Tag and organize saved articles" has no notes, so its
-    // positive-path Then stays templated.
+describe("checkRun — renderer-templated criteria gate", () => {
+  it("passes the fixture cleanly — every feature note carries a concrete outcome", () => {
     const r = checkRun(renderRun());
-    expect(r.ok).toBe(true); // advisory only
+    expect(r.ok).toBe(true);
+    expect(r.structural.errors.join(" ")).not.toMatch(/renderer-templated/);
+    expect(r.structural.warnings.join(" ")).not.toMatch(/renderer-templated/);
+  });
+
+  it("fails at complex when an acceptance criterion still carries the renderer template", () => {
+    const dir = renderRun(); // renderRun defaults to complex
+    mutateSRD(dir, (s) => (s.functional[0]!.acceptance[0]!.then = 'the result of "save an article" is persisted and visible to the user'));
+    const r = checkRun(dir);
+    expect(r.ok).toBe(false);
+    expect(r.structural.errors.join(" ")).toMatch(/renderer-templated/);
+    expect(r.structural.errors.join(" ")).toMatch(/acceptance-criteria\.md/);
+  });
+
+  it("stays an advisory warning at light", () => {
+    const dir = renderRun({ level: "light" });
+    mutateSRD(dir, (s) => (s.functional[0]!.acceptance[0]!.then = 'the result of "save an article" is persisted and visible to the user'));
+    const r = checkRun(dir);
+    expect(r.ok).toBe(true);
     expect(r.structural.warnings.join(" ")).toMatch(/renderer-templated/);
   });
 
@@ -232,6 +248,7 @@ describe("checkRun — renderer-templated criteria nudges", () => {
     mutateSRD(dir, (s) => s.functional.forEach((f) => f.acceptance.forEach((a) => (a.then = "the article appears in the reading list within 2 seconds"))));
     const r = checkRun(dir);
     expect(r.structural.warnings.join(" ")).not.toMatch(/renderer-templated/);
+    expect(r.structural.errors.join(" ")).not.toMatch(/renderer-templated/);
   });
 });
 
@@ -496,7 +513,13 @@ describe("formatCheckReport", () => {
 
 describe("checkRun — placeholder words vs decisions", () => {
   it("does NOT hard-fail when a feature title legitimately contains TODO (advisory only)", () => {
-    const r = checkRun(renderRun({ briefOverride: { featureWishlist: [{ title: "Manage a shared TODO list", priority: "must" }] } }));
+    const r = checkRun(
+      renderRun({
+        briefOverride: {
+          featureWishlist: [{ title: "Manage a shared TODO list", priority: "must", notes: "so that every teammate sees an added item within 2 seconds" }],
+        },
+      }),
+    );
     expect(r.ok).toBe(true); // TODO in a real title must not fail the build
     expect(r.structural.warnings.join(" ")).toMatch(/TODO\/TBD\/FIXME/);
   });
@@ -510,7 +533,14 @@ describe("checkRun — placeholder words vs decisions", () => {
   it("does NOT hard-fail when a 🧠 glyph appears in a feature title (only the rendered Decide callout counts)", () => {
     // The 🧠 lands in FUNCTIONAL.md, design/SCREENS.md and TRACEABILITY.md, but
     // none of those is the renderer's `> 🧠 **Decide:**` callout.
-    const r = checkRun(renderRun({ level: "complex", briefOverride: { featureWishlist: [{ title: "Capture a 🧠 brainstorm", priority: "must" }] } }));
+    const r = checkRun(
+      renderRun({
+        level: "complex",
+        briefOverride: {
+          featureWishlist: [{ title: "Capture a 🧠 brainstorm", priority: "must", notes: "so that a captured idea is never lost on reload" }],
+        },
+      }),
+    );
     expect(r.ok).toBe(true);
     expect(r.structural.errors.join(" ")).not.toMatch(/Unresolved decision/);
   });
