@@ -1,5 +1,16 @@
 # Orchestration — dynamic workflows for wider research and harder review
 
+> **The engine now EMITS these patterns.** `construct orchestrate --out <run>
+> [--phase research|claim-review|adr-judges|build] [--adr <id>] [--eco] [--list]`
+> generates, from the run's CURRENT state, one launchable workflow script per
+> fan-out pattern below (Pattern 1 → `research`, Pattern 4 → `claim-review`,
+> Pattern 3 → `adr-judges`, Pattern 5 → `build`), the dispatch contracts
+> (`<run>/orchestration/agents/<role>.md`, each ending with the one-writer rule)
+> and a sequential `RUNBOOK.md` for tier 3 — absolute paths and the real
+> worklist units baked in. Pattern 2 (the adversarial review) is deliberately
+> not emitted: it is ONE fresh-eyes reviewer, not a fan-out. The prose below
+> stays the source of truth at every tier.
+
 construct's engine is single-process and deterministic; the *intelligence
 scaling* happens in how you, the orchestrating agent, drive it. Each pattern
 below is a **dynamic workflow** — a shape (parallel fan-out, bounded loop, or

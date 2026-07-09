@@ -20,6 +20,7 @@ import { analyzeRun, formatGapReport } from "./analyze.js";
 import { verifyRun, formatVerifyReport } from "./verify.js";
 import { runReview, applyVerdicts, formatReviewReport } from "./review.js";
 import { loadPlan, readyFrontier } from "./plan.js";
+import { listPhases, orchestrateRun } from "./orchestrate.js";
 import { semanticControl } from "./research/semantic.js";
 
 const HELP = `construct v${VERSION}
@@ -39,6 +40,7 @@ Usage:
   construct review   --out <run> [--apply <verdicts.json>] [--max-review N] [--json]
   construct verify   --out <run> [--app <dir>] [--run-tests] [--strict] [--json]
   construct status   --out <run> [--json]
+  construct orchestrate --out <run> [--phase research|claim-review|adr-judges|build] [--adr <id>] [--eco] [--list]
   construct semantic up|down|status
 
 Commands:
@@ -67,6 +69,15 @@ Commands:
   verify     Check a built app against BUILD-PLAN.json + the SRD (static by
              default; --run-tests executes the declared test commands).
   status     Show what exists in a run (brief / evidence / SRD / check).
+  orchestrate Emit the run's multi-agent orchestration from its CURRENT state
+             into <run>/orchestration/: one launchable workflow script per
+             ready fan-out phase (research gaps · claim-review pairs · the
+             adr-judges 3-lens panel · build frontier tasks), the dispatch
+             contracts (agents/<role>.md) and a sequential RUNBOOK.md fallback.
+             Subagents RETURN fragments; you stay the sole writer of the run
+             folder (references/orchestration.md). Exits 2 when the named
+             phase's worklist does not exist yet — and says which command
+             produces it. Re-run after any worklist change (idempotent).
   semantic   Manage the optional local Docker stack (Qdrant + Ollama + SearXNG).
 
 Options:
@@ -89,6 +100,13 @@ Options:
                        pairs (default: review ALL cited pairs; dropped pairs
                        are named in VERIFY.md)
   --app <dir>          For 'verify': the built app directory (default: conventions.appDir)
+  --phase <name>       For 'orchestrate': emit one phase only —
+                       research | claim-review | adr-judges | build
+  --adr <id>           For 'orchestrate': the contested ADR the judge panel
+                       rules on (required with --phase adr-judges)
+  --eco                For 'orchestrate': emit only RUNBOOK.md + agents/*.md —
+                       the explicit low-token sequential path
+  --list               For 'orchestrate': print the phases + readiness as JSON
   --run-tests          For 'verify': also execute testCommand + per-task verify commands
   --strict             For 'verify': a built must-have FR with no referencing test FAILS
   --web-engine <e>     auto | searxng | ddg | claude             (default: auto)
@@ -123,6 +141,7 @@ const COMMANDS = new Set([
   "verify",
   "review",
   "status",
+  "orchestrate",
   "semantic",
 ]);
 const VALUE_FLAGS = new Set([
@@ -143,8 +162,10 @@ const VALUE_FLAGS = new Set([
   "app",
   "apply",
   "max-review",
+  "phase",
+  "adr",
 ]);
-const BOOL_FLAGS = new Set(["semantic", "merge", "json", "refresh", "run-tests", "strict", "no-design", "prd", "allow-unverified", "from-srd"]);
+const BOOL_FLAGS = new Set(["semantic", "merge", "json", "refresh", "run-tests", "strict", "no-design", "prd", "allow-unverified", "from-srd", "eco", "list"]);
 
 function fail(message: string): never {
   process.stderr.write(`construct: ${message}\n`);
@@ -578,6 +599,52 @@ async function main(): Promise<void> {
           planLine,
         ].join("\n") + "\n",
       );
+      return;
+    }
+
+    case "orchestrate": {
+      // Family exit-code contract (shared with the sibling skills): 2 when the
+      // run/phase is missing or not ready, naming the exact producing command.
+      const rawOut = (p.values.out || p.values.run || "").trim();
+      if (!rawOut) {
+        process.stderr.write("construct orchestrate: --out <run> is required (the run folder to orchestrate).\n");
+        process.exit(2);
+      }
+      const runDir = resolve(rawOut);
+      // The engine's own absolute path — what the emitted artifacts tell
+      // subagents to invoke, valid from any cwd (realpath so a symlinked
+      // install still resolves).
+      const engineAbs = realpathSync(fileURLToPath(import.meta.url));
+      if (p.bools.has("list")) {
+        if (!existsSync(runDir)) {
+          process.stderr.write(`construct orchestrate: run dir not found: ${runDir}.\n`);
+          process.exit(2);
+        }
+        process.stdout.write(JSON.stringify({ phases: listPhases(runDir, engineAbs) }, null, 2) + "\n");
+        return;
+      }
+      const res = orchestrateRun(runDir, engineAbs, {
+        phase: p.values.phase,
+        adr: p.values.adr,
+        eco: p.bools.has("eco"),
+      });
+      if (res.exitCode !== 0) {
+        for (const e of res.errors) process.stderr.write(`construct orchestrate: ${e}\n`);
+        process.exit(res.exitCode);
+      }
+      process.stderr.write("construct orchestrate: generated\n");
+      for (const w of res.written) process.stderr.write(`  ${w}\n`);
+      for (const n of res.notices) process.stderr.write(`construct orchestrate: note — ${n}\n`);
+      const workflows = res.written.filter((w) => w.endsWith(".workflow.mjs"));
+      if (workflows.length) {
+        process.stderr.write("\n");
+        for (const w of workflows) process.stderr.write(`Launch: Workflow({ scriptPath: ${JSON.stringify(w)} })\n`);
+        process.stderr.write(
+          "Then fold the returned fragments in yourself and run the fold command named at the tail of each workflow (you stay the sole writer).\n",
+        );
+      } else {
+        process.stderr.write(`Follow ${join(runDir, "orchestration", "RUNBOOK.md")} sequentially (the eco path).\n`);
+      }
       return;
     }
 

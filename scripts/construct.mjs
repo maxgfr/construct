@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { resolve as resolve3, join as join15 } from "path";
-import { existsSync as existsSync11, readFileSync as readFileSync10 } from "fs";
+import { resolve as resolve4, join as join17 } from "path";
+import { existsSync as existsSync12, readFileSync as readFileSync11 } from "fs";
 import { pathToFileURL, fileURLToPath as fileURLToPath2 } from "url";
 import { realpathSync } from "fs";
 
@@ -4226,6 +4226,486 @@ function formatVerifyReport(r, runDir) {
   return lines.join("\n");
 }
 
+// src/orchestrate.ts
+import { existsSync as existsSync11, mkdirSync as mkdirSync6, readFileSync as readFileSync10, writeFileSync as writeFileSync7 } from "fs";
+import { join as join16, resolve as resolve3 } from "path";
+
+// src/orchestrate-templates.ts
+import { join as join15 } from "path";
+var ADR_LENSES = ["feasibility", "operations-cost", "user-value"];
+function oneWriterFooter(runAbs, sanctionedWrite) {
+  return `
+## Return, don't write (the one-writer rule)
+
+Return ONLY the structured output specified above. Subagents NEVER write into the run folder: do not write, edit, or delete any file there, and do not run any engine command that writes it (\`research\`, \`review\`, \`review --apply\`, \`render\`, \`init\`, \`brainstorm --merge\`). Drill commands never write the dossier \u2014 \`web|oss|tech|so\` print evidence to stdout and are safe. The orchestrator is the sole writer: it folds your returned fragments in serially and runs the gates itself. One writer, many readers \u2014 no races, no clobbered evidence.${sanctionedWrite ? `
+
+${sanctionedWrite}` : ""}
+
+Exception for oversized prose: if a justification is too large to return, write ONLY to \`${join15(runAbs, "orchestration", "out")}/<role>-<batch>.md\` (a file namespaced to you alone) and return its path.
+`;
+}
+var RESEARCH_SCHEMA = {
+  type: "object",
+  required: ["findings"],
+  properties: {
+    findings: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["gap", "summary", "urls"],
+        properties: {
+          gap: { type: "string", description: "the gap label, verbatim from your prompt" },
+          summary: { type: "string", description: "<=5 lines: what was found and why it matters to this product" },
+          urls: { type: "array", items: { type: "string" }, description: "URLs worth grounding, best first" }
+        }
+      }
+    }
+  }
+};
+var CLAIM_REVIEW_SCHEMA = {
+  type: "object",
+  required: ["pairs"],
+  properties: {
+    pairs: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["claimId", "evidenceId", "verdict", "note"],
+        properties: {
+          claimId: { type: "string", description: "verbatim from the worklist" },
+          evidenceId: { type: "string", description: "verbatim from the worklist" },
+          verdict: { enum: ["supported", "partial", "refuted", "unsupported"] },
+          note: { type: "string", description: "<=200 chars, grounded in the digest/source you read" }
+        }
+      }
+    }
+  }
+};
+var ADR_JUDGE_SCHEMA = {
+  type: "object",
+  required: ["lens", "score", "rationale"],
+  properties: {
+    lens: { enum: [...ADR_LENSES] },
+    score: { type: "integer", minimum: 1, maximum: 5 },
+    rationale: { type: "string", description: "one paragraph, nothing else" }
+  }
+};
+var BUILDER_SCHEMA = {
+  type: "object",
+  required: ["taskId", "status", "summary", "artifacts", "tests"],
+  properties: {
+    taskId: { type: "string" },
+    status: { enum: ["done", "blocked"] },
+    summary: { type: "string", description: "what was built, TDD evidence (RED then GREEN)" },
+    worktree: { type: "string", description: "absolute path of your git worktree holding the committed work" },
+    artifacts: { type: "array", items: { type: "string" }, description: "app-relative paths implementing the task" },
+    tests: { type: "array", items: { type: "string" }, description: "app-relative test files (each names its FR id)" },
+    blockers: { type: "array", items: { type: "string" } }
+  }
+};
+var PHASE_SPECS = {
+  research: {
+    role: "researcher",
+    title: "Research fan-out",
+    schema: RESEARCH_SCHEMA,
+    batchSize: 8,
+    description: (n) => `Research the ${n} evidence gap(s) construct analyze found (fan-out; the orchestrator folds URLs into ONE pinned research re-run)`,
+    extraExpr: "'GAPS (yours only, each with its drill command):\\n- ' + batch.join('\\n- ')",
+    applyHint: (engine, run) => [
+      `node ${engine} research --out ${run} --angles market,oss,tech --url <u1,u2,...> [--docs-url <d,...>]`,
+      `node ${engine} analyze --out ${run}`
+    ]
+  },
+  "claim-review": {
+    role: "claim-reviewer",
+    title: "Claim review",
+    schema: CLAIM_REVIEW_SCHEMA,
+    batchSize: 8,
+    description: (n) => `Adversarially verify the ${n} claim\u2194evidence pair(s) of a construct SRD (skeptic fan-out; the orchestrator folds the verdicts and gates)`,
+    extraExpr: "'PAIRS=' + batch.join(',')",
+    applyHint: (engine, run) => [`node ${engine} review --apply verdicts.json --out ${run}`, `node ${engine} check --out ${run} --semantic`]
+  },
+  "adr-judges": {
+    role: "adr-judge",
+    title: "Judge panel",
+    schema: ADR_JUDGE_SCHEMA,
+    batchSize: 1,
+    description: () => "Judge ONE contested ADR through the 3-lens panel (feasibility / operations & cost / user value); majority reduce",
+    extraExpr: "'LENS=' + batch[0] + '\\nADR = ' + JSON.stringify(ADR) + '\\nCITED EVIDENCE = ' + JSON.stringify(EVIDENCE)",
+    applyHint: (engine, run) => [`node ${engine} render --out ${run} --from-srd`]
+  },
+  build: {
+    role: "builder",
+    title: "Build frontier",
+    schema: BUILDER_SCHEMA,
+    batchSize: 1,
+    description: (n) => `Build the ${n} ready BUILD-PLAN task(s) of this milestone frontier \u2014 one TDD builder per task, each in its own git worktree`,
+    extraExpr: "'TASK=' + batch.join(',')",
+    agentOpts: ", isolation: 'worktree'",
+    applyHint: (engine, run) => [`node ${engine} verify --out ${run}`]
+  }
+};
+function phaseSpec(name) {
+  const spec = PHASE_SPECS[name];
+  if (!spec) throw new Error(`no phase spec for "${name}"`);
+  return spec;
+}
+function toBatches(ids, batchSize) {
+  const out = [];
+  for (let i = 0; i < ids.length; i += batchSize) out.push(ids.slice(i, i + batchSize));
+  return out;
+}
+var FOLD_PREAMBLE = {
+  research: [
+    "// One-writer rule: this workflow only COLLECTS research fragments (summaries + URLs).",
+    "// The main agent folds them in serially with ONE pinned research re-run \u2014 a research run",
+    "// REBUILDS the dossier from exactly the angles/URLs it is given, so pass every angle \u2014",
+    "// then re-measures the gaps:"
+  ],
+  "claim-review": [
+    "// One-writer rule: this workflow only COLLECTS verdict fragments. The main agent merges",
+    "// them into ONE verdicts.json (order-independent, keyed claimId::evidenceId \u2014 an omitted",
+    "// pair is reported unadjudicated, never silently passed), then folds and gates:"
+  ],
+  "adr-judges": [
+    "// One-writer rule: this workflow only COLLECTS the 3 lens verdicts. The main agent",
+    "// majority-reduces them (pass = >=2 lenses scoring >=3): record one line per lens in the",
+    "// ADR's *Alternatives considered*, flip status proposed -> accepted in SRD.json only on a",
+    "// pass (on a fail, take the strongest rationale back to the user), then re-emit the tree:"
+  ],
+  build: [
+    "// One-writer rule: builders write code ONLY in their own git worktrees. The main agent",
+    "// merges each worktree (serialising tasks that touch app-shared files \u2014 routing, schema,",
+    "// the test harness), folds artifacts/tests/status into BUILD-PLAN.json itself, then referees:"
+  ]
+};
+function phaseWorkflowScript(ph, runAbs, engineAbs, units, adr) {
+  const spec = phaseSpec(ph.name);
+  const scriptPath = join15(runAbs, "orchestration", `${ph.name}.workflow.mjs`);
+  const meta = { name: `construct-${ph.name}`, description: spec.description(units.length), phases: [{ title: spec.title }] };
+  const adrConsts = adr ? [`const ADR = ${JSON.stringify(adr.adr)}`, `const EVIDENCE = ${JSON.stringify(adr.evidence)}`] : [];
+  const tail = FOLD_PREAMBLE[ph.name] ?? [];
+  return [
+    `export const meta = ${JSON.stringify(meta)}`,
+    ``,
+    `// NOT a plain Node script: launch via the Workflow tool \u2014 Workflow({ scriptPath: ${JSON.stringify(scriptPath)} }).`,
+    `// Emitted by \`construct orchestrate\` from the CURRENT run state. The run is the source`,
+    `// of truth: if its worklist changes, re-run \`orchestrate --phase ${ph.name}\` before launching.`,
+    ``,
+    `// Constants for THIS run (injected at emit time; no Date.now/Math.random in this harness).`,
+    `const RUN = ${JSON.stringify(runAbs)}`,
+    `const ENGINE = ${JSON.stringify(engineAbs)}`,
+    `const WORKLIST = ${JSON.stringify(ph.worklist)}`,
+    `const AGENTS = RUN + '/orchestration/agents'`,
+    `const BATCHES = ${JSON.stringify(toBatches(units, spec.batchSize))}`,
+    ...adrConsts,
+    `const SCHEMA = ${JSON.stringify(spec.schema)}`,
+    ``,
+    `function contract(name, extra) {`,
+    `  return 'Read and follow the dispatch contract at ' + AGENTS + '/' + name + '.md VERBATIM.\\n'`,
+    `    + 'Constants: RUN=' + RUN + '  ENGINE=' + ENGINE + '  WORKLIST=' + WORKLIST + '.\\n'`,
+    `    + 'Invoke the engine only by its ABSOLUTE path: node ' + ENGINE + ' <cmd> \u2014 stdout drills and read-only commands only.'`,
+    `    + (extra ? '\\n' + extra : '')`,
+    `}`,
+    ``,
+    `log('construct ${ph.name}: ' + ${JSON.stringify(String(units.length))} + ' unit(s) across ' + BATCHES.length + ' agent(s)')`,
+    ``,
+    `phase(${JSON.stringify(spec.title)})`,
+    `const results = await pipeline(BATCHES, (batch, _item, i) =>`,
+    `  agent(contract('${spec.role}', ${spec.extraExpr}), { label: '${ph.name}:' + (i + 1), phase: ${JSON.stringify(spec.title)}, agentType: 'general-purpose', schema: SCHEMA${spec.agentOpts ?? ""} }))`,
+    ``,
+    ...tail,
+    ...spec.applyHint(engineAbs, runAbs).map((c) => `//   ${c}`),
+    `return { phase: ${JSON.stringify(ph.name)}, worklist: WORKLIST, results: results.filter(Boolean) }`,
+    ``
+  ].join("\n");
+}
+function agentContracts(runAbs, engineAbs, idea) {
+  const footer = oneWriterFooter(runAbs);
+  const builderFooter = oneWriterFooter(
+    runAbs,
+    "Your ONE sanctioned write surface is your own isolated git worktree \u2014 app code and app tests only. The run folder (BUILD-PLAN.json, SRD.json, evidence/) stays the orchestrator's."
+  );
+  const product = idea ? `\`${idea}\`` : "(no brief.json yet \u2014 the orchestrator will restate the one-liner in your prompt)";
+  return {
+    researcher: `# Contract: researcher
+
+You research evidence gaps of a construct run \u2014 the features, competitors, candidate tech and OSS seeds that \`analyze\` proved will render UNGROUNDED as-is (references/orchestration.md Pattern 1).
+
+Product one-liner: ${product}
+
+Your prompt lists your gaps (\`GAPS\`), each with its matching drill command. For EACH of your gaps:
+
+1. Run the drill (\`node ${engineAbs} web|oss|tech|so ... [--json]\`) and read the items. Drills print evidence to stdout and never write the dossier \u2014 they are safe to run in parallel.
+2. Use your own WebSearch for what the drill misses (competitor pages, docs, issue threads, comparisons).
+3. Judge relevance against the product one-liner and the gap \u2014 keep only what would actually ground this claim.
+
+Return (structured output): \`{ "findings": [{ "gap", "summary", "urls" }] }\` \u2014 your GAPS only. Per gap: a \u22645-line summary of what was found and why it matters to this product, and the URLs worth grounding, best first. The orchestrator folds ALL returned URLs into ONE pinned \`research\` re-run (a research run rebuilds the dossier from exactly the angles/URLs it is given), then re-runs \`analyze\`.
+${footer}`,
+    "claim-reviewer": `# Contract: claim-reviewer
+
+You are an adversarial skeptic verifying that each SRD claim is actually SUPPORTED by the evidence it cites (references/orchestration.md Pattern 4). Assume the citation is decorative until the evidence proves otherwise.
+
+Worklist: \`${join15(runAbs, "VERIFY.todo.json")}\` (\`{ pairs: [...] }\`; each pair has \`claimId\`, \`kind\`, \`claim\`, \`evidenceId\`, \`source\`, \`digest\`). Handle ONLY the pairs whose \`claimId::evidenceId\` key is named in your prompt (\`PAIRS=<key,\u2026>\`).
+
+For EACH of your pairs:
+
+1. Read the pair's \`claim\` and its \`digest\` (the cited item's snippet). You may open the evidence source URL (see \`${join15(runAbs, "evidence", "EVIDENCE.md")}\`) for more context. A digest flagged \`[low-signal snippet \u2026]\` must be adjudicated skeptically \u2014 never grant \`supported\` on the URL alone.
+2. Judge the claim\u2194evidence link:
+   - \`supported\` \u2014 the cited evidence directly backs the claim.
+   - \`partial\` \u2014 it backs a weaker version of the claim.
+   - \`unsupported\` \u2014 it is irrelevant / does not bear on the claim.
+   - \`refuted\` \u2014 it contradicts the claim.
+   When unsure, choose the HARSHER verdict \u2014 a false pass is worse than a false fail.
+3. \`note\` is REQUIRED \u2014 \u2264200 chars grounded in what you actually read (quote or paraphrase the decisive text).
+
+Return (structured output): \`{ "pairs": [{ "claimId", "evidenceId", "verdict", "note" }] }\` \u2014 ids VERBATIM, your PAIRS only. The fold cross-checks the worklist: an invalid verdict token reads as unadjudicated (not as a failure) and an omitted pair is reported unadjudicated \u2014 never silently passed.
+${footer}`,
+    "adr-judge": `# Contract: adr-judge
+
+You are ONE lens of a 3-judge panel over ONE contested ADR (references/orchestration.md Pattern 3). Your prompt carries your \`LENS\`, the \`ADR\` (title, context, decision, consequences, alternatives) and the \`CITED EVIDENCE\` snippets \u2014 pasted in; you do not need the run folder.
+
+The lenses:
+
+- \`feasibility\` \u2014 can this team build it in this timeline on this stack?
+- \`operations-cost\` \u2014 what does it cost to run, observe, upgrade, exit?
+- \`user-value\` \u2014 does this decision serve the stated users and value prop?
+
+Judge ONLY through your lens; the other two are someone else's job. If the ADR cites no evidence, judge from its text alone and say so in the rationale \u2014 that grounding gap is itself signal.
+
+Return (structured output): \`{ "lens", "score", "rationale" }\` \u2014 a 1\u20135 integer score and a one-paragraph rationale, nothing else. The orchestrator decides by majority (\u22652 judges scoring \u22653), records one line per lens in the ADR's *Alternatives considered*, and flips \`status: proposed \u2192 accepted\` only on a pass.
+${footer}`,
+    builder: `# Contract: builder
+
+You build ONE task of \`${join15(runAbs, "BUILD-PLAN.json")}\`, test-first, in your OWN isolated git worktree (references/orchestration.md Pattern 5 + references/build-playbook.md). Your prompt names your task (\`TASK=<id>\`).
+
+1. Read your task in the plan. Its \`acceptance\` entries POINT into \`${join15(runAbs, "SRD.json")}\` (\`functional[frId].acceptance[index]\`) \u2014 the SRD stays the single source of truth for what "done" means.
+2. Work ONLY inside your own git worktree (the workflow dispatches you with \`isolation: 'worktree'\`). TDD each acceptance criterion: failing test first, then make it pass \u2014 and **every test names its FR id** (e.g. \`describe("FR-001 \u2026")\`; that is what \`verify\` greps for).
+3. Run the app's test command yourself in the worktree. Do NOT run \`verify\` or the milestone gate \u2014 the orchestrator referees after folding the whole frontier.
+4. NEVER edit \`BUILD-PLAN.json\`, \`SRD.json\` or anything in the run folder, and never touch files another frontier task owns \u2014 app-shared files (routing, schema, the test harness) are serialised by the orchestrator.
+
+Return (structured output): \`{ "taskId", "status", "summary", "worktree", "artifacts", "tests", "blockers" }\` \u2014 \`status\` is \`done\` or \`blocked\`, \`worktree\` is the absolute path holding your committed work, \`artifacts\`/\`tests\` are app-relative. The orchestrator merges your worktree, folds artifacts/tests/status into BUILD-PLAN.json itself, and runs \`node ${engineAbs} verify --out ${runAbs}\`.
+${builderFooter}`
+  };
+}
+function runbookMd(phases, runAbs, engineAbs) {
+  const status = phases.map((p) => `| ${p.name} | \`${p.worklist}\` | ${p.ready ? `ready (${p.items} unit(s))` : "not ready"} | \`${p.prerequisite}\` |`).join("\n");
+  const engine = `node ${engineAbs}`;
+  const agents = join15(runAbs, "orchestration", "agents");
+  return `# construct \u2014 sequential RUNBOOK (eco / no-subagent fallback)
+
+Run: \`${runAbs}\` \xB7 Engine: \`${engine}\`
+
+Generated by \`construct orchestrate\` from the CURRENT run state. This sequential path is
+correctness-identical to the multi-agent workflows \u2014 same worklists, same contracts, same
+gates; only wall-clock differs. Fan-out is an optimization, not a requirement (the
+three-tier model of references/orchestration.md).
+
+## Phase status
+
+| Phase | Worklist | Status | Produce it with |
+|---|---|---|---|
+${status}
+
+## The loop (play every role yourself, one unit at a time)
+
+1. **Interview \u2192 brief** (if not done): \`${engine} init --idea "<one-liner>" --out ${runAbs}\`, then fill \`${join15(runAbs, "brief.json")}\` one question at a time (references/interview-playbook.md).
+2. **Research, then dig every gap** \u2014 \`${engine} research --out ${runAbs}\` builds the dossier; \`${engine} analyze --out ${runAbs}\` names each gap + its drill command. For EVERY gap, apply \`${join15(agents, "researcher.md")}\` yourself (run the drill, WebSearch what it misses, keep the URLs worth grounding). Fold in serially with ONE pinned re-run: \`${engine} research --out ${runAbs} --angles market,oss,tech --url <u,...>\` \u2192 re-run \`analyze\`. Loop until clean or the user stops you.
+3. **Render**: \`${engine} render --out ${runAbs} --level complex\`, then enrich the SRD (SKILL.md step 4).
+4. **Claim-support review** \u2014 \`${engine} review --out ${runAbs}\` writes \`${join15(runAbs, "VERIFY.todo.json")}\`. For EVERY pair, apply \`${join15(agents, "claim-reviewer.md")}\` yourself (verdict + note into a \`verdicts.json\`). Then fold: \`${engine} review --apply verdicts.json --out ${runAbs}\` and gate: \`${engine} check --out ${runAbs} --semantic\` (must exit 0 before presenting).
+5. **Judge panel \u2014 only for ONE genuinely contested ADR** \u2014 apply \`${join15(agents, "adr-judge.md")}\` yourself three times (feasibility / operations-cost / user-value) over the pasted ADR + its cited evidence. Majority (\u22652 lenses \u22653) \u2192 one line per lens under *Alternatives considered*, flip \`proposed \u2192 accepted\` in \`${join15(runAbs, "SRD.json")}\`, re-emit: \`${engine} render --out ${runAbs} --from-srd\`.
+6. **Build the frontier** \u2014 per ready task (\`${engine} status --out ${runAbs} --json\` \u2192 \`frontier\`), apply \`${join15(agents, "builder.md")}\` yourself (sequentially you may work in the app dir directly \u2014 no worktree needed); fold artifacts/tests/status into \`${join15(runAbs, "BUILD-PLAN.json")}\`, then \`${engine} verify --out ${runAbs}\`. Milestone gate once the frontier is folded: \`${engine} verify --out ${runAbs} --run-tests --strict\`.
+
+The adversarial SRD review (Pattern 2) stays a single fresh-eyes pass by design \u2014 run it
+per references/adversarial-review.md; it is deliberately not a fan-out and not emitted here.
+
+With subagents available, prefer the emitted workflows instead: \`orchestrate --out ${runAbs} --phase <p>\` then \`Workflow({ scriptPath: "${join15(runAbs, "orchestration", "<p>.workflow.mjs")}" })\` \u2014 you stay the sole writer either way.
+`;
+}
+
+// src/orchestrate.ts
+var PHASES = ["research", "claim-review", "adr-judges", "build"];
+var SMALL_WORKLIST = 3;
+function loadSrd(runDir) {
+  const manifest = srdManifestPath(runDir);
+  if (!existsSync11(manifest)) return null;
+  try {
+    const srd = JSON.parse(readFileSync10(manifest, "utf8"));
+    return srd && typeof srd === "object" ? srd : null;
+  } catch {
+    return null;
+  }
+}
+function loadDossier(runDir) {
+  const path = join16(runDir, "evidence", "evidence.json");
+  if (!existsSync11(path)) return [];
+  try {
+    const data = JSON.parse(readFileSync10(path, "utf8"));
+    return Array.isArray(data) ? data.filter(
+      (e) => !!e && typeof e === "object" && typeof e.id === "string" && typeof e.source === "string"
+    ) : [];
+  } catch {
+    return [];
+  }
+}
+function researchUnits(runDir, engineAbs) {
+  if (!existsSync11(join16(runDir, "brief.json")) || !existsSync11(join16(runDir, "evidence", "evidence.json"))) return null;
+  try {
+    const r = analyzeRun(runDir);
+    const labels = [
+      ...r.ungroundedFeatures.map((f) => `feature (${f.priority}): "${f.title}" has no matchable evidence`),
+      ...r.unmatchedCompetitors.map((c) => `competitor: "${c}" never surfaced in market evidence`),
+      ...r.unmatchedTech.map((t) => `tech: "${t}" has no docs/StackOverflow grounding`),
+      ...r.unminedSeeds.map((s) => `oss seed: ${s} yielded no mined evidence`)
+    ];
+    return labels.map((label, i) => {
+      const drill = r.suggestions[i]?.replace(/^construct /, `node ${engineAbs} `);
+      return drill ? `${label} \u2192 drill: ${drill}` : label;
+    });
+  } catch {
+    return null;
+  }
+}
+function listPhases(runDir, engineAbs) {
+  const run = resolve3(runDir);
+  const gaps = researchUnits(run, engineAbs);
+  const todoPath = join16(run, "VERIFY.todo.json");
+  let pairKeys = null;
+  if (existsSync11(todoPath)) {
+    try {
+      const todo = JSON.parse(readFileSync10(todoPath, "utf8"));
+      if (todo && Array.isArray(todo.pairs)) {
+        pairKeys = todo.pairs.filter((p) => !!p && typeof p.claimId === "string" && typeof p.evidenceId === "string").map((p) => `${p.claimId}::${p.evidenceId}`);
+      }
+    } catch {
+    }
+  }
+  const srd = loadSrd(run);
+  const adrIds = srd && Array.isArray(srd.architecture?.adrs) ? srd.architecture.adrs.map((a) => a.id) : [];
+  const plan = loadPlan(run);
+  const frontier = plan ? readyFrontier(plan).frontier : null;
+  const renderCmd = `node ${engineAbs} render --out ${run} --level complex`;
+  return [
+    {
+      name: "research",
+      ready: gaps !== null,
+      worklist: join16(run, "evidence", "evidence.json"),
+      items: gaps?.length ?? 0,
+      ids: gaps ?? [],
+      prerequisite: `node ${engineAbs} research --out ${run}`
+    },
+    {
+      name: "claim-review",
+      ready: pairKeys !== null,
+      worklist: todoPath,
+      items: pairKeys?.length ?? 0,
+      ids: pairKeys ?? [],
+      prerequisite: `node ${engineAbs} review --out ${run}`
+    },
+    {
+      name: "adr-judges",
+      ready: adrIds.length > 0,
+      worklist: srdManifestPath(run),
+      items: adrIds.length,
+      ids: adrIds,
+      prerequisite: renderCmd
+    },
+    {
+      name: "build",
+      ready: frontier !== null,
+      worklist: join16(run, "BUILD-PLAN.json"),
+      items: frontier?.length ?? 0,
+      ids: frontier ?? [],
+      prerequisite: renderCmd
+    }
+  ];
+}
+function adrPanelPayload(runDir, adrId) {
+  const srd = loadSrd(runDir);
+  const adr = srd?.architecture?.adrs?.find((a) => a.id === adrId);
+  if (!adr) return null;
+  const byId = new Map(loadDossier(runDir).map((e) => [e.id, e]));
+  const evidence = [...new Set(adr.evidence)].map((id) => byId.get(id)).filter((e) => !!e).map((e) => ({ id: e.id, source: e.source, ref: e.ref, digest: (e.snippet || e.title || e.ref).slice(0, 600) }));
+  return { adr, evidence };
+}
+var err = (exitCode, errors, phases) => ({ exitCode, written: [], notices: [], errors, phases });
+function orchestrateRun(runDir, engineAbs, opts = {}) {
+  const run = resolve3(runDir);
+  if (!existsSync11(run)) {
+    return err(2, [`run dir not found: ${run}`], []);
+  }
+  const phases = listPhases(run, engineAbs);
+  const adrPhase = phases.find((p) => p.name === "adr-judges");
+  const notices = [];
+  let selected = phases.filter((p) => p.ready && p.name !== "adr-judges");
+  let adrPayload;
+  if (opts.phase !== void 0) {
+    const ph = phases.find((p) => p.name === opts.phase);
+    if (!ph) {
+      return err(2, [`unknown phase "${opts.phase}" \u2014 expected one of: ${PHASES.join(", ")}.`], phases);
+    }
+    if (!ph.ready) {
+      return err(2, [`phase "${ph.name}" is not ready \u2014 its worklist ${ph.worklist} is missing or unreadable. Produce it first: ${ph.prerequisite}`], phases);
+    }
+    if (ph.name === "adr-judges") {
+      const available = `this run's ADRs: ${ph.ids.join(", ")}`;
+      if (!opts.adr) {
+        return err(
+          2,
+          [
+            `phase "adr-judges" panels ONE contested ADR \u2014 pass --adr <id> (${available}). Reserve it for a genuinely contested, hard-to-reverse decision (references/orchestration.md Pattern 3).`
+          ],
+          phases
+        );
+      }
+      if (!ph.ids.includes(opts.adr)) {
+        return err(2, [`ADR "${opts.adr}" not found \u2014 ${available}.`], phases);
+      }
+      adrPayload = adrPanelPayload(run, opts.adr) ?? void 0;
+      if (!adrPayload) return err(2, [`ADR "${opts.adr}" could not be loaded from ${ph.worklist}.`], phases);
+    }
+    selected = [ph];
+  } else if (adrPhase.ready) {
+    notices.push(
+      `phase "adr-judges": not emitted by default (a 3-lens panel over ONE contested ADR) \u2014 emit it explicitly: orchestrate --out ${run} --phase adr-judges --adr <id> (this run's ADRs: ${adrPhase.ids.join(", ")}).`
+    );
+  }
+  const orchDir = join16(run, "orchestration");
+  const agentsDir = join16(orchDir, "agents");
+  mkdirSync6(join16(orchDir, "out"), { recursive: true });
+  mkdirSync6(agentsDir, { recursive: true });
+  const written = [];
+  let idea = "";
+  try {
+    idea = loadBrief(run).idea;
+  } catch {
+  }
+  for (const [name, content] of Object.entries(agentContracts(run, engineAbs, idea))) {
+    const p = join16(agentsDir, `${name}.md`);
+    writeFileSync7(p, content);
+    written.push(p);
+  }
+  if (!opts.eco) {
+    for (const ph of selected) {
+      const units = ph.name === "adr-judges" ? [...ADR_LENSES] : ph.ids;
+      if (units.length === 0) {
+        notices.push(`phase "${ph.name}": worklist is empty \u2014 nothing to orchestrate.`);
+        continue;
+      }
+      if (ph.name !== "adr-judges" && units.length <= SMALL_WORKLIST) {
+        notices.push(`phase "${ph.name}": only ${units.length} unit(s) \u2014 the sequential --eco path is equivalent and cheaper.`);
+      }
+      const p = join16(orchDir, `${ph.name}.workflow.mjs`);
+      writeFileSync7(p, phaseWorkflowScript(ph, run, engineAbs, units, adrPayload));
+      written.push(p);
+    }
+  }
+  const rb = join16(orchDir, "RUNBOOK.md");
+  writeFileSync7(rb, runbookMd(phases, run, engineAbs));
+  written.push(rb);
+  return { exitCode: 0, written, notices, errors: [], phases };
+}
+
 // src/cli.ts
 var HELP = `construct v${VERSION}
 Turn a product idea into a grounded, buildable SRD suite. Interview \u2192 research
@@ -4244,6 +4724,7 @@ Usage:
   construct review   --out <run> [--apply <verdicts.json>] [--max-review N] [--json]
   construct verify   --out <run> [--app <dir>] [--run-tests] [--strict] [--json]
   construct status   --out <run> [--json]
+  construct orchestrate --out <run> [--phase research|claim-review|adr-judges|build] [--adr <id>] [--eco] [--list]
   construct semantic up|down|status
 
 Commands:
@@ -4272,6 +4753,15 @@ Commands:
   verify     Check a built app against BUILD-PLAN.json + the SRD (static by
              default; --run-tests executes the declared test commands).
   status     Show what exists in a run (brief / evidence / SRD / check).
+  orchestrate Emit the run's multi-agent orchestration from its CURRENT state
+             into <run>/orchestration/: one launchable workflow script per
+             ready fan-out phase (research gaps \xB7 claim-review pairs \xB7 the
+             adr-judges 3-lens panel \xB7 build frontier tasks), the dispatch
+             contracts (agents/<role>.md) and a sequential RUNBOOK.md fallback.
+             Subagents RETURN fragments; you stay the sole writer of the run
+             folder (references/orchestration.md). Exits 2 when the named
+             phase's worklist does not exist yet \u2014 and says which command
+             produces it. Re-run after any worklist change (idempotent).
   semantic   Manage the optional local Docker stack (Qdrant + Ollama + SearXNG).
 
 Options:
@@ -4294,6 +4784,13 @@ Options:
                        pairs (default: review ALL cited pairs; dropped pairs
                        are named in VERIFY.md)
   --app <dir>          For 'verify': the built app directory (default: conventions.appDir)
+  --phase <name>       For 'orchestrate': emit one phase only \u2014
+                       research | claim-review | adr-judges | build
+  --adr <id>           For 'orchestrate': the contested ADR the judge panel
+                       rules on (required with --phase adr-judges)
+  --eco                For 'orchestrate': emit only RUNBOOK.md + agents/*.md \u2014
+                       the explicit low-token sequential path
+  --list               For 'orchestrate': print the phases + readiness as JSON
   --run-tests          For 'verify': also execute testCommand + per-task verify commands
   --strict             For 'verify': a built must-have FR with no referencing test FAILS
   --web-engine <e>     auto | searxng | ddg | claude             (default: auto)
@@ -4327,6 +4824,7 @@ var COMMANDS = /* @__PURE__ */ new Set([
   "verify",
   "review",
   "status",
+  "orchestrate",
   "semantic"
 ]);
 var VALUE_FLAGS = /* @__PURE__ */ new Set([
@@ -4346,9 +4844,11 @@ var VALUE_FLAGS = /* @__PURE__ */ new Set([
   "min-grounding",
   "app",
   "apply",
-  "max-review"
+  "max-review",
+  "phase",
+  "adr"
 ]);
-var BOOL_FLAGS = /* @__PURE__ */ new Set(["semantic", "merge", "json", "refresh", "run-tests", "strict", "no-design", "prd", "allow-unverified", "from-srd"]);
+var BOOL_FLAGS = /* @__PURE__ */ new Set(["semantic", "merge", "json", "refresh", "run-tests", "strict", "no-design", "prd", "allow-unverified", "from-srd", "eco", "list"]);
 function fail(message) {
   process.stderr.write(`construct: ${message}
 `);
@@ -4436,7 +4936,7 @@ function csv(s) {
 function requireOut(p) {
   const out = (p.values.out || p.values.run || "").trim();
   if (!out) fail("missing --out <run>");
-  return resolve3(out);
+  return resolve4(out);
 }
 var warnBrief = (w) => void process.stderr.write(`  \u26A0 brief: ${w}
 `);
@@ -4483,7 +4983,7 @@ async function main() {
     case "init": {
       const idea = p.values.idea;
       if (!idea) fail('missing --idea "<one-liner>"');
-      const out = p.values.out ? resolve3(p.values.out) : resolve3(slugify(idea) || "construct-run");
+      const out = p.values.out ? resolve4(p.values.out) : resolve4(slugify(idea) || "construct-run");
       const brief = initBrief(idea, (/* @__PURE__ */ new Date()).toISOString());
       const path = saveBrief(out, brief);
       process.stderr.write(
@@ -4536,7 +5036,7 @@ async function main() {
       const c = brainstormCounts(b);
       process.stderr.write(
         [
-          `construct: brainstorm board at ${join15(out, "BRAINSTORM.md")}`,
+          `construct: brainstorm board at ${join17(out, "BRAINSTORM.md")}`,
           `  ideas:  ${b.ideas.length} (${c.kept} kept \xB7 ${c.parked} parked \xB7 ${c.proposed} proposed \xB7 ${c.rejected} rejected)`,
           `  next:   generate ideas WITH the user (references/brainstorm-playbook.md), mark statuses in`,
           `          brainstorm.json, then: construct brainstorm --out ${out} --merge`
@@ -4605,7 +5105,7 @@ async function main() {
         const r2 = renderFromSRD(out, { merge: p.bools.has("merge"), prd: p.bools.has("prd") });
         process.stderr.write(
           [
-            `construct: re-emitted the SRD tree from ${join15(out, "SRD.json")}`,
+            `construct: re-emitted the SRD tree from ${join17(out, "SRD.json")}`,
             `  files:    ${r2.files.length} (${r2.srd.functional.length} FR \xB7 ${r2.srd.nonFunctional.length} NFR \xB7 ${r2.srd.architecture.adrs.length} ADR)`,
             `  next:     construct check --out ${out}`
           ].join("\n") + "\n"
@@ -4632,7 +5132,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
           `construct: rendered the ${level} SRD for "${brief.idea}"`,
           `  files:    ${r.files.length} (${r.srd.functional.length} FR \xB7 ${r.srd.nonFunctional.length} NFR \xB7 ${r.srd.architecture.adrs.length} ADR)`,
           ...design ? [`  design:   ${design.components.length} components \xB7 ${design.tokens.length} tokens \xB7 a11y ${design.accessibility.standard}`] : [],
-          `  manifest: ${join15(out, "SRD.json")}`,
+          `  manifest: ${join17(out, "SRD.json")}`,
           `  next:     construct check --out ${out}`
         ].join("\n") + "\n"
       );
@@ -4670,7 +5170,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
     case "review": {
       const out = requireOut(p);
       if (p.values.apply) {
-        const res = applyVerdicts(out, resolve3(p.values.apply));
+        const res = applyVerdicts(out, resolve4(p.values.apply));
         if (p.bools.has("json")) process.stdout.write(JSON.stringify(res, null, 2) + "\n");
         else process.stdout.write(formatReviewReport(res) + "\n");
         if (!res.ok) process.exit(1);
@@ -4696,7 +5196,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
     case "verify": {
       const out = requireOut(p);
       const res = verifyRun(out, {
-        appDir: p.values.app ? resolve3(p.values.app) : void 0,
+        appDir: p.values.app ? resolve4(p.values.app) : void 0,
         runTests: p.bools.has("run-tests"),
         strict: p.bools.has("strict")
       });
@@ -4715,7 +5215,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
         process.stdout.write(JSON.stringify(plan ? readyFrontier(plan) : null, null, 2) + "\n");
         return;
       }
-      const has = (rel) => existsSync11(join15(out, rel)) ? "\u2713" : "\xB7";
+      const has = (rel) => existsSync12(join17(out, rel)) ? "\u2713" : "\xB7";
       const planLine = plan ? `  \u2713 BUILD-PLAN.json (build: ${plan.tasks.filter((t) => t.status === "done").length}/${plan.tasks.length} tasks done)` : `  \xB7 BUILD-PLAN.json (build plan)`;
       const bs = loadBrainstorm(out);
       const bsLine = bs ? (() => {
@@ -4735,6 +5235,52 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
       );
       return;
     }
+    case "orchestrate": {
+      const rawOut = (p.values.out || p.values.run || "").trim();
+      if (!rawOut) {
+        process.stderr.write("construct orchestrate: --out <run> is required (the run folder to orchestrate).\n");
+        process.exit(2);
+      }
+      const runDir = resolve4(rawOut);
+      const engineAbs = realpathSync(fileURLToPath2(import.meta.url));
+      if (p.bools.has("list")) {
+        if (!existsSync12(runDir)) {
+          process.stderr.write(`construct orchestrate: run dir not found: ${runDir}.
+`);
+          process.exit(2);
+        }
+        process.stdout.write(JSON.stringify({ phases: listPhases(runDir, engineAbs) }, null, 2) + "\n");
+        return;
+      }
+      const res = orchestrateRun(runDir, engineAbs, {
+        phase: p.values.phase,
+        adr: p.values.adr,
+        eco: p.bools.has("eco")
+      });
+      if (res.exitCode !== 0) {
+        for (const e of res.errors) process.stderr.write(`construct orchestrate: ${e}
+`);
+        process.exit(res.exitCode);
+      }
+      process.stderr.write("construct orchestrate: generated\n");
+      for (const w of res.written) process.stderr.write(`  ${w}
+`);
+      for (const n of res.notices) process.stderr.write(`construct orchestrate: note \u2014 ${n}
+`);
+      const workflows = res.written.filter((w) => w.endsWith(".workflow.mjs"));
+      if (workflows.length) {
+        process.stderr.write("\n");
+        for (const w of workflows) process.stderr.write(`Launch: Workflow({ scriptPath: ${JSON.stringify(w)} })
+`);
+        process.stderr.write(
+          "Then fold the returned fragments in yourself and run the fold command named at the tail of each workflow (you stay the sole writer).\n"
+        );
+      } else {
+        process.stderr.write(`Follow ${join17(runDir, "orchestration", "RUNBOOK.md")} sequentially (the eco path).
+`);
+      }
+      return;
+    }
     case "semantic": {
       const action = p.positional[0] ?? "status";
       const r = semanticControl(action);
@@ -4745,10 +5291,10 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
   }
 }
 function loadEvidence4(runDir) {
-  const path = join15(runDir, "evidence", "evidence.json");
-  if (!existsSync11(path)) return [];
+  const path = join17(runDir, "evidence", "evidence.json");
+  if (!existsSync12(path)) return [];
   try {
-    const data = JSON.parse(readFileSync10(path, "utf8"));
+    const data = JSON.parse(readFileSync11(path, "utf8"));
     return Array.isArray(data) ? data.filter(isEvidenceItem) : [];
   } catch {
     return [];

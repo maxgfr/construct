@@ -126,6 +126,27 @@ tags after an id shift are flagged). `--run-tests` opts into executing
 `conventions.testCommand` + per-task `verify.commands` (via `util.ts::sh`);
 `--strict` fails a built must-have FR with no referencing test.
 
+### `orchestrate`  (`src/orchestrate.ts`, `src/orchestrate-templates.ts`)
+Emits the run's multi-agent orchestration from its CURRENT file-backed state
+into `<run>/orchestration/`: one launchable `<phase>.workflow.mjs` per ready
+fan-out phase, the dispatch contracts (`agents/<role>.md`, all four roles,
+idempotent) and a sequential `RUNBOOK.md` fallback (always). The four phases
+mechanise the fan-out patterns of `references/orchestration.md`: `research`
+(one researcher per `analyze` gap — reuses `analyzeRun` internally, since
+analyze prints rather than persists), `claim-review` (one skeptic per
+`VERIFY.todo.json` pair, keyed `claimId::evidenceId`; the returned `{ pairs }`
+fragments are exactly what `review --apply` accepts), `adr-judges` (the fixed
+3-lens panel over ONE contested ADR — `--adr <id>` required; the ADR + cited
+evidence are pasted into the workflow as JSON constants) and `build` (one
+builder per `readyFrontier` task, dispatched with `isolation: 'worktree'` —
+the one sanctioned write surface outside the orchestrator). Emission is
+deterministic (no clock, no randomness — workflows must run under the Workflow
+tool) and per-phase by design: each worklist only exists after its engine step.
+Exit 2 on a missing run, unknown phase, or a phase whose worklist doesn't exist
+yet (the error names the producing command); `--list` prints readiness JSON;
+`--eco` emits only RUNBOOK + contracts. Pattern 2 (adversarial review), the
+interview and the brainstorm are never emitted — single-role by design.
+
 ## The three axes
 
 - **Angles** (`market | oss | tech | semantic`) — *how* you research.
