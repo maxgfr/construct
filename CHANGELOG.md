@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [1.11.0](https://github.com/maxgfr/construct/compare/v1.10.0...v1.11.0) (2026-07-09)
+
+
+### Features
+
+* **orchestrate:** emit the research/claim-review/adr-judges/build fan-outs + contracts + runbook ([#12](https://github.com/maxgfr/construct/issues/12)) ([1fe0a53](https://github.com/maxgfr/construct/commit/1fe0a539615957d798670ccb635a0a5513fc598e))
+
 # [1.10.0](https://github.com/maxgfr/construct/compare/v1.9.3...v1.10.0) (2026-07-08)
 
 
