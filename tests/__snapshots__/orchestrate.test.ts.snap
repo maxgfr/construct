@@ -79,7 +79,7 @@ exports[`orchestrate — contracts & runbook > golden shape (paths normalized) >
 
 You are an adversarial skeptic verifying that each SRD claim is actually SUPPORTED by the evidence it cites (references/orchestration.md Pattern 4). Assume the citation is decorative until the evidence proves otherwise.
 
-Worklist: \`<RUN>/VERIFY.todo.json\` (\`{ pairs: [...] }\`; each pair has \`claimId\`, \`kind\`, \`claim\`, \`evidenceId\`, \`source\`, \`digest\`). Handle ONLY the pairs whose \`claimId::evidenceId\` key is named in your prompt (\`PAIRS=<key,…>\`).
+Worklist: \`<RUN>/VERIFY.todo.json\` (\`{ pairs: [...] }\`; each pair has \`claimId\`, \`kind\`, \`claim\`, \`evidenceId\`, \`source\`, \`digest\`). Handle ONLY the pairs whose \`claimId::evidenceId\` key is named in your prompt (\`PAIRS=<key,…>\`). If a PAIRS key is no longer in the worklist, skip it and say so in your note.
 
 For EACH of your pairs:
 
@@ -114,7 +114,7 @@ const RUN = "<RUN>"
 const ENGINE = "<ENGINE>"
 const WORKLIST = "<RUN>/evidence/evidence.json"
 const AGENTS = RUN + '/orchestration/agents'
-const BATCHES = [["feature (should): \\"Tag and organize saved articles\\" has no matchable evidence → drill: node <ENGINE> web --out <RUN> --q \\"Tag and organize saved articles\\"","feature (should): \\"Import an existing Pocket or Instapaper export\\" has no matchable evidence → drill: node <ENGINE> web --out <RUN> --q \\"Import an existing Pocket or Instapaper export\\"","feature (could): \\"Read articles offline on mobile\\" has no matchable evidence → drill: node <ENGINE> web --out <RUN> --q \\"Read articles offline on mobile\\"","tech: \\"PostgreSQL\\" has no docs/StackOverflow grounding → drill: node <ENGINE> tech --out <RUN> --q \\"PostgreSQL\\"","tech: \\"Next.js\\" has no docs/StackOverflow grounding → drill: node <ENGINE> tech --out <RUN> --q \\"Next.js\\"","oss seed: https://github.com/wallabag/wallabag yielded no mined evidence → drill: node <ENGINE> oss --out <RUN> --seeds https://github.com/wallabag/wallabag"]]
+const BATCHES = [["feature (should): \\"Tag and organize saved articles\\" has no matchable evidence → drill: node <ENGINE> web --out <RUN> --q 'Tag and organize saved articles'","feature (should): \\"Import an existing Pocket or Instapaper export\\" has no matchable evidence → drill: node <ENGINE> web --out <RUN> --q 'Import an existing Pocket or Instapaper export'","feature (could): \\"Read articles offline on mobile\\" has no matchable evidence → drill: node <ENGINE> web --out <RUN> --q 'Read articles offline on mobile'","tech: \\"PostgreSQL\\" has no docs/StackOverflow grounding → drill: node <ENGINE> tech --out <RUN> --q 'PostgreSQL'","tech: \\"Next.js\\" has no docs/StackOverflow grounding → drill: node <ENGINE> tech --out <RUN> --q 'Next.js'","oss seed: https://github.com/wallabag/wallabag yielded no mined evidence → drill: node <ENGINE> oss --out <RUN> --seeds https://github.com/wallabag/wallabag"]]
 const SCHEMA = {"type":"object","required":["findings"],"properties":{"findings":{"type":"array","items":{"type":"object","required":["gap","summary","urls"],"properties":{"gap":{"type":"string","description":"the gap label, verbatim from your prompt"},"summary":{"type":"string","description":"<=5 lines: what was found and why it matters to this product"},"urls":{"type":"array","items":{"type":"string"},"description":"URLs worth grounding, best first"}}}}}}
 
 function contract(name, extra) {

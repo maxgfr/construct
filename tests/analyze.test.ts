@@ -75,7 +75,18 @@ describe("analyzeRun — the post-research gap signal", () => {
   it("reports a gap for a competitor the research never surfaced", () => {
     const r = analyzeRun(makeRun({ briefOverride: { competitors: [...brief.competitors, "Zzyzx"] } }));
     expect(r.unmatchedCompetitors).toEqual(["Zzyzx"]);
-    expect(r.suggestions.join("\n")).toMatch(/construct web --out .* --q "Zzyzx"/);
+    expect(r.suggestions.join("\n")).toMatch(/construct web --out .* --q 'Zzyzx'/);
+  });
+
+  it("single-quotes drill queries so shell metacharacters in brief free-text stay inert", () => {
+    const hostile = "pwn `whoami` $(id) and it's\nmultiline";
+    const out = makeRun({ briefOverride: { competitors: [...brief.competitors, hostile] } });
+    const r = analyzeRun(out);
+    const s = r.suggestions.find((x) => x.includes("pwn"));
+    expect(s).toBeDefined();
+    // Single-quoted for the shell: backticks and $() cannot expand, the embedded
+    // apostrophe is escaped as '"'"' and the newline is flattened to a space.
+    expect(s).toBe(`construct web --out ${out} --q 'pwn \`whoami\` $(id) and it'"'"'s multiline'`);
   });
 
   it("surfaces dossier notes (angle failures) from meta.json", () => {
