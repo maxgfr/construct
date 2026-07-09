@@ -242,7 +242,14 @@ export function agentContracts(runAbs: string, engineAbs: string, idea: string):
     runAbs,
     "Your ONE sanctioned write surface is your own isolated git worktree — app code and app tests only. The run folder (BUILD-PLAN.json, SRD.json, evidence/) stays the orchestrator's.",
   );
-  const product = idea ? `\`${idea}\`` : "(no brief.json yet — the orchestrator will restate the one-liner in your prompt)";
+  // The idea is interpolated into a Markdown inline-code span: an interior
+  // backtick would close the span early (and read as executable in copy-paste
+  // contexts) — strip backticks to apostrophes and flatten newlines.
+  const inlineIdea = idea
+    .replace(/`/g, "'")
+    .replace(/\s*(?:\r\n|[\r\n])\s*/g, " ")
+    .trim();
+  const product = inlineIdea ? `\`${inlineIdea}\`` : "(no brief.json yet — the orchestrator will restate the one-liner in your prompt)";
   return {
     researcher: `# Contract: researcher
 
@@ -262,7 +269,7 @@ ${footer}`,
 
 You are an adversarial skeptic verifying that each SRD claim is actually SUPPORTED by the evidence it cites (references/orchestration.md Pattern 4). Assume the citation is decorative until the evidence proves otherwise.
 
-Worklist: \`${join(runAbs, "VERIFY.todo.json")}\` (\`{ pairs: [...] }\`; each pair has \`claimId\`, \`kind\`, \`claim\`, \`evidenceId\`, \`source\`, \`digest\`). Handle ONLY the pairs whose \`claimId::evidenceId\` key is named in your prompt (\`PAIRS=<key,…>\`).
+Worklist: \`${join(runAbs, "VERIFY.todo.json")}\` (\`{ pairs: [...] }\`; each pair has \`claimId\`, \`kind\`, \`claim\`, \`evidenceId\`, \`source\`, \`digest\`). Handle ONLY the pairs whose \`claimId::evidenceId\` key is named in your prompt (\`PAIRS=<key,…>\`). If a PAIRS key is no longer in the worklist, skip it and say so in your note.
 
 For EACH of your pairs:
 
@@ -293,7 +300,7 @@ Return (structured output): \`{ "lens", "score", "rationale" }\` — a 1–5 int
 ${footer}`,
     builder: `# Contract: builder
 
-You build ONE task of \`${join(runAbs, "BUILD-PLAN.json")}\`, test-first, in your OWN isolated git worktree (references/orchestration.md Pattern 5 + references/build-playbook.md). Your prompt names your task (\`TASK=<id>\`).
+You build ONE task of \`${join(runAbs, "BUILD-PLAN.json")}\`, test-first, in your OWN isolated git worktree (references/orchestration.md Pattern 5 + references/build-playbook.md). Your prompt names your task (\`TASK=<id>\`). If your TASK id is no longer in the worklist, skip it and say so in your summary.
 
 1. Read your task in the plan. Its \`acceptance\` entries POINT into \`${join(runAbs, "SRD.json")}\` (\`functional[frId].acceptance[index]\`) — the SRD stays the single source of truth for what "done" means.
 2. Work ONLY inside your own git worktree (the workflow dispatches you with \`isolation: 'worktree'\`). TDD each acceptance criterion: failing test first, then make it pass — and **every test names its FR id** (e.g. \`describe("FR-001 …")\`; that is what \`verify\` greps for).

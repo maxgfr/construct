@@ -332,6 +332,27 @@ describe("orchestrate — contracts & runbook", () => {
     expect(builder).toContain("BUILD-PLAN.json");
   });
 
+  it("sanitizes backticks out of the idea so the contract's inline-code span survives", () => {
+    const run = makeRun({ review: true });
+    const raw = JSON.parse(readFileSync(join(run, "brief.json"), "utf8"));
+    raw.idea = "a `save-for-later` app\nwith `backticks`";
+    writeFileSync(join(run, "brief.json"), JSON.stringify(raw));
+    orchestrateRun(run, ENGINE);
+    const researcher = readFileSync(join(run, "orchestration", "agents", "researcher.md"), "utf8");
+    const line = researcher.split("\n").find((l) => l.startsWith("Product one-liner:"));
+    // The interpolated idea stays ONE inline-code span: no interior backtick may
+    // close it early, and the newline flattens to a space.
+    expect(line).toBe("Product one-liner: `a 'save-for-later' app with 'backticks'`");
+  });
+
+  it("worklist-driven contracts carry the family stale-id rule", () => {
+    const run = makeRun({ review: true, frontier: true });
+    orchestrateRun(run, ENGINE);
+    const read = (role: string) => readFileSync(join(run, "orchestration", "agents", `${role}.md`), "utf8");
+    expect(read("claim-reviewer")).toContain("If a PAIRS key is no longer in the worklist, skip it and say so in your note");
+    expect(read("builder")).toContain("If your TASK id is no longer in the worklist, skip it and say so in your summary");
+  });
+
   it("the runbook covers every phase with concrete paths and the phase status", () => {
     const run = makeRun({ review: true, frontier: true });
     orchestrateRun(run, ENGINE);

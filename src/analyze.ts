@@ -45,7 +45,12 @@ export function analyzeRun(runDir: string): GapReport {
   const brief = loadBrief(runDir);
   const evidence = loadEvidence(runDir);
   const notes = loadMetaNotes(runDir);
-  const drill = (cmd: string, q: string) => `construct ${cmd} --out ${runDir} --q "${q.replace(/"/g, "'")}"`;
+  // Drill commands embed brief free-text into a copy-paste / subagent-executed
+  // shell line: single-quote the query (the only shell-inert quoting — backticks
+  // and $() never expand inside single quotes), escape an embedded ' as '"'"'
+  // and flatten newlines, so a hostile brief field cannot inject.
+  const shellQuote = (s: string) => `'${s.replace(/\r\n|[\r\n]/g, " ").replace(/'/g, `'"'"'`)}'`;
+  const drill = (cmd: string, q: string) => `construct ${cmd} --out ${runDir} --q ${shellQuote(q)}`;
 
   const bySource: Record<string, number> = {};
   for (const e of evidence) bySource[e.source] = (bySource[e.source] ?? 0) + 1;
