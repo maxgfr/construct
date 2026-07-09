@@ -65,6 +65,12 @@ No `npm install`, no API keys. Run `--help` for the full surface. Key commands:
   commands; `--strict` fails a built must-have with no referencing test.
 - `status --out <run> [--json]` — what exists in the run so far; `--json` adds
   the build frontier (which BUILD-PLAN tasks are buildable now vs. blocked).
+- `orchestrate --out <run> [--phase research|claim-review|adr-judges|build]
+  [--adr <id>] [--eco] [--list]` — emit the run's multi-agent orchestration
+  from its CURRENT state into `<run>/orchestration/`: one launchable workflow
+  script per ready fan-out phase, the dispatch contracts (`agents/<role>.md`)
+  and a sequential `RUNBOOK.md` fallback. See *Orchestration — route by
+  harness* below.
 - `semantic up|down|status` — optional local Docker stack (Qdrant + Ollama +
   SearXNG).
 
@@ -109,7 +115,9 @@ loop to completion; only pause to ask the user a real decision.
    It names exactly what is thin — features, competitors, candidate tech and OSS
    seeds with no matchable evidence — and prints the drill command that fixes
    each gap. **Fan out:** if you can spawn parallel subagents, dispatch one per
-   gap; each gets the brief one-liner, the gap, its drill command and its own
+   gap (the engine emits this ready to launch:
+   `node scripts/construct.mjs orchestrate --out <run> --phase research`);
+   each gets the brief one-liner, the gap, its drill command and its own
    WebSearch, and returns a ≤5-line summary plus URLs worth grounding. Subagents
    MUST NOT write into the run folder — drills print to stdout; only
    `construct research` writes the dossier, and only YOU run it. Fold findings
@@ -153,7 +161,8 @@ loop to completion; only pause to ask the user a real decision.
    `[blocker]`, use judgement on `[advisory]`, then re-run `check`. Loop while
    new blockers appear (cap: 3 rounds, then surface what remains to the user).
    For a genuinely contested, hard-to-reverse ADR at `complex` level, also run
-   the 3-judge panel from `references/orchestration.md`.
+   the 3-judge panel from `references/orchestration.md` (emit it:
+   `orchestrate --out <run> --phase adr-judges --adr <id>`).
 
 6. **Validate (three layers).**
    - *Structural (hard):* `node scripts/construct.mjs check --out <run>`. It
@@ -168,7 +177,8 @@ loop to completion; only pause to ask the user a real decision.
    - *Claim-support (advisory → opt-in gate):* coverage counts citations; it does
      not check they hold. `construct review --out <run>` builds a claim↔evidence
      worklist; adjudicate each pair (fan out per `references/orchestration.md`
-     Pattern 4), assemble `verdicts.json`, `review --apply verdicts.json`, then
+     Pattern 4 — emitted by `orchestrate --out <run> --phase claim-review`),
+     assemble `verdicts.json`, `review --apply verdicts.json`, then
      `check --out <run> --semantic` to gate refuted/unsupported claims. Worth one
      pass over the load-bearing FRs/ADRs before presenting.
    Loop steps 3–6 until `check` passes structurally, the reviewer finds no new
@@ -194,13 +204,44 @@ loop to completion; only pause to ask the user a real decision.
    - Same-milestone tasks carry no edges to each other, so their ready frontier
      (`status --out <run> --json`) can be built in parallel — one isolated git
      worktree per task; you alone fold results into `BUILD-PLAN.json` (Pattern 5
-     in `references/orchestration.md`).
+     in `references/orchestration.md`; fan out:
+     `orchestrate --out <run> --phase build`).
    - Per milestone: `verify --out <run> --run-tests --strict`, then a
      milestone adversarial review — fresh eyes hunting for an acceptance
      criterion no test actually exercises (see the playbook;
      `references/verify.md` explains what verify can and cannot prove).
    - If an FR proves wrong while building, amend the brief, re-render
      (progress merges by feature title), retag shifted FR ids, re-`check`.
+
+## Orchestration — route by harness
+
+Four phases fan out over per-unit, file-backed state: **research** (one researcher per
+`analyze` gap), **claim-review** (one skeptic per `VERIFY.todo.json` claim↔evidence pair),
+**adr-judges** (the fixed 3-lens panel over ONE contested ADR) and **build** (one
+worktree-isolated builder per ready BUILD-PLAN task). The engine manages the fan-out —
+`orchestrate` emits the orchestration from the CURRENT run state, with absolute paths and
+the real worklist units baked in:
+
+```
+node scripts/construct.mjs orchestrate --out <run> [--phase research|claim-review|adr-judges|build] [--adr <id>] [--eco] [--list]
+```
+
+| Your harness | How to run each fan-out phase |
+|---|---|
+| Has the Workflow tool | `orchestrate --out <RUN> --phase <p>`, then `Workflow({ scriptPath: "<RUN>/orchestration/<p>.workflow.mjs" })`. Subagents RETURN fragments; fold them in yourself — the pinned `research` re-run, `review --apply`, the ADR majority reduce, the BUILD-PLAN fold — then gate as usual. |
+| Subagents but no Workflow tool | Same `orchestrate`; dispatch one subagent per batch following `<RUN>/orchestration/agents/<role>.md` (the workflow script shows batches + prompts). One writer: you fold results in. |
+| Eco mode, or no subagents | `orchestrate --out <RUN> --eco` → follow `<RUN>/orchestration/RUNBOOK.md` sequentially, playing each role yourself. Correctness-identical; only wall-clock differs. |
+
+Fan-out is an optimization, never a requirement — the gates (`check`, `review --apply`,
+`verify`) are harness-independent and every phase has a sequential fallback with identical
+artifacts. Subagents never write the run folder: the emitted contracts end with the
+one-writer rule, and the fold always stays with you, the orchestrator (builders write code
+only in their own isolated git worktrees — never the run folder). The judge panel is
+opt-in — `--phase adr-judges --adr <id>` panels ONE genuinely contested ADR — and the
+adversarial SRD review (Pattern 2) deliberately stays a single fresh-eyes reviewer, never
+a fan-out. Re-run `orchestrate` whenever a worklist changes (emission is deterministic and
+idempotent); `--phase <p>` before its worklist exists fails and names the command that
+produces it. The underlying patterns live in `references/orchestration.md`.
 
 ## What it produces (the SRD tree, under `--out`)
 
@@ -248,7 +289,7 @@ See `references/semantic-setup.md`.
 - `references/brainstorm-playbook.md` — the optional divergent step: generating candidate ideas across six angles and merging the kept ones into the brief.
 - `references/interview-playbook.md` — how to elicit the brief, one question at a time.
 - `references/research-playbook.md` — picking angles and digging deeper to "good enough".
-- `references/orchestration.md` — the three-tier dynamic-workflow model and the subagent patterns: research fan-out, red team, judge panel, claim-support review fan-out, build fan-out (and the one-writer rule).
+- `references/orchestration.md` — the three-tier dynamic-workflow model and the subagent patterns: research fan-out, red team, judge panel, claim-support review fan-out, build fan-out (and the one-writer rule). The fan-out patterns are emitted ready-to-launch by `construct orchestrate`.
 - `references/adversarial-review.md` — the red-team checklist and its findings contract.
 - `references/srd-authoring.md` — resolving 🧠 callouts, writing testable requirements and ADRs.
 - `references/design-system-authoring.md` — enriching the `complex` design system: tokens, components, screens/flows and the accessibility contract.
