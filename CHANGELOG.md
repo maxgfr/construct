@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+## [1.11.1](https://github.com/maxgfr/construct/compare/v1.11.0...v1.11.1) (2026-07-09)
+
+
+### Bug Fixes
+
+* **orchestrate:** shell-quote drill queries + sanitize the idea's inline-code span ([#13](https://github.com/maxgfr/construct/issues/13)) ([087805a](https://github.com/maxgfr/construct/commit/087805a265d710692d752a5c4323dfb39919f3eb))
+
 # [1.11.0](https://github.com/maxgfr/construct/compare/v1.10.0...v1.11.0) (2026-07-09)
 
 
