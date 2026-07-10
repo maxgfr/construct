@@ -85,8 +85,10 @@ Options:
   --out <dir>          The run folder                            (required for most)
   --angles <list>      market,oss,tech,semantic   (default: market,oss,tech)
   --q, --question <s>  Focus the research/drill on a sub-question
-  --url <u,...>        For 'web': specific page(s) to fetch + ground
-                       For 'research': pin page(s) into the dossier (market angle)
+  --url <u,...>        For 'web': specific page(s) to fetch + PRINT (drill only —
+                       stdout, not persisted; use 'research --url' to ground)
+                       For 'research': pin page(s) into the dossier (market angle,
+                       persisted evidence — this is what actually grounds a claim)
   --seeds <u,...>      OSS repo URLs to mine (overrides brief.ossSeeds)
   --docs-url <u,...>   For 'tech'/'research': docs page(s) to fetch + ground directly
   --level <l>          light | complex                           (default: light)

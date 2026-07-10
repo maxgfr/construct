@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { readFileSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { discover, webFetchUrls } from "../src/research/web.js";
 import { marketAngle } from "../src/research/market.js";
+import { runResearch } from "../src/research/registry.js";
 
 // Build a minimal Response-like object for the global fetch mock.
 function res(body: string, opts: { ok?: boolean; status?: number; contentType?: string } = {}) {
@@ -55,6 +59,57 @@ describe("discover (three-tier keyless web search)", () => {
     const d = await discover("x", "auto", 5);
     expect(d.urls).toEqual([]);
     expect(d.notes.join(" ")).toMatch(/built-in WebSearch/i);
+  });
+});
+
+describe("URL-grounding guidance points at the command that actually persists", () => {
+  // construct-ERR-1: web|oss|tech|so are PRINT-ONLY (printDrill writes stdout,
+  // persists nothing); only `construct research --url` pins pages into the
+  // dossier. The WebSearch fallback note must therefore name `research --url`,
+  // NOT the print-only `web --url` drill (which leaves the claim ungrounded).
+  it("the WebSearch fallback note names `research --url` (persists), not the print-only `web --url` drill", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => res("", { ok: false, status: 404 })),
+    );
+    const d = await discover("x", "auto", 5);
+    const note = d.notes.join(" ");
+    expect(note).toMatch(/built-in WebSearch/i);
+    // Names the command that ACTUALLY grounds (writes the dossier)…
+    expect(note).toMatch(/construct research[^`]*--url/);
+    // …and does NOT tell the user to "ground" with the print-only web drill.
+    expect(note).not.toMatch(/ground[^`]*construct web --url/);
+  });
+
+  it("the command the note names (research --url) grows evidence.json", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const u = String(url);
+        if (u.includes("pinned.example.com")) return res("<p>A creator marketplace with campaign briefs and escrow payments.</p>");
+        return res("", { ok: false, status: 404 }); // discovery engines down
+      }),
+    );
+    const runDir = mkdtempSync(join(tmpdir(), "construct-url-ground-"));
+    try {
+      const ctx = {
+        brief: { idea: "a creator marketplace", competitors: [], featureWishlist: [] },
+        runDir,
+        angles: ["market"],
+        query: "",
+        webEngine: "auto",
+        semantic: false,
+        perSource: 6,
+        refresh: false,
+        marketUrls: ["https://pinned.example.com/features"],
+      } as never;
+      await runResearch(ctx, new Date().toISOString());
+      const ev = JSON.parse(readFileSync(join(runDir, "evidence", "evidence.json"), "utf8"));
+      expect(ev.length).toBeGreaterThan(0); // research --url persisted the pinned page
+      expect(JSON.stringify(ev)).toContain("pinned.example.com");
+    } finally {
+      rmSync(runDir, { recursive: true, force: true });
+    }
   });
 });
 

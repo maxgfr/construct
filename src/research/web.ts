@@ -52,7 +52,8 @@ async function viaDuckDuckGo(query: string, n: number): Promise<string[] | null>
 // Resolve candidate URLs for a query under the chosen engine policy. `auto`
 // tries SearXNG, then DuckDuckGo. The `claude` engine (and the all-failed case)
 // returns no URLs and signals the model to use its built-in WebSearch and feed
-// URLs back via `construct web --url`.
+// URLs back via `construct research --url` (the drill commands only print —
+// `research --url` is what pins the pages into the dossier).
 export async function discover(query: string, engine: WebEngine, n: number): Promise<{ urls: string[]; via: string; notes: string[] }> {
   const notes: string[] = [];
   if (engine === "searxng" || engine === "auto") {
@@ -70,7 +71,9 @@ export async function discover(query: string, engine: WebEngine, n: number): Pro
   }
   if (engine === "claude" || engine === "auto") {
     notes.push(
-      "No keyless engine returned results. Use your built-in WebSearch to find URLs, " + "then ground them with `construct web --url <url> --out <run>`.",
+      "No keyless engine returned results. Use your built-in WebSearch to find URLs, " +
+        "then ground them with `construct research --out <run> --url <url,...>` " +
+        "(the `web` drill only prints — `research --url` is what persists them to the dossier).",
     );
   }
   return { urls: [], via: "none", notes };

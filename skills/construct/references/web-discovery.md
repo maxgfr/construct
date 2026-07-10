@@ -16,9 +16,10 @@ Fetching and text extraction of the chosen URLs is always done by the script.
    fragile if DDG changes its markup.
 3. **Claude WebSearch (harness).** If neither keyless engine returns results,
    the angle emits a note telling you to use your built-in **WebSearch** to find
-   URLs, then ground them with:
+   URLs, then ground them by pinning the pages into a `research` re-run (the
+   `web` drill only prints — `research --url` is what persists to the dossier):
    ```
-   node scripts/construct.mjs web --out <run> --url <url1,url2,...>
+   node scripts/construct.mjs research --out <run> --url <url1,url2,...>
    ```
 
 ## Pinning an engine

@@ -109,4 +109,28 @@ describe("parseArgs", () => {
   it("exits 0 on --version", () => {
     expect(trapExit(() => parseArgs(["--version"])).code).toBe(0);
   });
+
+  // construct-ERR-1: web|oss|tech|so are print-only, so the top-level help must
+  // not promise the `web --url` drill "grounds" — that role belongs to `research --url`.
+  it("help does not claim the print-only `web --url` drill grounds evidence", () => {
+    const chunks: string[] = [];
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("__exit__");
+    }) as never);
+    vi.spyOn(process.stdout, "write").mockImplementation(((s: unknown) => {
+      chunks.push(String(s));
+      return true;
+    }) as never);
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      parseArgs(["--help"]);
+    } catch (e) {
+      if ((e as Error).message !== "__exit__") throw e;
+    } finally {
+      exit.mockRestore();
+    }
+    const help = chunks.join("");
+    expect(help).toMatch(/For 'web': specific page\(s\) to fetch/);
+    expect(help).not.toMatch(/For 'web': specific page\(s\) to fetch \+ ground/);
+  });
 });

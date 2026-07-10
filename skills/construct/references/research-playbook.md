@@ -67,9 +67,10 @@ items. Recovery path, in order:
 
 1. Re-check the brief: vague `candidateTech`/`competitors` produce vague
    queries. Sharpen them, re-run `research`.
-2. Search yourself (your own WebSearch), then ground the best pages:
-   `construct web --url <u,...> --out <run>` (or `construct tech
-   --docs-url <u,...>` for docs).
+2. Search yourself (your own WebSearch), then ground the best pages by pinning
+   them into a `research` re-run: `construct research --out <run> --url <u,...>`
+   (add `--docs-url <d,...>` for docs pages). The `web`/`tech` drills only print
+   to stdout — `research --url`/`--docs-url` is what persists to the dossier.
 3. Still nothing? Record an explicit assumption or `openQuestion` and move
    on. A 0%-grounded SRD renders and passes the structural gate; the advisory
    coverage report will say so honestly. Never fabricate a citation.

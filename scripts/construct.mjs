@@ -1330,7 +1330,7 @@ async function discover(query2, engine, n) {
   }
   if (engine === "claude" || engine === "auto") {
     notes.push(
-      "No keyless engine returned results. Use your built-in WebSearch to find URLs, then ground them with `construct web --url <url> --out <run>`."
+      "No keyless engine returned results. Use your built-in WebSearch to find URLs, then ground them with `construct research --out <run> --url <url,...>` (the `web` drill only prints \u2014 `research --url` is what persists them to the dossier)."
     );
   }
   return { urls: [], via: "none", notes };
@@ -4827,8 +4827,10 @@ Options:
   --out <dir>          The run folder                            (required for most)
   --angles <list>      market,oss,tech,semantic   (default: market,oss,tech)
   --q, --question <s>  Focus the research/drill on a sub-question
-  --url <u,...>        For 'web': specific page(s) to fetch + ground
-                       For 'research': pin page(s) into the dossier (market angle)
+  --url <u,...>        For 'web': specific page(s) to fetch + PRINT (drill only \u2014
+                       stdout, not persisted; use 'research --url' to ground)
+                       For 'research': pin page(s) into the dossier (market angle,
+                       persisted evidence \u2014 this is what actually grounds a claim)
   --seeds <u,...>      OSS repo URLs to mine (overrides brief.ossSeeds)
   --docs-url <u,...>   For 'tech'/'research': docs page(s) to fetch + ground directly
   --level <l>          light | complex                           (default: light)
