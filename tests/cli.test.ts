@@ -132,5 +132,12 @@ describe("parseArgs", () => {
     const help = chunks.join("");
     expect(help).toMatch(/For 'web': specific page\(s\) to fetch/);
     expect(help).not.toMatch(/For 'web': specific page\(s\) to fetch \+ ground/);
+    // --docs-url carries the SAME ERR-1 hazard: the standalone `tech` drill also
+    // routes through the print-only printDrill (persists nothing), so the help
+    // must not claim it "grounds directly" — grounding is `research --docs-url`,
+    // which runs the tech angle → writeDossier → evidence.json.
+    expect(help).toMatch(/For 'tech': docs page\(s\) to fetch \+ PRINT/);
+    expect(help).not.toMatch(/For 'tech'\/'research': docs page\(s\) to fetch \+ ground/);
+    expect(help).toMatch(/research --docs-url/);
   });
 });

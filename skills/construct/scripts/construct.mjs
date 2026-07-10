@@ -4832,7 +4832,10 @@ Options:
                        For 'research': pin page(s) into the dossier (market angle,
                        persisted evidence \u2014 this is what actually grounds a claim)
   --seeds <u,...>      OSS repo URLs to mine (overrides brief.ossSeeds)
-  --docs-url <u,...>   For 'tech'/'research': docs page(s) to fetch + ground directly
+  --docs-url <u,...>   For 'tech': docs page(s) to fetch + PRINT (drill only \u2014
+                       stdout, not persisted; use 'research --docs-url' to ground)
+                       For 'research': pin docs page(s) into the dossier (tech
+                       angle, persisted evidence \u2014 this is what actually grounds)
   --level <l>          light | complex                           (default: light)
   --min-grounding <n>  For 'check': fail unless \u2265 n% of claims are grounded (opt-in)
   --semantic           For 'check': fold in the 'review' claim-support verdicts

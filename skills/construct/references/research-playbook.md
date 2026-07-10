@@ -32,7 +32,8 @@ stack is up.
    - `construct oss  --out <run> --seeds https://github.com/o/r`
    - `construct tech --out <run> --q "<tech> <hard requirement>"`
    - `construct tech --out <run> --docs-url <u,...>` — you already know the
-     docs page(s); fetch and ground them directly, no discovery, never trimmed.
+     docs page(s); fetch and PRINT them, no discovery, never trimmed (to ground
+     them, pin into a research re-run: `research --out <run> --docs-url <u,...>`).
    - `construct so   --out <run> --q "<tech> <known failure mode>"`
    Or use your own **WebSearch**, then ground the page:
    `construct web --out <run> --url <url>`.
