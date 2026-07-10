@@ -279,7 +279,14 @@ describe("check --semantic composition (additive)", () => {
 describe("check --semantic coverage gate (worklist ↔ ledger)", () => {
   it("fails closed when a refuted pair is deleted from VERIFY.json while the worklist still lists it", () => {
     const dir = scratch();
-    run(dir, [{ id: "FR-001", ev: ["E1"] }, { id: "FR-002", ev: ["E2"] }], EVIDENCE);
+    run(
+      dir,
+      [
+        { id: "FR-001", ev: ["E1"] },
+        { id: "FR-002", ev: ["E2"] },
+      ],
+      EVIDENCE,
+    );
     runReview(dir);
     // FR-001/E1 REFUTED so check --semantic fails first.
     applyVerdicts(dir, writeVerdicts(dir, { E1: "refuted", E2: "supported" }));
@@ -305,7 +312,14 @@ describe("check --semantic coverage gate (worklist ↔ ledger)", () => {
 
   it("fails closed on a worklist pair left unadjudicated (verdict null), degradable via --allow-unverified", () => {
     const dir = scratch();
-    run(dir, [{ id: "FR-001", ev: ["E1"] }, { id: "FR-002", ev: ["E2"] }], EVIDENCE);
+    run(
+      dir,
+      [
+        { id: "FR-001", ev: ["E1"] },
+        { id: "FR-002", ev: ["E2"] },
+      ],
+      EVIDENCE,
+    );
     runReview(dir);
     // Adjudicate only FR-001; FR-002 is folded in as unadjudicated (verdict null).
     const todo = JSON.parse(readFileSync(join(dir, "VERIFY.todo.json"), "utf8")) as { pairs: any[] };
@@ -326,7 +340,14 @@ describe("check --semantic coverage gate (worklist ↔ ledger)", () => {
 
   it("passes when every worklist pair carries an adjudicated verdict (no false alarm)", () => {
     const dir = scratch();
-    run(dir, [{ id: "FR-001", ev: ["E1"] }, { id: "FR-002", ev: ["E2"] }], EVIDENCE);
+    run(
+      dir,
+      [
+        { id: "FR-001", ev: ["E1"] },
+        { id: "FR-002", ev: ["E2"] },
+      ],
+      EVIDENCE,
+    );
     runReview(dir);
     applyVerdicts(dir, writeVerdicts(dir, { E1: "supported", E2: "partial" }));
     const r = checkRun(dir, { semantic: true });
