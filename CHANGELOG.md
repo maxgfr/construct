@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+## [1.11.2](https://github.com/maxgfr/construct/compare/v1.11.1...v1.11.2) (2026-07-10)
+
+
+### Bug Fixes
+
+* **check:** --semantic fails closed when a persisted review pair carries no adjudicated verdict ([e23d349](https://github.com/maxgfr/construct/commit/e23d349f515c58b181d9eef21acea9766e72e5af))
+* **render:** re-derive traceability on --from-srd so TRACEABILITY.md never drifts ([7c94d46](https://github.com/maxgfr/construct/commit/7c94d464e2d42d2c1b339c34319dc37ddaca0bf9))
+* **research:** point URL-grounding guidance at `research --url`, not the print-only `web` drill ([d4d71e4](https://github.com/maxgfr/construct/commit/d4d71e45f3304f57489c039cc8884132e77926ad))
+* **research:** stop --docs-url help claiming the print-only `tech` drill grounds ([371b854](https://github.com/maxgfr/construct/commit/371b854094697278cea66019319ad200d69555aa))
+
 ## [1.11.1](https://github.com/maxgfr/construct/compare/v1.11.0...v1.11.1) (2026-07-09)
 
 
