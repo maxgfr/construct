@@ -424,7 +424,7 @@ describe("checkRun --semantic composition edge cases", () => {
     note: "",
   });
 
-  it("folds in unadjudicated claims from VERIFY.json's verdicts[] as a warning (still passes)", () => {
+  it("fails closed when verdicts[] carries an unadjudicated pair; --allow-unverified degrades to a warning", () => {
     const dir = renderRun();
     writeFileSync(
       join(dir, "VERIFY.json"),
@@ -441,9 +441,15 @@ describe("checkRun --semantic composition edge cases", () => {
         verdicts: [pair("FR-001", "supported"), pair("FR-002", null)],
       }),
     );
-    const r = checkRun(dir, { semantic: true });
-    expect(r.semantic?.ok).toBe(true);
-    expect(r.structural.warnings.join(" ")).toMatch(/not fully adjudicated/);
+    const strict = checkRun(dir, { semantic: true });
+    expect(strict.ok).toBe(false); // an unjudged pair must not green-light the gate
+    expect(strict.semantic).toBeUndefined();
+    expect(strict.semanticError).toMatch(/adjudicated verdict/i);
+    expect(strict.semanticError).toMatch(/--allow-unverified/);
+    const lax = checkRun(dir, { semantic: true, allowUnverified: true });
+    expect(lax.semantic?.ok).toBe(true);
+    expect(lax.semanticError).toBeUndefined();
+    expect(lax.structural.warnings.join(" ")).toMatch(/coverage gate skipped/i);
   });
 
   it("fails closed when VERIFY.json is unreadable; --allow-unverified degrades to the warning", () => {

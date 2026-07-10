@@ -461,7 +461,7 @@ describe("e2e: claim-support gate (review → apply → check --semantic)", () =
     }
   });
 
-  it("flags omitted pairs as unadjudicated rather than silently passing", () => {
+  it("fails the gate closed on omitted (unadjudicated) pairs rather than silently passing", () => {
     const run = rendered();
     cli(["review", "--out", run]);
     const todo = JSON.parse(readFileSync(join(run, "VERIFY.todo.json"), "utf8")) as { pairs: { claimId: string; evidenceId: string }[] };
@@ -474,8 +474,29 @@ describe("e2e: claim-support gate (review → apply → check --semantic)", () =
     expect(apply.stdout).toContain("not fully adjudicated");
     const verify = JSON.parse(readFileSync(join(run, "VERIFY.json"), "utf8")) as { unadjudicated: string[] };
     expect(verify.unadjudicated.length).toBeGreaterThan(0);
+    // A worklist pair with no adjudicated verdict must FAIL the gate closed, not warn.
     const gate = cli(["check", "--out", run, "--semantic"]);
-    expect(gate.stdout).toContain("not fully adjudicated"); // surfaced, not silent
+    expect(gate.status).toBe(1);
+    expect(gate.stdout).toContain("FAIL");
+    expect(gate.stdout).toContain("--allow-unverified");
+    // …downgradable via the existing escape hatch.
+    const lax = cli(["check", "--out", run, "--semantic", "--allow-unverified"]);
+    expect(lax.status).toBe(0);
+  });
+
+  it("fails closed (exit 1) when a refuted verdict row is deleted from VERIFY.json but the worklist still lists it", () => {
+    const run = rendered();
+    cli(["review", "--out", run]);
+    cli(["review", "--out", run, "--apply", verdictsFor(run, (_c, _e, i) => (i === 0 ? "refuted" : "supported"))]);
+    expect(cli(["check", "--out", run, "--semantic"]).status).toBe(1); // refuted → fail
+    const p = join(run, "VERIFY.json");
+    const sem = JSON.parse(readFileSync(p, "utf8")) as { verdicts: { verdict: string }[] };
+    // Delete the refuted row (index 0) from the ledger only; VERIFY.todo.json is untouched.
+    sem.verdicts = sem.verdicts.filter((v) => v.verdict !== "refuted");
+    writeFileSync(p, JSON.stringify(sem, null, 2));
+    const gate = cli(["check", "--out", run, "--semantic"]);
+    expect(gate.status).toBe(1); // selective deletion must NOT flip refuted → pass
+    expect(gate.stdout).toContain("--allow-unverified");
   });
 });
 

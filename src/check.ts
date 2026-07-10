@@ -4,7 +4,7 @@ import { join, relative, sep } from "node:path";
 import { reduceVerdicts } from "./review.js";
 import { srdManifestPath } from "./srd.js";
 import { REQUIRED_NFR, DESIGN_TOKEN_CATEGORIES, DESIGN_TOKENS_SEEDED_BANNER } from "./types.js";
-import type { CheckResult, SRD, EvidenceItem, CoverageReport, ClaimVerifyResult } from "./types.js";
+import type { CheckResult, SRD, EvidenceItem, CoverageReport, ClaimVerifyResult, ClaimVerdict, ClaimEvidencePair } from "./types.js";
 
 // The design-system files render.ts writes when a design system is present.
 // `check` requires them only when `srd.design` is set — a light/no-design SRD
@@ -153,15 +153,63 @@ function computeCoverage(srd: SRD, evidence: EvidenceItem[]): CoverageReport & {
 const TEMPLATED_THEN_RE = /is persisted and visible to the user$/;
 const TEMPLATED_METRIC_RE = /^A measurable target for "/;
 
+// Every claim↔evidence pair that OUGHT to carry an adjudicated verdict but does
+// NOT — the UNION of the persisted worklist (VERIFY.todo.json) and the ledger's
+// own verdicts[]. A non-empty result means the ledger was truncated (a row was
+// deleted) or the worklist was never fully judged. Labels are "claimId·evidenceId".
+//
+// This is what lets `check --semantic` compare the two PERSISTED artifacts.
+// Re-reducing verdicts[] alone can't catch a selectively-deleted row: a REFUTED
+// pair stripped from verdicts[] simply disappears from the per-claim grouping and
+// the claim silently vanishes — flipping a fail into a pass. Folding the worklist
+// back in makes every dropped/unjudged pair visible.
+//
+// HONEST BOUNDARY: construct's pairs are AI-emitted at review time, so the gate
+// can only cross-reference persisted artifacts. Deleting a pair from BOTH ledgers
+// (verdicts[] AND the worklist), or a corrupt/absent worklist, is out of reach of
+// a deterministic gate — we then fall back to ledger-only coverage (which still
+// catches an in-place `verdict: null`), mirroring applyVerdicts' worklist tolerance.
+function uncoveredPairs(runDir: string, verdicts: ClaimVerdict[]): string[] {
+  const key = (c: string, e: string) => `${c}::${e}`;
+  const label = new Map<string, string>();
+  const adjudicated = new Set<string>();
+  for (const v of verdicts) {
+    if (!v || typeof v.claimId !== "string" || typeof v.evidenceId !== "string") continue;
+    const k = key(v.claimId, v.evidenceId);
+    label.set(k, `${v.claimId}·${v.evidenceId}`);
+    if (v.verdict) adjudicated.add(k); // truthy == adjudicated, mirroring reduceVerdicts
+  }
+  const todoPath = join(runDir, "VERIFY.todo.json");
+  if (existsSync(todoPath)) {
+    try {
+      const todo = JSON.parse(readFileSync(todoPath, "utf8")) as { pairs?: ClaimEvidencePair[] };
+      for (const p of todo.pairs ?? []) {
+        if (!p || typeof p.claimId !== "string" || typeof p.evidenceId !== "string") continue;
+        label.set(key(p.claimId, p.evidenceId), `${p.claimId}·${p.evidenceId}`);
+      }
+    } catch {
+      // Corrupt/unreadable worklist — can't be cross-referenced; fall back to
+      // ledger-only coverage (the honest boundary above).
+    }
+  }
+  const missing: string[] = [];
+  for (const [k, l] of label) if (!adjudicated.has(k)) missing.push(l);
+  return missing.sort();
+}
+
 // Fold the resolved claim-support record (VERIFY.json, written by `review
 // --apply`) into a check result when `--semantic` is requested. Strictly
-// additive: it can only ADD a failure (a refuted/unsupported claim), never relax
-// the structural gate. FAIL-CLOSED: passing `--semantic` asserts the support
-// gate actually engaged, so a missing/unreadable/verdict-less VERIFY.json fails
-// the check unless `--allow-unverified` degrades it to the advisory warning.
-// The verdict itself is re-reduced from `verdicts[]` on every check — the
-// persisted summary is never trusted, so a stale or hand-tampered `ok` can not
-// green-light the gate.
+// additive: it can only ADD a failure, never relax the structural gate.
+// FAIL-CLOSED: passing `--semantic` asserts the support gate actually engaged, so
+//   - a missing/unreadable/verdict-less VERIFY.json fails the check, AND
+//   - every pair the run PERSISTED (the VERIFY.todo.json worklist ∪ the
+//     verdicts[] ledger) must carry an adjudicated verdict — an unjudged pair, or
+//     one deleted from verdicts[] while the worklist still lists it, fails the
+//     check (an unjudged/vanished claim must not green-light "every cited claim is
+//     supported"),
+// each downgradable only by `--allow-unverified`. The verdict itself is
+// re-reduced from `verdicts[]` on every check — the persisted summary is never
+// trusted, so a stale or hand-tampered `ok` can not green-light the gate.
 function applySemantic(runDir: string, result: CheckResult, allowUnverified: boolean): void {
   const p = join(runDir, "VERIFY.json");
   const skip = (reason: string, hint: string) => {
@@ -187,14 +235,36 @@ function applySemantic(runDir: string, result: CheckResult, allowUnverified: boo
     skip("VERIFY.json carries no verdicts[] (legacy or hand-edited)", "re-run `review --apply <verdicts.json>` to regenerate it");
     return;
   }
+
+  // Coverage gate, evaluated BEFORE trusting the reduction: a truncated/unjudged
+  // ledger is not a trustworthy artifact, so (like a missing VERIFY.json) it
+  // fails closed and shows NO semantic PASS block — unless --allow-unverified
+  // degrades it to a warning while the reduction below still fails on any refuted
+  // pair that IS present.
+  const uncovered = uncoveredPairs(runDir, sem.verdicts);
+  if (uncovered.length && !allowUnverified) {
+    const shown = uncovered.slice(0, 5).join(", ");
+    const more = uncovered.length > 5 ? ` (+${uncovered.length - 5} more)` : "";
+    result.semanticError =
+      `${uncovered.length} review pair(s) lack an adjudicated verdict in VERIFY.json: ${shown}${more} — ` +
+      `a worklist pair was dropped from the ledger or was never judged. Adjudicate every pair and re-run ` +
+      `\`construct review --apply <verdicts.json>\`, or pass --allow-unverified to degrade this to a warning.`;
+    result.ok = false;
+    return;
+  }
+
   const reduced = reduceVerdicts(sem.verdicts);
   if (reduced.ok !== sem.ok) {
     result.structural.warnings.push("VERIFY.json's persisted summary disagreed with its verdicts — recomputed at check time.");
   }
   result.semantic = { ...reduced, verdicts: sem.verdicts };
   if (!reduced.ok) result.ok = false;
-  if (reduced.unadjudicated.length) {
-    result.structural.warnings.push(`${reduced.unadjudicated.length} claim(s) not fully adjudicated by review.`);
+  if (uncovered.length) {
+    // Reached only with --allow-unverified: the coverage gap is forgiven but still
+    // surfaced loudly.
+    result.structural.warnings.push(
+      `--semantic: ${uncovered.length} review pair(s) lack an adjudicated verdict (a worklist pair was dropped or never judged); coverage gate skipped (--allow-unverified).`,
+    );
   }
 }
 

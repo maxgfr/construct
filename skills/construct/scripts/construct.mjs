@@ -3701,6 +3701,31 @@ function computeCoverage(srd, evidence) {
 }
 var TEMPLATED_THEN_RE = /is persisted and visible to the user$/;
 var TEMPLATED_METRIC_RE = /^A measurable target for "/;
+function uncoveredPairs(runDir, verdicts) {
+  const key = (c, e) => `${c}::${e}`;
+  const label = /* @__PURE__ */ new Map();
+  const adjudicated = /* @__PURE__ */ new Set();
+  for (const v of verdicts) {
+    if (!v || typeof v.claimId !== "string" || typeof v.evidenceId !== "string") continue;
+    const k = key(v.claimId, v.evidenceId);
+    label.set(k, `${v.claimId}\xB7${v.evidenceId}`);
+    if (v.verdict) adjudicated.add(k);
+  }
+  const todoPath = join12(runDir, "VERIFY.todo.json");
+  if (existsSync8(todoPath)) {
+    try {
+      const todo = JSON.parse(readFileSync7(todoPath, "utf8"));
+      for (const p of todo.pairs ?? []) {
+        if (!p || typeof p.claimId !== "string" || typeof p.evidenceId !== "string") continue;
+        label.set(key(p.claimId, p.evidenceId), `${p.claimId}\xB7${p.evidenceId}`);
+      }
+    } catch {
+    }
+  }
+  const missing = [];
+  for (const [k, l] of label) if (!adjudicated.has(k)) missing.push(l);
+  return missing.sort();
+}
 function applySemantic(runDir, result, allowUnverified) {
   const p = join12(runDir, "VERIFY.json");
   const skip = (reason, hint) => {
@@ -3726,14 +3751,24 @@ function applySemantic(runDir, result, allowUnverified) {
     skip("VERIFY.json carries no verdicts[] (legacy or hand-edited)", "re-run `review --apply <verdicts.json>` to regenerate it");
     return;
   }
+  const uncovered = uncoveredPairs(runDir, sem.verdicts);
+  if (uncovered.length && !allowUnverified) {
+    const shown = uncovered.slice(0, 5).join(", ");
+    const more = uncovered.length > 5 ? ` (+${uncovered.length - 5} more)` : "";
+    result.semanticError = `${uncovered.length} review pair(s) lack an adjudicated verdict in VERIFY.json: ${shown}${more} \u2014 a worklist pair was dropped from the ledger or was never judged. Adjudicate every pair and re-run \`construct review --apply <verdicts.json>\`, or pass --allow-unverified to degrade this to a warning.`;
+    result.ok = false;
+    return;
+  }
   const reduced = reduceVerdicts(sem.verdicts);
   if (reduced.ok !== sem.ok) {
     result.structural.warnings.push("VERIFY.json's persisted summary disagreed with its verdicts \u2014 recomputed at check time.");
   }
   result.semantic = { ...reduced, verdicts: sem.verdicts };
   if (!reduced.ok) result.ok = false;
-  if (reduced.unadjudicated.length) {
-    result.structural.warnings.push(`${reduced.unadjudicated.length} claim(s) not fully adjudicated by review.`);
+  if (uncovered.length) {
+    result.structural.warnings.push(
+      `--semantic: ${uncovered.length} review pair(s) lack an adjudicated verdict (a worklist pair was dropped or never judged); coverage gate skipped (--allow-unverified).`
+    );
   }
 }
 function checkDesign(runDir, srd, errors, warnings) {

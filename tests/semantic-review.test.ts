@@ -272,6 +272,70 @@ describe("check --semantic composition (additive)", () => {
   });
 });
 
+// The single-artifact-tamper / honest-fold-drop coverage gate. The persisted
+// worklist (VERIFY.todo.json) and the persisted ledger (VERIFY.json verdicts[])
+// are two artifacts; every pair the worklist names AND every pair the ledger
+// carries must have an adjudicated verdict, else the gate fails closed.
+describe("check --semantic coverage gate (worklist ↔ ledger)", () => {
+  it("fails closed when a refuted pair is deleted from VERIFY.json while the worklist still lists it", () => {
+    const dir = scratch();
+    run(dir, [{ id: "FR-001", ev: ["E1"] }, { id: "FR-002", ev: ["E2"] }], EVIDENCE);
+    runReview(dir);
+    // FR-001/E1 REFUTED so check --semantic fails first.
+    applyVerdicts(dir, writeVerdicts(dir, { E1: "refuted", E2: "supported" }));
+    expect(checkRun(dir, { semantic: true }).semantic?.ok).toBe(false);
+
+    // TAMPER: strip FR-001's verdict rows from the ledger; leave the worklist intact.
+    const p = join(dir, "VERIFY.json");
+    const sem = JSON.parse(readFileSync(p, "utf8"));
+    sem.verdicts = sem.verdicts.filter((v: any) => v.claimId !== "FR-001");
+    writeFileSync(p, JSON.stringify(sem, null, 2));
+
+    const strict = checkRun(dir, { semantic: true });
+    expect(strict.ok).toBe(false); // must NOT flip a refuted claim into a pass
+    expect(strict.semantic).toBeUndefined(); // untrustworthy ledger → no misleading PASS block
+    expect(strict.semanticError).toMatch(/FR-001·E1/);
+    expect(strict.semanticError).toMatch(/--allow-unverified/);
+
+    const lax = checkRun(dir, { semantic: true, allowUnverified: true });
+    expect(lax.semanticError).toBeUndefined();
+    expect(lax.structural.warnings.join(" ")).toMatch(/coverage gate skipped/i);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("fails closed on a worklist pair left unadjudicated (verdict null), degradable via --allow-unverified", () => {
+    const dir = scratch();
+    run(dir, [{ id: "FR-001", ev: ["E1"] }, { id: "FR-002", ev: ["E2"] }], EVIDENCE);
+    runReview(dir);
+    // Adjudicate only FR-001; FR-002 is folded in as unadjudicated (verdict null).
+    const todo = JSON.parse(readFileSync(join(dir, "VERIFY.todo.json"), "utf8")) as { pairs: any[] };
+    const only = [{ ...todo.pairs.find((p) => p.claimId === "FR-001"), verdict: "supported", note: "" }];
+    const f = join(dir, "partial.json");
+    writeFileSync(f, JSON.stringify(only));
+    applyVerdicts(dir, f);
+
+    const strict = checkRun(dir, { semantic: true });
+    expect(strict.ok).toBe(false);
+    expect(strict.semanticError).toMatch(/FR-002·E2/);
+    expect(strict.semanticError).toMatch(/--allow-unverified/);
+
+    const lax = checkRun(dir, { semantic: true, allowUnverified: true });
+    expect(lax.semanticError).toBeUndefined();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("passes when every worklist pair carries an adjudicated verdict (no false alarm)", () => {
+    const dir = scratch();
+    run(dir, [{ id: "FR-001", ev: ["E1"] }, { id: "FR-002", ev: ["E2"] }], EVIDENCE);
+    runReview(dir);
+    applyVerdicts(dir, writeVerdicts(dir, { E1: "supported", E2: "partial" }));
+    const r = checkRun(dir, { semantic: true });
+    expect(r.semanticError).toBeUndefined();
+    expect(r.semantic?.ok).toBe(true);
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
 describe("runReview — claim coverage & error paths", () => {
   it("builds pairs for NFR, ADR, competitor and OSS claims, not only FRs", () => {
     const dir = scratch();
