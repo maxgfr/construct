@@ -3287,9 +3287,30 @@ function renderFromSRD(runDir, opts) {
   }
   return emitSRD(srd, { out: runDir, merge: opts.merge, prd: opts.prd });
 }
+function syncTraceability(srd) {
+  const priorAdrs = new Map((srd.traceability ?? []).map((r) => [r.fr, r.adrs]));
+  const fallbackAdrs = srd.architecture.adrs.length ? [srd.architecture.adrs[0].id] : [];
+  const design = srd.design;
+  srd.traceability = srd.functional.map((fr) => {
+    const row = {
+      fr: fr.id,
+      nfrs: fr.nfrs,
+      adrs: priorAdrs.get(fr.id) ?? fallbackAdrs,
+      entities: fr.entities,
+      interfaces: fr.interfaces
+    };
+    if (design) {
+      row.components = design.components.filter((c) => c.relatedFRs.includes(fr.id)).map((c) => c.name);
+      row.screens = design.screens.filter((s) => s.relatedFRs.includes(fr.id)).map((s) => s.name);
+    }
+    if (fr.module) row.module = fr.module;
+    return row;
+  });
+}
 function emitSRD(srd, opts) {
   const files = [];
   const out = opts.out;
+  syncTraceability(srd);
   rmSync2(join10(out, "architecture", "decisions"), { recursive: true, force: true });
   rmSync2(join10(out, "design"), { recursive: true, force: true });
   rmSync2(join10(out, "prd"), { recursive: true, force: true });

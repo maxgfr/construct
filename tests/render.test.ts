@@ -166,6 +166,35 @@ describe("renderFromSRD (re-emit from an edited SRD.json)", () => {
     expect(plan2.tasks.find((t) => t.id === plan.tasks[0]!.id)!.status).toBe("done");
   });
 
+  it("re-emits TRACEABILITY.md from the edited FR fields, never a stale stored matrix", () => {
+    // The enrich→re-render invariant: editing the data model / interfaces in the
+    // manifest and re-emitting must keep TRACEABILITY.md in sync with
+    // FUNCTIONAL.md — the derived matrix must not drift from the live FR fields.
+    const out = freshDir();
+    renderSRD(brief, evidence, { level: "complex", out, merge: false, generatedAt: "T" });
+    const srd = JSON.parse(readFileSync(join(out, "SRD.json"), "utf8")) as SRD;
+    // Rename an entity and an interface across the authoritative live fields
+    // (as the skill instructs: "correct/extend the data model and interfaces").
+    const fr0 = srd.functional[0]!;
+    fr0.entities = ["ZZEntity"];
+    fr0.interfaces = ["ZZInterface"];
+    srd.architecture.dataModel[0]!.name = "ZZEntity";
+    srd.architecture.dataModel[0]!.referencedByFRs = [fr0.id];
+    srd.architecture.interfaces[0]!.name = "ZZInterface";
+    srd.architecture.interfaces[0]!.relatedFRs = [fr0.id];
+    writeFileSync(join(out, "SRD.json"), JSON.stringify(srd, null, 2));
+
+    renderFromSRD(out, { merge: false, prd: false });
+    const trace = readFileSync(join(out, "TRACEABILITY.md"), "utf8");
+    const traceRow = trace.split("\n").find((l) => l.startsWith(`| ${fr0.id} `))!;
+    // TRACEABILITY.md's row for this FR must reflect the edited fields…
+    expect(traceRow).toContain("ZZEntity");
+    expect(traceRow).toContain("ZZInterface");
+    // …and must not carry the stale pre-edit values.
+    expect(traceRow).not.toContain("Article");
+    expect(traceRow).not.toContain("Web App");
+  });
+
   it("throws a clean domain error when SRD.json is missing", () => {
     const out = freshDir();
     expect(() => renderFromSRD(out, { merge: false, prd: false })).toThrow(/SRD\.json/);
