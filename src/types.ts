@@ -1,7 +1,7 @@
 // Single source of truth for the version the CLI/bundle reports. Kept in
 // lockstep with package.json and SKILL.md by scripts/sync-version.mjs during a
 // semantic-release run. Do not edit by hand outside a release.
-export const VERSION = "1.11.2";
+export const VERSION = "2.0.0";
 
 // ---------------------------------------------------------------------------
 // Research subsystem (grounding) — ported from the ultradoc evidence model.

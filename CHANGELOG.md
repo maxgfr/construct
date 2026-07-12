@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [2.0.0](https://github.com/maxgfr/construct/compare/v1.11.2...v2.0.0) (2026-07-12)
+
+
+* fix(render)!: refuse to silently delete requirements/prd when --prd is omitted ([a3974bd](https://github.com/maxgfr/construct/commit/a3974bd3aed33673dd123495262c22c0360bc427))
+
+
+### Bug Fixes
+
+* **render:** don't clobber authored design — suppress seed banner, render nav section ([df31150](https://github.com/maxgfr/construct/commit/df31150eb529bc19827bc619dfbb8a79cdc37ee7))
+
+
+### BREAKING CHANGES
+
+* `construct render` (with or without --from-srd) now exits
+with an error instead of silently deleting an existing requirements/prd/
+tree when --prd is not re-passed; pass --prd to regenerate or --no-prd to
+delete deliberately.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+
 ## [1.11.2](https://github.com/maxgfr/construct/compare/v1.11.1...v1.11.2) (2026-07-10)
 
 
