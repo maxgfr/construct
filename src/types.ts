@@ -362,9 +362,15 @@ export interface A11yRequirement {
 export interface DesignSystem {
   principles: string[];
   tokens: DesignToken[];
+  /** Set true in an authored manifest once tokens carry the product's real brand
+   *  values — suppresses the "Seeded defaults" banner that otherwise misleads. */
+  tokensAuthored?: boolean;
   components: UIComponent[];
   screens: Screen[];
   flows: UserFlow[];
+  /** Optional shell/navigation prose rendered as a "## Shell & navigation"
+   *  section in SCREENS.md. Absent → no section (backward compatible). */
+  navigation?: string;
   accessibility: { standard: string; requirements: A11yRequirement[] };
   contentVoice: string[];
 }

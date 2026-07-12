@@ -824,7 +824,7 @@ function renderDesignPrinciples(ds) {
   ].join("\n");
 }
 function renderDesignTokens(ds) {
-  const out = [`# Design tokens`, ``, `_${DESIGN_TOKENS_SEEDED_BANNER}_`, ``];
+  const out = ds.tokensAuthored ? [`# Design tokens`, ``] : [`# Design tokens`, ``, `_${DESIGN_TOKENS_SEEDED_BANNER}_`, ``];
   const cats = [...new Set(ds.tokens.map((t) => t.category))];
   for (const cat of cats) {
     const toks = ds.tokens.filter((t) => t.category === cat);
@@ -857,7 +857,11 @@ function renderComponents(ds) {
   return out.join("\n");
 }
 function renderScreens(ds) {
-  const out = [`# Screens & flows`, ``, `## Screens`, ``];
+  const out = [`# Screens & flows`, ``];
+  if (ds.navigation && ds.navigation.trim()) {
+    out.push(`## Shell & navigation`, ``, ds.navigation.trim(), ``);
+  }
+  out.push(`## Screens`, ``);
   if (ds.screens.length) {
     out.push(`| Screen | Purpose | Requirements |`, `|---|---|---|`);
     for (const s of ds.screens) out.push(`| ${cell(s.name)} | ${cell(s.purpose)} | ${s.relatedFRs.join(", ") || "\u2014"} |`);

@@ -470,7 +470,11 @@ export function renderDesignPrinciples(ds: DesignSystem): string {
 }
 
 export function renderDesignTokens(ds: DesignSystem): string {
-  const out = [`# Design tokens`, ``, `_${DESIGN_TOKENS_SEEDED_BANNER}_`, ``];
+  // The banner nudges replacing seed values; once the manifest marks the tokens
+  // authored it would misdescribe a real brand palette, so suppress it then.
+  const out = ds.tokensAuthored
+    ? [`# Design tokens`, ``]
+    : [`# Design tokens`, ``, `_${DESIGN_TOKENS_SEEDED_BANNER}_`, ``];
   // Distinct categories in insertion order (canonical first, then any added).
   const cats = [...new Set(ds.tokens.map((t) => t.category))];
   for (const cat of cats) {
@@ -509,7 +513,11 @@ export function renderComponents(ds: DesignSystem): string {
 }
 
 export function renderScreens(ds: DesignSystem): string {
-  const out = [`# Screens & flows`, ``, `## Screens`, ``];
+  const out = [`# Screens & flows`, ``];
+  if (ds.navigation && ds.navigation.trim()) {
+    out.push(`## Shell & navigation`, ``, ds.navigation.trim(), ``);
+  }
+  out.push(`## Screens`, ``);
   if (ds.screens.length) {
     out.push(`| Screen | Purpose | Requirements |`, `|---|---|---|`);
     for (const s of ds.screens) out.push(`| ${cell(s.name)} | ${cell(s.purpose)} | ${s.relatedFRs.join(", ") || "—"} |`);
