@@ -46,6 +46,10 @@ export interface RenderOptions {
   // Also emit requirements/prd/ — one standalone PRD per FR + an index. Default
   // false (off) when unset.
   prd?: boolean;
+  // Explicit opt-out: delete an existing requirements/prd/ tree on a render
+  // that doesn't pass --prd. Without it, such a render refuses rather than
+  // silently destroying previously emitted per-FR PRDs.
+  noPrd?: boolean;
 }
 
 function writeFile(out: string, rel: string, content: string, files: string[]): void {
@@ -63,14 +67,14 @@ export function renderSRD(brief: Brief, evidence: EvidenceItem[], opts: RenderOp
   // Design renders at complex unless opted out; light never renders it.
   const wantDesign = opts.level === "complex" && !opts.noDesign;
   const srd = buildSRD(brief, evidence, { level: opts.level, generatedAt: opts.generatedAt, design: wantDesign });
-  return emitSRD(srd, { out: opts.out, merge: opts.merge, prd: opts.prd });
+  return emitSRD(srd, { out: opts.out, merge: opts.merge, prd: opts.prd, noPrd: opts.noPrd });
 }
 
 // Re-emit the SRD tree from an already-built (or hand-edited) SRD manifest,
 // WITHOUT rebuilding it from a brief + evidence. This is the enrich→re-render
 // path: an author sharpens SRD.json (the gated source of truth) and re-renders
 // the human-facing markdown tree from it, so the two never drift.
-export function renderFromSRD(runDir: string, opts: { merge: boolean; prd: boolean }): RenderResult {
+export function renderFromSRD(runDir: string, opts: { merge: boolean; prd: boolean; noPrd?: boolean }): RenderResult {
   const manifest = srdManifestPath(runDir);
   if (!existsSync(manifest)) {
     throw new Error(`No SRD.json in ${runDir} — render the SRD first (construct render), then edit it and re-run with --from-srd.`);
@@ -86,7 +90,7 @@ export function renderFromSRD(runDir: string, opts: { merge: boolean; prd: boole
   if (!Array.isArray(srd.functional) || !Array.isArray(srd.nonFunctional) || !srd.architecture || !Array.isArray(srd.architecture.adrs)) {
     throw new Error(`SRD.json in ${runDir} is not a valid SRD manifest (missing functional/nonFunctional/architecture).`);
   }
-  return emitSRD(srd, { out: runDir, merge: opts.merge, prd: opts.prd });
+  return emitSRD(srd, { out: runDir, merge: opts.merge, prd: opts.prd, noPrd: opts.noPrd });
 }
 
 // Re-derive the traceability matrix from the SRD's live fields. The matrix is
@@ -123,9 +127,16 @@ function syncTraceability(srd: SRD): void {
 // Write the full SRD tree from a built SRD model. Pure apart from the
 // filesystem write — shared by renderSRD (build then emit) and renderFromSRD
 // (load then emit).
-function emitSRD(srd: SRD, opts: { out: string; merge: boolean; prd?: boolean }): RenderResult {
+function emitSRD(srd: SRD, opts: { out: string; merge: boolean; prd?: boolean; noPrd?: boolean }): RenderResult {
   const files: string[] = [];
   const out = opts.out;
+
+  // Fail-safe BEFORE any deletion below: a render that doesn't re-pass --prd
+  // must not silently destroy previously emitted per-FR PRDs. Guard first so a
+  // refusal leaves the whole tree untouched.
+  if (!opts.prd && !opts.noPrd && existsSync(join(out, "requirements", "prd"))) {
+    throw new Error("requirements/prd exists from a previous --prd render — re-run with --prd to regenerate it, or --no-prd to delete it deliberately.");
+  }
 
   // Keep the derived matrix consistent with the (possibly hand-edited) FR fields
   // before anything reads it — TRACEABILITY.md and the persisted SRD.json both.

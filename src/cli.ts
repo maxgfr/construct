@@ -34,8 +34,8 @@ Usage:
   construct research --out <run> [--angles market,oss,tech,semantic] [--q "<focus>"] [--url <u,...>] [--semantic]
   construct analyze  --out <run> [--json]
   construct web|oss|tech|so --out <run> [--q "<focus>"] [--url <u,...>] [--seeds <u,...>]
-  construct render   --out <run> [--level light|complex] [--merge] [--no-design] [--prd]
-  construct render   --out <run> --from-srd [--merge] [--prd]
+  construct render   --out <run> [--level light|complex] [--merge] [--no-design] [--prd|--no-prd]
+  construct render   --out <run> --from-srd [--merge] [--prd|--no-prd]
   construct check    --out <run> [--min-grounding <0-100>] [--semantic [--allow-unverified]] [--json]
   construct review   --out <run> [--apply <verdicts.json>] [--max-review N] [--json]
   construct verify   --out <run> [--app <dir>] [--run-tests] [--strict] [--json]
@@ -119,6 +119,8 @@ Options:
   --merge              Also emit a single-file SRD.md bundle
   --no-design          For 'render': skip the design-system subtree (complex only)
   --prd                For 'render': also emit one PRD file per FR (requirements/prd/)
+  --no-prd             For 'render': deliberately delete an existing requirements/prd/
+                       (without it, a render that omits --prd refuses to destroy the tree)
   --semantic           Rescore evidence with the local embedding model
   --refresh            Force re-clone of mined OSS repos
   --json               Machine-readable output
@@ -170,7 +172,21 @@ const VALUE_FLAGS = new Set([
   "phase",
   "adr",
 ]);
-const BOOL_FLAGS = new Set(["semantic", "merge", "json", "refresh", "run-tests", "strict", "no-design", "prd", "allow-unverified", "from-srd", "eco", "list"]);
+const BOOL_FLAGS = new Set([
+  "semantic",
+  "merge",
+  "json",
+  "refresh",
+  "run-tests",
+  "strict",
+  "no-design",
+  "prd",
+  "no-prd",
+  "allow-unverified",
+  "from-srd",
+  "eco",
+  "list",
+]);
 
 function fail(message: string): never {
   process.stderr.write(`construct: ${message}\n`);
@@ -461,7 +477,7 @@ async function main(): Promise<void> {
         if (p.values.level) process.stderr.write("construct: --level is ignored with --from-srd (the manifest's level is authoritative).\n");
         if (p.bools.has("no-design"))
           process.stderr.write("construct: --no-design is ignored with --from-srd (re-run a full render to change the design subtree).\n");
-        const r = renderFromSRD(out, { merge: p.bools.has("merge"), prd: p.bools.has("prd") });
+        const r = renderFromSRD(out, { merge: p.bools.has("merge"), prd: p.bools.has("prd"), noPrd: p.bools.has("no-prd") });
         process.stderr.write(
           [
             `construct: re-emitted the SRD tree from ${join(out, "SRD.json")}`,
@@ -482,6 +498,7 @@ async function main(): Promise<void> {
         merge: p.bools.has("merge"),
         noDesign: p.bools.has("no-design"),
         prd: p.bools.has("prd"),
+        noPrd: p.bools.has("no-prd"),
         generatedAt: new Date().toISOString(),
       });
       const design = r.srd.design;

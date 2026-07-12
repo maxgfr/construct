@@ -291,11 +291,28 @@ describe("renderSRD --prd export", () => {
     expect(prd).toContain(nfr.statement.slice(0, 40));
   });
 
-  it("does not write the prd/ subtree by default and clears a stale one on re-render", () => {
+  it("does not write the prd/ subtree by default", () => {
+    const out = freshDir();
+    renderSRD(brief, evidence, { level: "complex", out, merge: false, generatedAt: "T" });
+    expect(existsSync(join(out, "requirements/prd"))).toBe(false);
+  });
+
+  it("refuses to silently delete an existing requirements/prd when --prd is not re-passed", () => {
     const out = freshDir();
     renderSRD(brief, evidence, { level: "complex", out, merge: false, generatedAt: "T", prd: true });
     expect(existsSync(join(out, "requirements/prd/README.md"))).toBe(true);
-    renderSRD(brief, evidence, { level: "complex", out, merge: false, generatedAt: "T" });
+    // A re-render (full or --from-srd) without --prd must not destroy the tree:
+    // it refuses loudly, and leaves EVERYTHING untouched (guard fires before any rm).
+    expect(() => renderSRD(brief, evidence, { level: "complex", out, merge: false, generatedAt: "T" })).toThrow(/requirements\/prd .*--prd .*--no-prd/);
+    expect(() => renderFromSRD(out, { merge: false, prd: false })).toThrow(/requirements\/prd .*--prd .*--no-prd/);
+    expect(existsSync(join(out, "requirements/prd/README.md"))).toBe(true);
+    expect(existsSync(join(out, "architecture/decisions"))).toBe(true);
+  });
+
+  it("clears requirements/prd only on an explicit --no-prd opt-out", () => {
+    const out = freshDir();
+    renderSRD(brief, evidence, { level: "complex", out, merge: false, generatedAt: "T", prd: true });
+    renderFromSRD(out, { merge: false, prd: false, noPrd: true });
     expect(existsSync(join(out, "requirements/prd"))).toBe(false);
   });
 });

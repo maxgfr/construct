@@ -3273,7 +3273,7 @@ function writeFile(out, rel, content, files) {
 function renderSRD(brief, evidence, opts) {
   const wantDesign = opts.level === "complex" && !opts.noDesign;
   const srd = buildSRD(brief, evidence, { level: opts.level, generatedAt: opts.generatedAt, design: wantDesign });
-  return emitSRD(srd, { out: opts.out, merge: opts.merge, prd: opts.prd });
+  return emitSRD(srd, { out: opts.out, merge: opts.merge, prd: opts.prd, noPrd: opts.noPrd });
 }
 function renderFromSRD(runDir, opts) {
   const manifest = srdManifestPath(runDir);
@@ -3289,7 +3289,7 @@ function renderFromSRD(runDir, opts) {
   if (!Array.isArray(srd.functional) || !Array.isArray(srd.nonFunctional) || !srd.architecture || !Array.isArray(srd.architecture.adrs)) {
     throw new Error(`SRD.json in ${runDir} is not a valid SRD manifest (missing functional/nonFunctional/architecture).`);
   }
-  return emitSRD(srd, { out: runDir, merge: opts.merge, prd: opts.prd });
+  return emitSRD(srd, { out: runDir, merge: opts.merge, prd: opts.prd, noPrd: opts.noPrd });
 }
 function syncTraceability(srd) {
   const priorAdrs = new Map((srd.traceability ?? []).map((r) => [r.fr, r.adrs]));
@@ -3314,6 +3314,9 @@ function syncTraceability(srd) {
 function emitSRD(srd, opts) {
   const files = [];
   const out = opts.out;
+  if (!opts.prd && !opts.noPrd && existsSync6(join10(out, "requirements", "prd"))) {
+    throw new Error("requirements/prd exists from a previous --prd render \u2014 re-run with --prd to regenerate it, or --no-prd to delete it deliberately.");
+  }
   syncTraceability(srd);
   rmSync2(join10(out, "architecture", "decisions"), { recursive: true, force: true });
   rmSync2(join10(out, "design"), { recursive: true, force: true });
@@ -4780,8 +4783,8 @@ Usage:
   construct research --out <run> [--angles market,oss,tech,semantic] [--q "<focus>"] [--url <u,...>] [--semantic]
   construct analyze  --out <run> [--json]
   construct web|oss|tech|so --out <run> [--q "<focus>"] [--url <u,...>] [--seeds <u,...>]
-  construct render   --out <run> [--level light|complex] [--merge] [--no-design] [--prd]
-  construct render   --out <run> --from-srd [--merge] [--prd]
+  construct render   --out <run> [--level light|complex] [--merge] [--no-design] [--prd|--no-prd]
+  construct render   --out <run> --from-srd [--merge] [--prd|--no-prd]
   construct check    --out <run> [--min-grounding <0-100>] [--semantic [--allow-unverified]] [--json]
   construct review   --out <run> [--apply <verdicts.json>] [--max-review N] [--json]
   construct verify   --out <run> [--app <dir>] [--run-tests] [--strict] [--json]
@@ -4865,6 +4868,8 @@ Options:
   --merge              Also emit a single-file SRD.md bundle
   --no-design          For 'render': skip the design-system subtree (complex only)
   --prd                For 'render': also emit one PRD file per FR (requirements/prd/)
+  --no-prd             For 'render': deliberately delete an existing requirements/prd/
+                       (without it, a render that omits --prd refuses to destroy the tree)
   --semantic           Rescore evidence with the local embedding model
   --refresh            Force re-clone of mined OSS repos
   --json               Machine-readable output
@@ -4915,7 +4920,21 @@ var VALUE_FLAGS = /* @__PURE__ */ new Set([
   "phase",
   "adr"
 ]);
-var BOOL_FLAGS = /* @__PURE__ */ new Set(["semantic", "merge", "json", "refresh", "run-tests", "strict", "no-design", "prd", "allow-unverified", "from-srd", "eco", "list"]);
+var BOOL_FLAGS = /* @__PURE__ */ new Set([
+  "semantic",
+  "merge",
+  "json",
+  "refresh",
+  "run-tests",
+  "strict",
+  "no-design",
+  "prd",
+  "no-prd",
+  "allow-unverified",
+  "from-srd",
+  "eco",
+  "list"
+]);
 function fail(message) {
   process.stderr.write(`construct: ${message}
 `);
@@ -5169,7 +5188,7 @@ async function main() {
         if (p.values.level) process.stderr.write("construct: --level is ignored with --from-srd (the manifest's level is authoritative).\n");
         if (p.bools.has("no-design"))
           process.stderr.write("construct: --no-design is ignored with --from-srd (re-run a full render to change the design subtree).\n");
-        const r2 = renderFromSRD(out, { merge: p.bools.has("merge"), prd: p.bools.has("prd") });
+        const r2 = renderFromSRD(out, { merge: p.bools.has("merge"), prd: p.bools.has("prd"), noPrd: p.bools.has("no-prd") });
         process.stderr.write(
           [
             `construct: re-emitted the SRD tree from ${join17(out, "SRD.json")}`,
@@ -5191,6 +5210,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
         merge: p.bools.has("merge"),
         noDesign: p.bools.has("no-design"),
         prd: p.bools.has("prd"),
+        noPrd: p.bools.has("no-prd"),
         generatedAt: (/* @__PURE__ */ new Date()).toISOString()
       });
       const design = r.srd.design;
