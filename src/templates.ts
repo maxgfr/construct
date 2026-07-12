@@ -472,9 +472,7 @@ export function renderDesignPrinciples(ds: DesignSystem): string {
 export function renderDesignTokens(ds: DesignSystem): string {
   // The banner nudges replacing seed values; once the manifest marks the tokens
   // authored it would misdescribe a real brand palette, so suppress it then.
-  const out = ds.tokensAuthored
-    ? [`# Design tokens`, ``]
-    : [`# Design tokens`, ``, `_${DESIGN_TOKENS_SEEDED_BANNER}_`, ``];
+  const out = ds.tokensAuthored ? [`# Design tokens`, ``] : [`# Design tokens`, ``, `_${DESIGN_TOKENS_SEEDED_BANNER}_`, ``];
   // Distinct categories in insertion order (canonical first, then any added).
   const cats = [...new Set(ds.tokens.map((t) => t.category))];
   for (const cat of cats) {
