@@ -27,7 +27,7 @@
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
     "verify:bundle": "node scripts/verify-skill-bundle.mjs",
-    "check:build": "tsup && node scripts/copy-bundle.mjs && git diff --exit-code -- scripts/construct.mjs skills/construct/scripts/construct.mjs skills/construct/docker-compose.yml skills/construct/docker/searxng/settings.yml && node scripts/verify-skill-bundle.mjs",
+    "check:build": "tsup && node scripts/copy-bundle.mjs && git diff --exit-code -- scripts/construct.mjs skills/construct/scripts/construct.mjs skills/construct/docker-compose.yml skills/construct/docker/searxng/settings.yml && node scripts/verify-skill-bundle.mjs && node scripts/sync-engine.mjs --check",
     "demo": "rm -rf /tmp/construct-demo && mkdir -p /tmp/construct-demo/evidence && cp tests/fixtures/sample-brief.json /tmp/construct-demo/brief.json && cp tests/fixtures/sample-evidence.json /tmp/construct-demo/evidence/evidence.json && node scripts/construct.mjs render --out /tmp/construct-demo --level complex --merge && node scripts/construct.mjs check --out /tmp/construct-demo",
     "release": "semantic-release"
   },
