@@ -65,7 +65,9 @@ jobs:
 
       - name: Re-pin engine to the latest release
         if: steps.detect.outputs.repin == 'true'
-        run: node scripts/sync-engine.mjs --ref "${{ steps.detect.outputs.latest }}"
+        env:
+          LATEST: ${{ steps.detect.outputs.latest }}
+        run: node scripts/sync-engine.mjs --ref "$LATEST"
 
       - name: Verify the vendored engine matches the new pin
         if: steps.detect.outputs.repin == 'true'
@@ -119,6 +121,7 @@ jobs:
 
       - name: Commit + push the re-pin to main
         if: steps.detect.outputs.repin == 'true'
+        id: push
         env:
           PINNED: ${{ steps.detect.outputs.pinned }}
           LATEST: ${{ steps.detect.outputs.latest }}
@@ -129,7 +132,9 @@ jobs:
           DIFFSTAT=$(git diff --cached --stat | tail -1)
           git commit -m "feat(engine): re-pin codeindex ${LATEST}" -m "automated re-pin, all gates green, goldens byte-identical" -m "${PINNED} -> ${LATEST}
           ${DIFFSTAT}"
+          git pull --rebase origin main
           git push origin HEAD:main
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
 
       - name: Trigger release + CI on the pushed commit
         if: steps.detect.outputs.repin == 'true'
@@ -142,7 +147,7 @@ jobs:
           gh workflow run ci.yml --ref main
 
       - name: On gate failure — push synced state + open adjudication PR
-        if: failure() && steps.detect.outputs.latest != ''
+        if: failure() && steps.push.outputs.pushed != 'true' && steps.detect.outputs.latest != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           LATEST: ${{ steps.detect.outputs.latest }}
