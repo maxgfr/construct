@@ -7,7 +7,7 @@ import { pathToFileURL, fileURLToPath as fileURLToPath3 } from "url";
 import { realpathSync as realpathSync2 } from "fs";
 
 // src/types.ts
-var VERSION = "2.1.0";
+var VERSION = "2.2.0";
 var ALL_SOURCE_KINDS = ["market", "oss", "docs", "so", "issue", "pr"];
 var BRIEF_SCHEMA_VERSION = 1;
 var BRAINSTORM_SCHEMA_VERSION = 1;

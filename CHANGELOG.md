@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [2.2.0](https://github.com/maxgfr/construct/compare/v2.1.0...v2.2.0) (2026-07-23)
+
+
+### Features
+
+* **engine:** re-pin the codeindex engine at v2.10.0 ([7b46d21](https://github.com/maxgfr/construct/commit/7b46d21eda9067439616363290d545152741c5ff))
+
 # [2.1.0](https://github.com/maxgfr/construct/compare/v2.0.0...v2.1.0) (2026-07-22)
 
 
