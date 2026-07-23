@@ -127,7 +127,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           DIFFSTAT=$(git diff --cached --stat | tail -1)
-          git commit -m "chore(engine): re-pin codeindex ${LATEST}" -m "automated re-pin, all gates green, goldens byte-identical" -m "${PINNED} -> ${LATEST}
+          git commit -m "feat(engine): re-pin codeindex ${LATEST}" -m "automated re-pin, all gates green, goldens byte-identical" -m "${PINNED} -> ${LATEST}
           ${DIFFSTAT}"
           git push origin HEAD:main
 
