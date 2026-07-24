@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [2.3.0](https://github.com/maxgfr/construct/compare/v2.2.1...v2.3.0) (2026-07-24)
+
+
+### Bug Fixes
+
+* **lint:** use optional chain in renderScreens ([806f76f](https://github.com/maxgfr/construct/commit/806f76f06263993f6f36048bc190197c60bafc65)), closes [#15](https://github.com/maxgfr/construct/issues/15)
+
+
+### Features
+
+* **engine:** re-pin codeindex v2.13.0 ([914362e](https://github.com/maxgfr/construct/commit/914362ec987108945b559d3afc295ef46bb6cc54))
+
 ## [2.2.1](https://github.com/maxgfr/construct/compare/v2.2.0...v2.2.1) (2026-07-23)
 
 
