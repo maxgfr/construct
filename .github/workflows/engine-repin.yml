@@ -7,10 +7,9 @@ name: Engine re-pin
 #   - all green  -> commit + push straight to main, then explicitly trigger
 #                   release.yml and ci.yml (a GITHUB_TOKEN push does NOT fire
 #                   other workflows, so `gh workflow run` is required).
-#   - any gate red -> push the synced-but-failing state to repin/<tag> and
-#                     open a PR for manual adjudication (never regenerate a
-#                     golden here to force green — a golden diff is a
-#                     decision for a human, not this job).
+#   - any gate red -> the run simply fails (no push, no adjudication PR);
+#                     the next daily cron retries. A red run is the signal
+#                     to investigate locally.
 # No secrets beyond the built-in GITHUB_TOKEN.
 on:
   schedule:
@@ -20,7 +19,6 @@ on:
 permissions:
   contents: write
   actions: write
-  pull-requests: write
 
 concurrency: engine-repin
 
@@ -145,39 +143,3 @@ jobs:
           # workflows' `on: push` triggers — dispatch them explicitly.
           gh workflow run release.yml --ref main
           gh workflow run ci.yml --ref main
-
-      - name: On gate failure — push synced state + open adjudication PR
-        if: failure() && steps.push.outputs.pushed != 'true' && steps.detect.outputs.latest != ''
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          LATEST: ${{ steps.detect.outputs.latest }}
-        run: |
-          set -euo pipefail
-          git rebase --abort 2>/dev/null || true
-          BRANCH="repin/${LATEST}"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Capture whatever synced state exists (staged earlier, or still on
-          # disk if a step failed before staging) — this is the adjudication
-          # material, committed even though gates are red.
-          git add -A -- src/vendor scripts/construct.mjs skills/construct
-          if ! git diff --cached --quiet; then
-            git commit -m "chore(engine): re-pin codeindex ${LATEST} [gates failed]"
-          fi
-          git checkout -b "$BRANCH"
-          git push origin "$BRANCH" --force-with-lease
-
-          if [ "$(gh pr list --head "$BRANCH" --json number --jq 'length')" = "0" ]; then
-            RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            gh pr create \
-              --title "engine re-pin ${LATEST}: gates failed — manual adjudication needed" \
-              --head "$BRANCH" \
-              --base main \
-              --body "Automated re-pin to \`${LATEST}\` failed at least one gate (typecheck/lint/build/tests). The synced-but-failing state is on this branch for adjudication.
-
-          Run: ${RUN_URL}
-
-          Doctrine: classify each golden diff (engine bug vs. intentional behavior change) BEFORE regenerating any snapshot — this job never regenerates goldens itself. If the engine is at fault, file an issue against maxgfr/codeindex rather than papering over it here."
-          else
-            echo "a PR for repin/${LATEST} already exists — not duplicating"
-          fi
