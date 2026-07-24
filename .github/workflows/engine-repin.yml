@@ -153,6 +153,7 @@ jobs:
           LATEST: ${{ steps.detect.outputs.latest }}
         run: |
           set -euo pipefail
+          git rebase --abort 2>/dev/null || true
           BRANCH="repin/${LATEST}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
