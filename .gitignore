@@ -8,3 +8,6 @@ coverage/
 *.tgz
 .construct/
 **/.construct/
+
+# superpowers plugin local cache
+.superpowers/
