@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { resolve as resolve5, join as join26 } from "path";
+import { resolve as resolve5, join as join27 } from "path";
 import { existsSync as existsSync13, readFileSync as readFileSync14 } from "fs";
 import { pathToFileURL, fileURLToPath as fileURLToPath3 } from "url";
 import { realpathSync as realpathSync2 } from "fs";
@@ -858,7 +858,7 @@ function renderComponents(ds) {
 }
 function renderScreens(ds) {
   const out2 = [`# Screens & flows`, ``];
-  if (ds.navigation && ds.navigation.trim()) {
+  if (ds.navigation?.trim()) {
     out2.push(`## Shell & navigation`, ``, ds.navigation.trim(), ``);
   }
   out2.push(`## Screens`, ``);
@@ -1087,7 +1087,7 @@ function mergeBrainstorm(briefIn, brainstormIn, now, warn = () => {
 }
 
 // src/research/registry.ts
-import { join as join15 } from "path";
+import { join as join16 } from "path";
 
 // src/research/fetch.ts
 var UA = "construct/0.x (+https://github.com/maxgfr/construct)";
@@ -1530,11 +1530,13 @@ import { createHash as createHash2 } from "crypto";
 import { existsSync as existsSync32, readFileSync as readFileSync5 } from "fs";
 import { join as join10 } from "path";
 import { join as join11 } from "path";
+import { statSync as statSync4 } from "fs";
+import { join as join12 } from "path";
 import { createInterface } from "readline";
 import { basename as basename22 } from "path";
 import { join as join9 } from "path";
 import { existsSync as existsSync42, mkdirSync as mkdirSync22, readFileSync as readFileSync6, writeFileSync as writeFileSync32 } from "fs";
-import { join as join12, resolve as resolve2 } from "path";
+import { join as join13, resolve as resolve2 } from "path";
 var __defProp = Object.defineProperty;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __esm = (fn, res) => function __init() {
@@ -1550,9 +1552,9 @@ var EXTRACTOR_VERSION;
 var init_types = __esm({
   "src/types.ts"() {
     "use strict";
-    ENGINE_VERSION = "2.12.0";
+    ENGINE_VERSION = "2.13.0";
     SCHEMA_VERSION = 4;
-    EXTRACTOR_VERSION = 9;
+    EXTRACTOR_VERSION = 10;
   }
 });
 function sh2(cmd, args2, opts = {}) {
@@ -1848,6 +1850,7 @@ function walk(root, opts = {}) {
   const maxFileBytes = opts.maxFileBytes ?? 1024 * 1024;
   const maxFiles = opts.maxFiles ?? DEFAULT_MAX_FILES;
   const useGitignore = opts.gitignore !== false;
+  const ignoreDirs = opts.ignoreDirs ? new Set(opts.ignoreDirs) : IGNORE_DIRS;
   const out2 = [];
   let capped = false;
   let excluded = 0;
@@ -1896,7 +1899,7 @@ function walk(root, opts = {}) {
         continue;
       }
       if (st.isDirectory()) {
-        if (IGNORE_DIRS.has(name2)) continue;
+        if (ignoreDirs.has(name2)) continue;
         if (isLink) continue;
         if (useGitignore && rules.length && isIgnored(rules, rel, true)) continue;
         stack.push({ dir: abs, rel, rules });
@@ -1994,6 +1997,7 @@ var init_walk = __esm({
       ".cache",
       "tmp",
       ".ultraindex",
+      ".codeindex",
       "Pods",
       "DerivedData",
       ".terraform",
@@ -2431,7 +2435,7 @@ var init_js_ts = __esm({
     RULES = [
       { re: /^\s*export\s+(?:async\s+)?function\s+(?<name>[\w$]+)/, kind: "function", exported: true },
       { re: /^\s*export\s+default\s+(?:async\s+)?function\s+(?<name>[\w$]+)/, kind: "function", exported: true },
-      { re: /^\s*export\s+default\s+(?:abstract\s+)?class\s+(?<name>[\w$]+)/, kind: "class", exported: true },
+      { re: /^\s*export\s+default\s+(?:abstract\s+)?class\s+(?!extends\b)(?<name>[\w$]+)/, kind: "class", exported: true },
       { re: /^\s*(?:async\s+)?function\s+(?<name>[\w$]+)/, kind: "function", exported: false },
       { re: /^\s*export\s+(?:abstract\s+)?class\s+(?<name>[\w$]+)/, kind: "class", exported: true },
       { re: /^\s*(?:abstract\s+)?class\s+(?<name>[\w$]+)/, kind: "class", exported: false },
@@ -7266,7 +7270,7 @@ function readReceiver(node) {
   const name2 = obj ? readName(obj) : void 0;
   return name2 && /^[A-Za-z_]\w*$/.test(name2) ? name2 : void 0;
 }
-function collectCalls(root, spec) {
+function collectCalls(root, spec, maxCalls = MAX_CALLS) {
   if (!spec.calls) return [];
   const out2 = [];
   const seen = /* @__PURE__ */ new Set();
@@ -7297,7 +7301,7 @@ function collectCalls(root, spec) {
   };
   visit(root);
   out2.sort((a, b) => byStr(a.name, b.name) || a.line - b.line);
-  return out2.slice(0, MAX_CALLS);
+  return out2.slice(0, maxCalls);
 }
 function collectImportedNames(root, spec) {
   if (!spec.imports?.import_statement) return [];
@@ -7324,7 +7328,7 @@ function collectImportedNames(root, spec) {
   visit(root);
   return [...found].sort(byStr).slice(0, MAX_IMPORTED_NAMES);
 }
-function extractAst(rel, ext, content) {
+function extractAst(rel, ext, content, opts = {}) {
   const key = grammarKeyForExt(ext);
   if (!key || !grammarReady(key)) return void 0;
   const spec = SPECS[key];
@@ -7510,7 +7514,7 @@ function extractAst(rel, ext, content) {
     }
     const refs = collectImports(root, spec);
     const idents = collectRefIdents(root, new Set(symbols.map((s) => s.name)));
-    const calls = collectCalls(root, spec);
+    const calls = collectCalls(root, spec, opts.maxCalls);
     const importedNames = collectImportedNames(root, spec);
     let pkg;
     if (spec.lang === "java") {
@@ -7959,12 +7963,12 @@ function extractImports(ext, content) {
   }
   return [...specs].map((spec) => ({ kind: "import", spec }));
 }
-function collectCallsRegex(content, symbols = []) {
+function collectCallsRegex(content, symbols = [], maxCalls = 512) {
   const out2 = /* @__PURE__ */ new Map();
   const ownDefLines = new Set(symbols.map((s) => `${s.name} ${s.line}`));
   const lines = content.split("\n");
   const CALL_RE = /(?:\bnew\s+)?(?:([A-Za-z_$][\w$]*)\s*\.\s*)?([A-Za-z_$][\w$]*)\s*\(/g;
-  for (let i2 = 0; i2 < lines.length && out2.size < 512; i2++) {
+  for (let i2 = 0; i2 < lines.length && out2.size < maxCalls; i2++) {
     const line2 = lines[i2];
     const trimmed = line2.trimStart();
     if (trimmed.startsWith("//") || trimmed.startsWith("#") || trimmed.startsWith("*")) continue;
@@ -7979,7 +7983,7 @@ function collectCallsRegex(content, symbols = []) {
     CALL_RE.lastIndex = 0;
     let m;
     const fallbackExcluded = /* @__PURE__ */ new Set();
-    while ((m = CALL_RE.exec(line2)) !== null && out2.size < 512) {
+    while ((m = CALL_RE.exec(line2)) !== null && out2.size < maxCalls) {
       const receiver = m[1];
       const name2 = m[2];
       if (name2.length < 2 || CALL_KEYWORDS.has(name2)) continue;
@@ -7996,8 +8000,8 @@ function collectCallsRegex(content, symbols = []) {
   }
   return [...out2.values()].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : a.line - b.line);
 }
-function extractCode(rel, ext, content) {
-  const ast = extractAst(rel, ext, content);
+function extractCode(rel, ext, content, opts = {}) {
+  const ast = extractAst(rel, ext, content, { maxCalls: opts.maxCallsPerFile });
   const symbols = (ast ? ast.symbols : extractSymbols(rel, ext, content)).slice(0, 400);
   const known = new Set(symbols.map((s) => s.name));
   const reexports = extractReexports(rel, content, symbols).filter((s) => !known.has(s.name));
@@ -8013,7 +8017,7 @@ function extractCode(rel, ext, content) {
     // collector otherwise, so caller indexes exist without the wasm sidecar.
     // `symbols` (this file's own regex-extracted defs) lets the collector
     // exclude a definition's own name+line from its call candidates.
-    calls: ast ? ast.calls : collectCallsRegex(content, symbols),
+    calls: ast ? ast.calls : collectCallsRegex(content, symbols, opts.maxCallsPerFile),
     importedNames: ast?.importedNames
   };
 }
@@ -8089,7 +8093,8 @@ function scanRepo(root, opts = {}) {
   const { files: walked, capped, excluded } = walk(root, {
     maxFileBytes: opts.maxBytes,
     maxFiles: opts.maxFiles,
-    gitignore: opts.gitignore
+    gitignore: opts.gitignore,
+    ignoreDirs: opts.ignoreDirs
   });
   const outPrefix = opts.out ? opts.out.replace(/\/+$/, "") + "/" : null;
   const files = [];
@@ -8138,7 +8143,7 @@ function scanRepo(root, opts = {}) {
       } else if (kind === "doc") {
         record.title = basename2(f.rel);
       } else if (kind === "code") {
-        const code = extractCode(f.rel, f.ext, content);
+        const code = extractCode(f.rel, f.ext, content, { maxCallsPerFile: opts.maxCallsPerFile });
         record.title = basename2(f.rel);
         record.summary = code.summary;
         record.symbols = code.symbols;
@@ -10962,16 +10967,12 @@ function resolveEmbedModelDir(repo) {
 function hasEmbedModel(repo) {
   return resolveEmbedModelDir(repo) !== void 0;
 }
-function loadEmbedModel(dir) {
-  if (!dir) return void 0;
-  const path = join10(dir, "model.json");
-  if (!existsSync32(path)) return void 0;
-  const raw = JSON.parse(readFileSync5(path, "utf8"));
-  const { modelId, dim, vocab, weights } = raw;
-  if (typeof modelId !== "string" || !modelId) throw new Error(`embed model: missing modelId in ${path}`);
-  if (!Number.isInteger(dim) || dim <= 0) throw new Error(`embed model: bad dim ${dim} in ${path}`);
+function parseEmbedModel(raw, source) {
+  const { modelId, dim, vocab, weights, unk: rawUnk } = raw ?? {};
+  if (typeof modelId !== "string" || !modelId) throw new Error(`embed model: missing modelId in ${source}`);
+  if (!Number.isInteger(dim) || dim <= 0) throw new Error(`embed model: bad dim ${dim} in ${source}`);
   if (!Array.isArray(vocab) || !Array.isArray(weights) || vocab.length !== weights.length) {
-    throw new Error(`embed model: vocab/weights length mismatch in ${path}`);
+    throw new Error(`embed model: vocab/weights length mismatch in ${source}`);
   }
   const vocabSize = vocab.length;
   const flat = new Float64Array(vocabSize * dim);
@@ -10986,9 +10987,16 @@ function loadEmbedModel(dir) {
     }
     for (let d = 0; d < dim; d++) flat[i2 * dim + d] = Number(row[d]);
   }
-  const unk = typeof raw.unk === "string" ? raw.unk : "[UNK]";
+  const unk = typeof rawUnk === "string" ? rawUnk : "[UNK]";
   const unkId = vmap.has(unk) ? vmap.get(unk) : -1;
   return { modelId, dim, unk, unkId, vocabSize, vocab: vmap, weights: flat };
+}
+function loadEmbedModel(dir) {
+  if (!dir) return void 0;
+  const path = join10(dir, "model.json");
+  if (!existsSync32(path)) return void 0;
+  const raw = JSON.parse(readFileSync5(path, "utf8"));
+  return parseEmbedModel(raw, path);
 }
 function resolveEmbedPullUrl() {
   const env = process.env.CODEINDEX_EMBED_URL;
@@ -11701,6 +11709,7 @@ var init_viz = __esm({
 });
 var mcp_exports = {};
 __export(mcp_exports, {
+  memoizedEmbedModel: () => memoizedEmbedModel,
   memoizedEmbeddingIndex: () => memoizedEmbeddingIndex,
   runMcpServer: () => runMcpServer,
   scanFingerprint: () => scanFingerprint
@@ -11723,6 +11732,19 @@ async function memoizedEmbeddingIndex(key, build) {
   const index = await build();
   embeddingIndexCache = { key: cacheKey, index };
   return index;
+}
+function memoizedEmbedModel(modelDir) {
+  let stat;
+  try {
+    stat = statSync4(join12(modelDir, "model.json"));
+  } catch {
+    return void 0;
+  }
+  const key = `${modelDir}:${stat.mtimeMs}:${stat.size}`;
+  if (embedModelCache && embedModelCache.key === key) return embedModelCache.model;
+  const model = loadEmbedModel(modelDir);
+  if (model) embedModelCache = { key, model };
+  return model;
 }
 async function callTool(name2, args2) {
   const repo = str(args2.repo);
@@ -11878,7 +11900,7 @@ async function callTool(name2, args2) {
         }
       }
       const modelDir = resolveEmbedModelDir(repo);
-      const model = modelDir ? loadEmbedModel(modelDir) : void 0;
+      const model = modelDir ? memoizedEmbedModel(modelDir) : void 0;
       if (model) {
         const index = await memoizedEmbeddingIndex(
           { mode: "static", identity: `${modelDir}#${model.modelId}`, scan: scan2 },
@@ -11898,7 +11920,7 @@ async function callTool(name2, args2) {
   }
   if (name2 === "embed_status") {
     const modelDir = resolveEmbedModelDir(repo);
-    const model = modelDir ? loadEmbedModel(modelDir) : void 0;
+    const model = modelDir ? memoizedEmbedModel(modelDir) : void 0;
     const endpoint = resolveEmbedEndpoint();
     const mode = endpoint ? "endpoint" : model ? "static" : "none";
     const status = {
@@ -11977,6 +11999,7 @@ var repoProp;
 var scopeProps;
 var TOOLS;
 var embeddingIndexCache;
+var embedModelCache;
 var init_mcp = __esm({
   "src/mcp.ts"() {
     "use strict";
@@ -12731,8 +12754,11 @@ Flags:
   --exclude <glob>    Exclude matching paths (repeatable)
   --scope <dir>       Restrict to one directory (sugar for --include '<dir>/**')
   --no-gitignore      Do not honor .gitignore files (default: honored)
+  --ignore-dir <name> Directory names to skip (repeatable) \u2014 REPLACES the
+                      default ignored-directory set, never merges with it
   --max-files <n>     Cap walked files (default 20000)
   --max-bytes <n>     Skip files above this size (default 1 MiB)
+  --max-calls <n>     Per-file call-site cap for extraction (default 512)
   --no-ast            Skip tree-sitter grammars even when present (regex tier)
   --config <file>     Rules config for \`rules\` (JSON: [{name, from, to, \u2026}])
   --limit <n>         Max results for \`search\` (default 20)
@@ -12747,7 +12773,7 @@ Flags:
                       each site corroborated|unique-name
 `;
 function parseFlags(args2) {
-  const flags2 = { repo: process.cwd(), include: [], exclude: [], gitignore: true, noAst: false, fuzzy: true, semantic: false };
+  const flags2 = { repo: process.cwd(), include: [], exclude: [], gitignore: true, ignoreDirs: [], noAst: false, fuzzy: true, semantic: false };
   for (let i2 = 0; i2 < args2.length; i2++) {
     const a = args2[i2];
     const next = () => {
@@ -12770,8 +12796,10 @@ function parseFlags(args2) {
     else if (a === "--exclude") flags2.exclude.push(next());
     else if (a === "--scope") flags2.scope = next();
     else if (a === "--no-gitignore") flags2.gitignore = false;
+    else if (a === "--ignore-dir") flags2.ignoreDirs.push(next());
     else if (a === "--max-files") flags2.maxFiles = num();
     else if (a === "--max-bytes") flags2.maxBytes = num();
+    else if (a === "--max-calls") flags2.maxCalls = num();
     else if (a === "--ignore-case") flags2.ignoreCase = true;
     else if (a === "--max-hits") flags2.maxHits = num();
     else if (a === "--budget-tokens") flags2.budgetTokens = num();
@@ -12798,8 +12826,10 @@ function scanOptions(flags2) {
     exclude: flags2.exclude.length ? flags2.exclude : void 0,
     scope: flags2.scope,
     gitignore: flags2.gitignore,
+    ignoreDirs: flags2.ignoreDirs.length ? flags2.ignoreDirs : void 0,
     maxFiles: flags2.maxFiles,
-    maxBytes: flags2.maxBytes
+    maxBytes: flags2.maxBytes,
+    maxCallsPerFile: flags2.maxCalls
   };
 }
 async function runCli(argv) {
@@ -12824,7 +12854,7 @@ async function runCli(argv) {
     if (!flags2.out) throw new Error("index needs --out <dir>");
     const outDir = flags2.out;
     mkdirSync22(outDir, { recursive: true });
-    const cachePath = join12(outDir, "cache.json");
+    const cachePath = join13(outDir, "cache.json");
     let cache;
     try {
       const parsed = JSON.parse(readFileSync6(cachePath, "utf8"));
@@ -12834,8 +12864,8 @@ async function runCli(argv) {
     } catch {
     }
     const { scan: scan2, graph, symbols } = buildIndexArtifacts(flags2.repo, { ...scanOptions(flags2), cache, out: outDir });
-    writeFileSync32(join12(outDir, "graph.json"), renderGraphJson(graph));
-    writeFileSync32(join12(outDir, "symbols.json"), renderSymbolsJson(symbols));
+    writeFileSync32(join13(outDir, "graph.json"), renderGraphJson(graph));
+    writeFileSync32(join13(outDir, "symbols.json"), renderSymbolsJson(symbols));
     const files = {};
     for (const f of scan2.files) {
       const entry = { hash: f.hash, record: f, size: f.size };
@@ -12852,7 +12882,7 @@ async function runCli(argv) {
     const model = modelDir ? loadEmbedModel(modelDir) : void 0;
     if (model) {
       const index = buildEmbeddingIndex(scan2, model);
-      writeFileSync32(join12(outDir, "embeddings.bin"), serializeEmbeddings(index));
+      writeFileSync32(join13(outDir, "embeddings.bin"), serializeEmbeddings(index));
       embedNote = ` + embeddings.bin (${index.records.length} records, model ${model.modelId})`;
     }
     process.stderr.write(`codeindex: ${scan2.files.length} files \u2192 ${outDir}/graph.json + symbols.json${embedNote}${scan2.capped ? " (capped)" : ""}
@@ -12984,14 +13014,14 @@ async function runCli(argv) {
       mkdirSync22(flags2.out, { recursive: true });
       const scan2 = scanRepo(flags2.repo, scanOptions(flags2));
       const index = buildEmbeddingIndex(scan2, model);
-      writeFileSync32(join12(flags2.out, "embeddings.bin"), serializeEmbeddings(index));
+      writeFileSync32(join13(flags2.out, "embeddings.bin"), serializeEmbeddings(index));
       process.stderr.write(`codeindex: ${index.records.length} embedding records \u2192 ${flags2.out}/embeddings.bin (model ${model.modelId})
 `);
     } else if (sub === "pull") {
       const { url, sha256 } = resolveEmbedPullUrl();
-      const destDir = process.env.CODEINDEX_EMBED_DIR ?? join12(flags2.repo, ".codeindex", "models");
+      const destDir = process.env.CODEINDEX_EMBED_DIR ?? join13(flags2.repo, ".codeindex", "models");
       mkdirSync22(destDir, { recursive: true });
-      process.stderr.write(`codeindex: fetching model from ${url} \u2192 ${join12(destDir, "model.json")}
+      process.stderr.write(`codeindex: fetching model from ${url} \u2192 ${join13(destDir, "model.json")}
 `);
       let body2;
       try {
@@ -13003,14 +13033,17 @@ async function runCli(argv) {
         return;
       }
       try {
-        JSON.parse(body2);
-      } catch {
-        process.stderr.write("codeindex: pull failed \u2014 response is not a valid model.json (expected JSON)\n");
+        parseEmbedModel(JSON.parse(body2), url);
+      } catch (e) {
+        process.stderr.write(
+          `codeindex: pull failed \u2014 response is not a valid model.json (${e instanceof Error ? e.message : String(e)}) (nothing written)
+`
+        );
         process.exitCode = 1;
         return;
       }
-      writeFileSync32(join12(destDir, "model.json"), body2);
-      process.stderr.write(`codeindex: model written to ${join12(destDir, "model.json")}
+      writeFileSync32(join13(destDir, "model.json"), body2);
+      process.stderr.write(`codeindex: model written to ${join13(destDir, "model.json")}
 `);
     } else {
       throw new Error("embed needs a subcommand: status | build | pull | serve");
@@ -13520,7 +13553,7 @@ async function techAngle(ctx) {
 
 // src/research/semantic.ts
 import { existsSync as existsSync5 } from "fs";
-import { join as join13, dirname as dirname3 } from "path";
+import { join as join14, dirname as dirname3 } from "path";
 import { fileURLToPath as fileURLToPath2 } from "url";
 var OLLAMA = (process.env.CONSTRUCT_OLLAMA || "http://localhost:11434").replace(/\/$/, "");
 var EMBED_MODEL = process.env.CONSTRUCT_EMBED_MODEL || "nomic-embed-text";
@@ -13580,7 +13613,7 @@ ${it.snippet}`);
 }
 function composeFile() {
   const here = dirname3(fileURLToPath2(import.meta.url));
-  for (const cand of [join13(here, "..", "docker-compose.yml"), join13(here, "docker-compose.yml"), join13(here, "..", "..", "docker-compose.yml")]) {
+  for (const cand of [join14(here, "..", "docker-compose.yml"), join14(here, "docker-compose.yml"), join14(here, "..", "..", "docker-compose.yml")]) {
     if (existsSync5(cand)) return cand;
   }
   return null;
@@ -13623,7 +13656,7 @@ ${up.stderr}`, code: 1 };
 
 // src/research/dossier.ts
 import { mkdirSync as mkdirSync5, writeFileSync as writeFileSync4 } from "fs";
-import { join as join14 } from "path";
+import { join as join15 } from "path";
 var SOURCE_ORDER = ["market", "oss", "docs", "so", "issue", "pr"];
 var SOURCE_LABEL = {
   market: "Market & competitors",
@@ -13684,9 +13717,9 @@ function renderEvidenceMarkdown(evidence, meta) {
 }
 function writeDossier(dir, evidence, meta) {
   mkdirSync5(dir, { recursive: true });
-  const evidenceJson = join14(dir, "evidence.json");
-  const evidenceMd = join14(dir, "EVIDENCE.md");
-  const metaJson = join14(dir, "meta.json");
+  const evidenceJson = join15(dir, "evidence.json");
+  const evidenceMd = join15(dir, "EVIDENCE.md");
+  const metaJson = join15(dir, "meta.json");
   writeFileSync4(evidenceJson, JSON.stringify(evidence, null, 2));
   writeFileSync4(evidenceMd, renderEvidenceMarkdown(evidence, meta));
   writeFileSync4(metaJson, JSON.stringify(meta, null, 2));
@@ -13743,19 +13776,19 @@ async function runResearch(ctx, builtAt) {
     builtAt,
     notes: [...capped.flatMap((r) => r.notes), ...notes]
   };
-  const dir = join15(ctx.runDir, "evidence");
+  const dir = join16(ctx.runDir, "evidence");
   const paths = writeDossier(dir, evidence, meta);
   return { dir, evidence, meta, paths };
 }
 
 // src/render.ts
 import { existsSync as existsSync7, mkdirSync as mkdirSync6, readFileSync as readFileSync8, writeFileSync as writeFileSync6, rmSync as rmSync3 } from "fs";
-import { join as join18, dirname as dirname4 } from "path";
+import { join as join19, dirname as dirname4 } from "path";
 
 // src/srd.ts
-import { join as join16 } from "path";
+import { join as join17 } from "path";
 function srdManifestPath(runDir) {
-  return join16(runDir, "SRD.json");
+  return join17(runDir, "SRD.json");
 }
 function pad3(n) {
   return String(n).padStart(3, "0");
@@ -14538,9 +14571,9 @@ function evNum(id) {
 
 // src/plan.ts
 import { existsSync as existsSync6, readFileSync as readFileSync7, writeFileSync as writeFileSync5 } from "fs";
-import { join as join17 } from "path";
+import { join as join18 } from "path";
 function buildPlanPath(runDir) {
-  return join17(runDir, "BUILD-PLAN.json");
+  return join18(runDir, "BUILD-PLAN.json");
 }
 function milestoneLabel(title) {
   return title.split("\u2014")[0].trim() || title.trim();
@@ -14691,7 +14724,7 @@ function writePlan(runDir, plan) {
 
 // src/render.ts
 function writeFile(out2, rel, content, files) {
-  const abs = join18(out2, rel);
+  const abs = join19(out2, rel);
   mkdirSync6(dirname4(abs), { recursive: true });
   writeFileSync6(abs, content.endsWith("\n") ? content : content + "\n");
   files.push(rel);
@@ -14740,17 +14773,17 @@ function syncTraceability(srd) {
 function emitSRD(srd, opts) {
   const files = [];
   const out2 = opts.out;
-  if (!opts.prd && !opts.noPrd && existsSync7(join18(out2, "requirements", "prd"))) {
+  if (!opts.prd && !opts.noPrd && existsSync7(join19(out2, "requirements", "prd"))) {
     throw new Error("requirements/prd exists from a previous --prd render \u2014 re-run with --prd to regenerate it, or --no-prd to delete it deliberately.");
   }
   syncTraceability(srd);
-  rmSync3(join18(out2, "architecture", "decisions"), { recursive: true, force: true });
-  rmSync3(join18(out2, "design"), { recursive: true, force: true });
-  rmSync3(join18(out2, "prd"), { recursive: true, force: true });
+  rmSync3(join19(out2, "architecture", "decisions"), { recursive: true, force: true });
+  rmSync3(join19(out2, "design"), { recursive: true, force: true });
+  rmSync3(join19(out2, "prd"), { recursive: true, force: true });
   writeFile(out2, "00-overview/VISION.md", renderVision(srd), files);
   writeFile(out2, "00-overview/SCOPE.md", renderScope(srd), files);
   writeFile(out2, "requirements/FUNCTIONAL.md", renderFunctional(srd), files);
-  rmSync3(join18(out2, "requirements", "prd"), { recursive: true, force: true });
+  rmSync3(join19(out2, "requirements", "prd"), { recursive: true, force: true });
   if (opts.prd) {
     for (const fr of srd.functional) {
       writeFile(out2, `requirements/prd/PRD-${fr.id}-${slugTitle(fr.title)}.md`, renderFeaturePRD(fr, srd), files);
@@ -14788,18 +14821,18 @@ function emitSRD(srd, opts) {
   if (opts.merge) {
     writeFile(out2, "SRD.md", renderMergeBundle(srd), files);
   } else {
-    rmSync3(join18(out2, "SRD.md"), { force: true });
+    rmSync3(join19(out2, "SRD.md"), { force: true });
   }
   return { dir: out2, files, srd };
 }
 
 // src/check.ts
-import { existsSync as existsSync9, readFileSync as readFileSync10, readdirSync as readdirSync4, statSync as statSync4 } from "fs";
-import { join as join20, relative, sep as sep2 } from "path";
+import { existsSync as existsSync9, readFileSync as readFileSync10, readdirSync as readdirSync4, statSync as statSync5 } from "fs";
+import { join as join21, relative, sep as sep2 } from "path";
 
 // src/review.ts
 import { existsSync as existsSync8, readFileSync as readFileSync9, writeFileSync as writeFileSync7 } from "fs";
-import { join as join19 } from "path";
+import { join as join20 } from "path";
 var VALID_VERDICTS = ["supported", "partial", "refuted", "unsupported"];
 function loadEvidence(path) {
   if (!existsSync8(path)) return [];
@@ -14855,7 +14888,7 @@ function runReview(runDir, opts = {}) {
   } catch (e) {
     throw new Error(`SRD.json is unreadable: ${e.message}`);
   }
-  const evidence = loadEvidence(join19(runDir, "evidence", "evidence.json"));
+  const evidence = loadEvidence(join20(runDir, "evidence", "evidence.json"));
   const byId = new Map(evidence.map((e) => [e.id, e]));
   const pairs = [];
   for (const c2 of srdClaims(srd)) {
@@ -14886,8 +14919,8 @@ function runReview(runDir, opts = {}) {
     run: runDir,
     pairs: worklist.pairs.map((p) => ({ ...p, verdict: null, note: "" }))
   };
-  writeFileSync7(join19(runDir, "VERIFY.todo.json"), JSON.stringify(todo, null, 2));
-  writeFileSync7(join19(runDir, "VERIFY.md"), renderWorklistMd(worklist, pairs.length, dropped));
+  writeFileSync7(join20(runDir, "VERIFY.todo.json"), JSON.stringify(todo, null, 2));
+  writeFileSync7(join20(runDir, "VERIFY.md"), renderWorklistMd(worklist, pairs.length, dropped));
   return worklist;
 }
 function renderWorklistMd(wl, total, dropped) {
@@ -14944,7 +14977,7 @@ function applyVerdicts(runDir, verdictsPath) {
     });
     seen.add(key(v.claimId, v.evidenceId));
   }
-  const todoPath = join19(runDir, "VERIFY.todo.json");
+  const todoPath = join20(runDir, "VERIFY.todo.json");
   if (existsSync8(todoPath)) {
     try {
       const todo = JSON.parse(readFileSync9(todoPath, "utf8"));
@@ -14967,7 +15000,7 @@ function applyVerdicts(runDir, verdictsPath) {
     }
   }
   const result = reduceVerdicts(verdicts);
-  writeFileSync7(join19(runDir, "VERIFY.json"), JSON.stringify({ ...result, verdicts }, null, 2));
+  writeFileSync7(join20(runDir, "VERIFY.json"), JSON.stringify({ ...result, verdicts }, null, 2));
   return result;
 }
 function reduceVerdicts(verdicts) {
@@ -15052,10 +15085,10 @@ function mdFiles(runDir) {
       continue;
     }
     for (const name2 of entries) {
-      const abs = join20(dir, name2);
+      const abs = join21(dir, name2);
       let st;
       try {
-        st = statSync4(abs);
+        st = statSync5(abs);
       } catch {
         continue;
       }
@@ -15071,7 +15104,7 @@ function mdFiles(runDir) {
   return out2.sort();
 }
 function countProposedIdeas(runDir) {
-  const p = join20(runDir, "brainstorm.json");
+  const p = join21(runDir, "brainstorm.json");
   if (!existsSync9(p)) return 0;
   try {
     const data = JSON.parse(readFileSync10(p, "utf8"));
@@ -15081,7 +15114,7 @@ function countProposedIdeas(runDir) {
   }
 }
 function loadEvidence2(runDir) {
-  const path = join20(runDir, "evidence", "evidence.json");
+  const path = join21(runDir, "evidence", "evidence.json");
   if (!existsSync9(path)) {
     return { evidence: [], note: `No evidence/evidence.json \u2014 grounding coverage is 0 (run \`construct research\` to ground the SRD).` };
   }
@@ -15144,7 +15177,7 @@ function uncoveredPairs(runDir, verdicts) {
     label.set(k, `${v.claimId}\xB7${v.evidenceId}`);
     if (v.verdict) adjudicated.add(k);
   }
-  const todoPath = join20(runDir, "VERIFY.todo.json");
+  const todoPath = join21(runDir, "VERIFY.todo.json");
   if (existsSync9(todoPath)) {
     try {
       const todo = JSON.parse(readFileSync10(todoPath, "utf8"));
@@ -15160,7 +15193,7 @@ function uncoveredPairs(runDir, verdicts) {
   return missing.sort();
 }
 function applySemantic(runDir, result, allowUnverified) {
-  const p = join20(runDir, "VERIFY.json");
+  const p = join21(runDir, "VERIFY.json");
   const skip = (reason, hint) => {
     if (allowUnverified) {
       result.structural.warnings.push(`--semantic: ${reason} \u2014 ${hint}; semantic gate skipped (--allow-unverified).`);
@@ -15208,7 +15241,7 @@ function checkDesign(runDir, srd, errors, warnings) {
   const ds = srd.design;
   if (!ds) return;
   for (const f of DESIGN_REQUIRED_FILES) {
-    if (!existsSync9(join20(runDir, f))) errors.push(`Missing required design file: ${f} (re-render at --level complex).`);
+    if (!existsSync9(join21(runDir, f))) errors.push(`Missing required design file: ${f} (re-render at --level complex).`);
   }
   const frIds = new Set(srd.functional.map((f) => f.id));
   if (ds.components.length === 0) errors.push("Design system has no components \u2014 a complex SRD's design must name its UI components.");
@@ -15230,7 +15263,7 @@ function checkDesign(runDir, srd, errors, warnings) {
   for (const r of ds.accessibility.requirements) {
     if (!r.acceptance.length) errors.push(`Accessibility requirement ${r.id} has no acceptance criteria.`);
   }
-  const tokenDoc = join20(runDir, "design", "DESIGN-TOKENS.md");
+  const tokenDoc = join21(runDir, "design", "DESIGN-TOKENS.md");
   if (existsSync9(tokenDoc) && readFileSync10(tokenDoc, "utf8").includes(DESIGN_TOKENS_SEEDED_BANNER)) {
     warnings.push("Design tokens are still seeded defaults \u2014 replace them with the product's real brand values (see references/design-system-authoring.md).");
   }
@@ -15239,11 +15272,11 @@ function checkModules(runDir, srd, errors, warnings) {
   const mods = srd.modules;
   if (!mods?.length) return;
   const moduleIds = new Set(mods.map((m) => m.id));
-  if (!existsSync9(join20(runDir, "prd", "README.md"))) {
+  if (!existsSync9(join21(runDir, "prd", "README.md"))) {
     errors.push(`Missing required module-PRD index: prd/README.md (re-render).`);
   }
   for (const m of mods) {
-    if (!existsSync9(join20(runDir, "prd", m.id, "PRD.md"))) {
+    if (!existsSync9(join21(runDir, "prd", m.id, "PRD.md"))) {
       errors.push(`Missing required module PRD: prd/${m.id}/PRD.md (re-render).`);
     }
     for (const dep of m.dependsOn) {
@@ -15274,7 +15307,7 @@ function checkRun(runDir, opts = {}) {
     resolved: []
   };
   for (const f of REQUIRED_FILES) {
-    if (!existsSync9(join20(runDir, f))) errors.push(`Missing required file: ${f} (run \`construct render --out ${runDir}\`).`);
+    if (!existsSync9(join21(runDir, f))) errors.push(`Missing required file: ${f} (run \`construct render --out ${runDir}\`).`);
   }
   const manifest = srdManifestPath(runDir);
   if (!existsSync9(manifest)) {
@@ -15289,7 +15322,7 @@ function checkRun(runDir, opts = {}) {
     return { ok: false, structural: { ok: false, errors, warnings }, coverage: emptyCoverage };
   }
   for (const rel of mdFiles(runDir)) {
-    const text = readFileSync10(join20(runDir, rel), "utf8");
+    const text = readFileSync10(join21(runDir, rel), "utf8");
     if (DECISION_RE.test(text)) errors.push(`Unresolved decision (\u{1F9E0}) in ${rel} \u2014 resolve it before the SRD is complete.`);
     else if (PLACEHOLDER_RE.test(text)) warnings.push(`Possible leftover placeholder (TODO/TBD/FIXME) in ${rel} \u2014 confirm it is intentional.`);
   }
@@ -15365,7 +15398,7 @@ function checkRun(runDir, opts = {}) {
     applySemantic(runDir, result, opts.allowUnverified ?? false);
   } else if (coverage.resolved.length > 0) {
     const citedClaims = coverage.frGrounded + coverage.nfrGrounded + coverage.adrGrounded;
-    result.semanticSkipped = { citedClaims, verifyExists: existsSync9(join20(runDir, "VERIFY.json")) };
+    result.semanticSkipped = { citedClaims, verifyExists: existsSync9(join21(runDir, "VERIFY.json")) };
   }
   return result;
 }
@@ -15427,9 +15460,9 @@ function formatCheckReport(r, runDir) {
 
 // src/analyze.ts
 import { existsSync as existsSync10, readFileSync as readFileSync11 } from "fs";
-import { join as join21 } from "path";
+import { join as join23 } from "path";
 function loadEvidence3(runDir) {
-  const path = join21(runDir, "evidence", "evidence.json");
+  const path = join23(runDir, "evidence", "evidence.json");
   if (!existsSync10(path)) return [];
   try {
     const data = JSON.parse(readFileSync11(path, "utf8"));
@@ -15441,7 +15474,7 @@ function loadEvidence3(runDir) {
   }
 }
 function loadMetaNotes(runDir) {
-  const path = join21(runDir, "evidence", "meta.json");
+  const path = join23(runDir, "evidence", "meta.json");
   if (!existsSync10(path)) return [];
   try {
     const meta = JSON.parse(readFileSync11(path, "utf8"));
@@ -15521,7 +15554,7 @@ function formatGapReport(r, runDir) {
 
 // src/verify.ts
 import { existsSync as existsSync11, readFileSync as readFileSync12 } from "fs";
-import { isAbsolute, join as join23, resolve as resolve3 } from "path";
+import { isAbsolute, join as join24, resolve as resolve3 } from "path";
 var TEST_FILE_RE = /\.(test|spec)\.[^./]+$|_(test|spec)\.[^./]+$|(^|\/)test_[^/]+\.[^./]+$/i;
 var TEST_SUFFIX_RE = /(^|\/)[^/]*[A-Z]\w*Tests?\.(java|kt|kts|cs|scala|groovy)$/;
 var TEST_DIR_RE = /(^|\/)(tests?|__tests__|spec|specs|e2e)\//i;
@@ -15629,7 +15662,7 @@ function verifyRun(runDir, opts = {}) {
   }
   for (const t of doneTasks) {
     for (const rel of [...t.artifacts, ...t.tests]) {
-      if (!existsSync11(join23(appDir, rel))) errors.push(`${t.id} is done but its declared file is missing: ${rel}.`);
+      if (!existsSync11(join24(appDir, rel))) errors.push(`${t.id} is done but its declared file is missing: ${rel}.`);
     }
     if (t.frIds.length && t.tests.length === 0) {
       warnings.push(`${t.id} is done but declares no tests \u2014 record the test files that exercise ${t.frIds.join(", ")}.`);
@@ -15718,10 +15751,10 @@ function formatVerifyReport(r, runDir) {
 
 // src/orchestrate.ts
 import { existsSync as existsSync12, mkdirSync as mkdirSync7, readFileSync as readFileSync13, writeFileSync as writeFileSync8 } from "fs";
-import { join as join25, resolve as resolve4 } from "path";
+import { join as join26, resolve as resolve4 } from "path";
 
 // src/orchestrate-templates.ts
-import { join as join24 } from "path";
+import { join as join25 } from "path";
 var ADR_LENSES = ["feasibility", "operations-cost", "user-value"];
 function oneWriterFooter(runAbs, sanctionedWrite) {
   return `
@@ -15731,7 +15764,7 @@ Return ONLY the structured output specified above. Subagents NEVER write into th
 
 ${sanctionedWrite}` : ""}
 
-Exception for oversized prose: if a justification is too large to return, write ONLY to \`${join24(runAbs, "orchestration", "out")}/<role>-<batch>.md\` (a file namespaced to you alone) and return its path.
+Exception for oversized prose: if a justification is too large to return, write ONLY to \`${join25(runAbs, "orchestration", "out")}/<role>-<batch>.md\` (a file namespaced to you alone) and return its path.
 `;
 }
 var RESEARCH_SCHEMA = {
@@ -15871,7 +15904,7 @@ var FOLD_PREAMBLE = {
 };
 function phaseWorkflowScript(ph, runAbs, engineAbs, units, adr) {
   const spec = phaseSpec(ph.name);
-  const scriptPath = join24(runAbs, "orchestration", `${ph.name}.workflow.mjs`);
+  const scriptPath = join25(runAbs, "orchestration", `${ph.name}.workflow.mjs`);
   const meta = { name: `construct-${ph.name}`, description: spec.description(units.length), phases: [{ title: spec.title }] };
   const adrConsts = adr ? [`const ADR = ${JSON.stringify(adr.adr)}`, `const EVIDENCE = ${JSON.stringify(adr.evidence)}`] : [];
   const tail = FOLD_PREAMBLE[ph.name] ?? [];
@@ -15937,11 +15970,11 @@ ${footer}`,
 
 You are an adversarial skeptic verifying that each SRD claim is actually SUPPORTED by the evidence it cites (references/orchestration.md Pattern 4). Assume the citation is decorative until the evidence proves otherwise.
 
-Worklist: \`${join24(runAbs, "VERIFY.todo.json")}\` (\`{ pairs: [...] }\`; each pair has \`claimId\`, \`kind\`, \`claim\`, \`evidenceId\`, \`source\`, \`digest\`). Handle ONLY the pairs whose \`claimId::evidenceId\` key is named in your prompt (\`PAIRS=<key,\u2026>\`). If a PAIRS key is no longer in the worklist, skip it and say so in your note.
+Worklist: \`${join25(runAbs, "VERIFY.todo.json")}\` (\`{ pairs: [...] }\`; each pair has \`claimId\`, \`kind\`, \`claim\`, \`evidenceId\`, \`source\`, \`digest\`). Handle ONLY the pairs whose \`claimId::evidenceId\` key is named in your prompt (\`PAIRS=<key,\u2026>\`). If a PAIRS key is no longer in the worklist, skip it and say so in your note.
 
 For EACH of your pairs:
 
-1. Read the pair's \`claim\` and its \`digest\` (the cited item's snippet). You may open the evidence source URL (see \`${join24(runAbs, "evidence", "EVIDENCE.md")}\`) for more context. A digest flagged \`[low-signal snippet \u2026]\` must be adjudicated skeptically \u2014 never grant \`supported\` on the URL alone.
+1. Read the pair's \`claim\` and its \`digest\` (the cited item's snippet). You may open the evidence source URL (see \`${join25(runAbs, "evidence", "EVIDENCE.md")}\`) for more context. A digest flagged \`[low-signal snippet \u2026]\` must be adjudicated skeptically \u2014 never grant \`supported\` on the URL alone.
 2. Judge the claim\u2194evidence link:
    - \`supported\` \u2014 the cited evidence directly backs the claim.
    - \`partial\` \u2014 it backs a weaker version of the claim.
@@ -15968,9 +16001,9 @@ Return (structured output): \`{ "lens", "score", "rationale" }\` \u2014 a 1\u201
 ${footer}`,
     builder: `# Contract: builder
 
-You build ONE task of \`${join24(runAbs, "BUILD-PLAN.json")}\`, test-first, in your OWN isolated git worktree (references/orchestration.md Pattern 5 + references/build-playbook.md). Your prompt names your task (\`TASK=<id>\`). If your TASK id is no longer in the worklist, skip it and say so in your summary.
+You build ONE task of \`${join25(runAbs, "BUILD-PLAN.json")}\`, test-first, in your OWN isolated git worktree (references/orchestration.md Pattern 5 + references/build-playbook.md). Your prompt names your task (\`TASK=<id>\`). If your TASK id is no longer in the worklist, skip it and say so in your summary.
 
-1. Read your task in the plan. Its \`acceptance\` entries POINT into \`${join24(runAbs, "SRD.json")}\` (\`functional[frId].acceptance[index]\`) \u2014 the SRD stays the single source of truth for what "done" means.
+1. Read your task in the plan. Its \`acceptance\` entries POINT into \`${join25(runAbs, "SRD.json")}\` (\`functional[frId].acceptance[index]\`) \u2014 the SRD stays the single source of truth for what "done" means.
 2. Work ONLY inside your own git worktree (the workflow dispatches you with \`isolation: 'worktree'\`). TDD each acceptance criterion: failing test first, then make it pass \u2014 and **every test names its FR id** (e.g. \`describe("FR-001 \u2026")\`; that is what \`verify\` greps for).
 3. Run the app's test command yourself in the worktree. Do NOT run \`verify\` or the milestone gate \u2014 the orchestrator referees after folding the whole frontier.
 4. NEVER edit \`BUILD-PLAN.json\`, \`SRD.json\` or anything in the run folder, and never touch files another frontier task owns \u2014 app-shared files (routing, schema, the test harness) are serialised by the orchestrator.
@@ -15982,7 +16015,7 @@ ${builderFooter}`
 function runbookMd(phases, runAbs, engineAbs) {
   const status = phases.map((p) => `| ${p.name} | \`${p.worklist}\` | ${p.ready ? `ready (${p.items} unit(s))` : "not ready"} | \`${p.prerequisite}\` |`).join("\n");
   const engine = `node ${engineAbs}`;
-  const agents = join24(runAbs, "orchestration", "agents");
+  const agents = join25(runAbs, "orchestration", "agents");
   return `# construct \u2014 sequential RUNBOOK (eco / no-subagent fallback)
 
 Run: \`${runAbs}\` \xB7 Engine: \`${engine}\`
@@ -16000,17 +16033,17 @@ ${status}
 
 ## The loop (play every role yourself, one unit at a time)
 
-1. **Interview \u2192 brief** (if not done): \`${engine} init --idea "<one-liner>" --out ${runAbs}\`, then fill \`${join24(runAbs, "brief.json")}\` one question at a time (references/interview-playbook.md).
-2. **Research, then dig every gap** \u2014 \`${engine} research --out ${runAbs}\` builds the dossier; \`${engine} analyze --out ${runAbs}\` names each gap + its drill command. For EVERY gap, apply \`${join24(agents, "researcher.md")}\` yourself (run the drill, WebSearch what it misses, keep the URLs worth grounding). Fold in serially with ONE pinned re-run: \`${engine} research --out ${runAbs} --angles market,oss,tech --url <u,...>\` \u2192 re-run \`analyze\`. Loop until clean or the user stops you.
+1. **Interview \u2192 brief** (if not done): \`${engine} init --idea "<one-liner>" --out ${runAbs}\`, then fill \`${join25(runAbs, "brief.json")}\` one question at a time (references/interview-playbook.md).
+2. **Research, then dig every gap** \u2014 \`${engine} research --out ${runAbs}\` builds the dossier; \`${engine} analyze --out ${runAbs}\` names each gap + its drill command. For EVERY gap, apply \`${join25(agents, "researcher.md")}\` yourself (run the drill, WebSearch what it misses, keep the URLs worth grounding). Fold in serially with ONE pinned re-run: \`${engine} research --out ${runAbs} --angles market,oss,tech --url <u,...>\` \u2192 re-run \`analyze\`. Loop until clean or the user stops you.
 3. **Render**: \`${engine} render --out ${runAbs} --level complex\`, then enrich the SRD (SKILL.md step 4).
-4. **Claim-support review** \u2014 \`${engine} review --out ${runAbs}\` writes \`${join24(runAbs, "VERIFY.todo.json")}\`. For EVERY pair, apply \`${join24(agents, "claim-reviewer.md")}\` yourself (verdict + note into a \`verdicts.json\`). Then fold: \`${engine} review --apply verdicts.json --out ${runAbs}\` and gate: \`${engine} check --out ${runAbs} --semantic\` (must exit 0 before presenting).
-5. **Judge panel \u2014 only for ONE genuinely contested ADR** \u2014 apply \`${join24(agents, "adr-judge.md")}\` yourself three times (feasibility / operations-cost / user-value) over the pasted ADR + its cited evidence. Majority (\u22652 lenses \u22653) \u2192 one line per lens under *Alternatives considered*, flip \`proposed \u2192 accepted\` in \`${join24(runAbs, "SRD.json")}\`, re-emit: \`${engine} render --out ${runAbs} --from-srd\`.
-6. **Build the frontier** \u2014 per ready task (\`${engine} status --out ${runAbs} --json\` \u2192 \`frontier\`), apply \`${join24(agents, "builder.md")}\` yourself (sequentially you may work in the app dir directly \u2014 no worktree needed); fold artifacts/tests/status into \`${join24(runAbs, "BUILD-PLAN.json")}\`, then \`${engine} verify --out ${runAbs}\`. Milestone gate once the frontier is folded: \`${engine} verify --out ${runAbs} --run-tests --strict\`.
+4. **Claim-support review** \u2014 \`${engine} review --out ${runAbs}\` writes \`${join25(runAbs, "VERIFY.todo.json")}\`. For EVERY pair, apply \`${join25(agents, "claim-reviewer.md")}\` yourself (verdict + note into a \`verdicts.json\`). Then fold: \`${engine} review --apply verdicts.json --out ${runAbs}\` and gate: \`${engine} check --out ${runAbs} --semantic\` (must exit 0 before presenting).
+5. **Judge panel \u2014 only for ONE genuinely contested ADR** \u2014 apply \`${join25(agents, "adr-judge.md")}\` yourself three times (feasibility / operations-cost / user-value) over the pasted ADR + its cited evidence. Majority (\u22652 lenses \u22653) \u2192 one line per lens under *Alternatives considered*, flip \`proposed \u2192 accepted\` in \`${join25(runAbs, "SRD.json")}\`, re-emit: \`${engine} render --out ${runAbs} --from-srd\`.
+6. **Build the frontier** \u2014 per ready task (\`${engine} status --out ${runAbs} --json\` \u2192 \`frontier\`), apply \`${join25(agents, "builder.md")}\` yourself (sequentially you may work in the app dir directly \u2014 no worktree needed); fold artifacts/tests/status into \`${join25(runAbs, "BUILD-PLAN.json")}\`, then \`${engine} verify --out ${runAbs}\`. Milestone gate once the frontier is folded: \`${engine} verify --out ${runAbs} --run-tests --strict\`.
 
 The adversarial SRD review (Pattern 2) stays a single fresh-eyes pass by design \u2014 run it
 per references/adversarial-review.md; it is deliberately not a fan-out and not emitted here.
 
-With subagents available, prefer the emitted workflows instead: \`orchestrate --out ${runAbs} --phase <p>\` then \`Workflow({ scriptPath: "${join24(runAbs, "orchestration", "<p>.workflow.mjs")}" })\` \u2014 you stay the sole writer either way.
+With subagents available, prefer the emitted workflows instead: \`orchestrate --out ${runAbs} --phase <p>\` then \`Workflow({ scriptPath: "${join25(runAbs, "orchestration", "<p>.workflow.mjs")}" })\` \u2014 you stay the sole writer either way.
 `;
 }
 
@@ -16028,7 +16061,7 @@ function loadSrd(runDir) {
   }
 }
 function loadDossier(runDir) {
-  const path = join25(runDir, "evidence", "evidence.json");
+  const path = join26(runDir, "evidence", "evidence.json");
   if (!existsSync12(path)) return [];
   try {
     const data = JSON.parse(readFileSync13(path, "utf8"));
@@ -16040,7 +16073,7 @@ function loadDossier(runDir) {
   }
 }
 function researchUnits(runDir, engineAbs) {
-  if (!existsSync12(join25(runDir, "brief.json")) || !existsSync12(join25(runDir, "evidence", "evidence.json"))) return null;
+  if (!existsSync12(join26(runDir, "brief.json")) || !existsSync12(join26(runDir, "evidence", "evidence.json"))) return null;
   try {
     const r = analyzeRun(runDir);
     const labels = [
@@ -16060,7 +16093,7 @@ function researchUnits(runDir, engineAbs) {
 function listPhases(runDir, engineAbs) {
   const run2 = resolve4(runDir);
   const gaps = researchUnits(run2, engineAbs);
-  const todoPath = join25(run2, "VERIFY.todo.json");
+  const todoPath = join26(run2, "VERIFY.todo.json");
   let pairKeys = null;
   if (existsSync12(todoPath)) {
     try {
@@ -16080,7 +16113,7 @@ function listPhases(runDir, engineAbs) {
     {
       name: "research",
       ready: gaps !== null,
-      worklist: join25(run2, "evidence", "evidence.json"),
+      worklist: join26(run2, "evidence", "evidence.json"),
       items: gaps?.length ?? 0,
       ids: gaps ?? [],
       prerequisite: `node ${engineAbs} research --out ${run2}`
@@ -16104,7 +16137,7 @@ function listPhases(runDir, engineAbs) {
     {
       name: "build",
       ready: frontier !== null,
-      worklist: join25(run2, "BUILD-PLAN.json"),
+      worklist: join26(run2, "BUILD-PLAN.json"),
       items: frontier?.length ?? 0,
       ids: frontier ?? [],
       prerequisite: renderCmd
@@ -16161,9 +16194,9 @@ function orchestrateRun(runDir, engineAbs, opts = {}) {
       `phase "adr-judges": not emitted by default (a 3-lens panel over ONE contested ADR) \u2014 emit it explicitly: orchestrate --out ${run2} --phase adr-judges --adr <id> (this run's ADRs: ${adrPhase.ids.join(", ")}).`
     );
   }
-  const orchDir = join25(run2, "orchestration");
-  const agentsDir = join25(orchDir, "agents");
-  mkdirSync7(join25(orchDir, "out"), { recursive: true });
+  const orchDir = join26(run2, "orchestration");
+  const agentsDir = join26(orchDir, "agents");
+  mkdirSync7(join26(orchDir, "out"), { recursive: true });
   mkdirSync7(agentsDir, { recursive: true });
   const written = [];
   let idea = "";
@@ -16172,7 +16205,7 @@ function orchestrateRun(runDir, engineAbs, opts = {}) {
   } catch {
   }
   for (const [name2, content] of Object.entries(agentContracts(run2, engineAbs, idea))) {
-    const p = join25(agentsDir, `${name2}.md`);
+    const p = join26(agentsDir, `${name2}.md`);
     writeFileSync8(p, content);
     written.push(p);
   }
@@ -16186,12 +16219,12 @@ function orchestrateRun(runDir, engineAbs, opts = {}) {
       if (ph.name !== "adr-judges" && units.length <= SMALL_WORKLIST) {
         notices.push(`phase "${ph.name}": only ${units.length} unit(s) \u2014 the sequential --eco path is equivalent and cheaper.`);
       }
-      const p = join25(orchDir, `${ph.name}.workflow.mjs`);
+      const p = join26(orchDir, `${ph.name}.workflow.mjs`);
       writeFileSync8(p, phaseWorkflowScript(ph, run2, engineAbs, units, adrPayload));
       written.push(p);
     }
   }
-  const rb = join25(orchDir, "RUNBOOK.md");
+  const rb = join26(orchDir, "RUNBOOK.md");
   writeFileSync8(rb, runbookMd(phases, run2, engineAbs));
   written.push(rb);
   return { exitCode: 0, written, notices, errors: [], phases };
@@ -16548,7 +16581,7 @@ async function main() {
       const c2 = brainstormCounts(b);
       process.stderr.write(
         [
-          `construct: brainstorm board at ${join26(out2, "BRAINSTORM.md")}`,
+          `construct: brainstorm board at ${join27(out2, "BRAINSTORM.md")}`,
           `  ideas:  ${b.ideas.length} (${c2.kept} kept \xB7 ${c2.parked} parked \xB7 ${c2.proposed} proposed \xB7 ${c2.rejected} rejected)`,
           `  next:   generate ideas WITH the user (references/brainstorm-playbook.md), mark statuses in`,
           `          brainstorm.json, then: construct brainstorm --out ${out2} --merge`
@@ -16617,7 +16650,7 @@ async function main() {
         const r2 = renderFromSRD(out2, { merge: p.bools.has("merge"), prd: p.bools.has("prd"), noPrd: p.bools.has("no-prd") });
         process.stderr.write(
           [
-            `construct: re-emitted the SRD tree from ${join26(out2, "SRD.json")}`,
+            `construct: re-emitted the SRD tree from ${join27(out2, "SRD.json")}`,
             `  files:    ${r2.files.length} (${r2.srd.functional.length} FR \xB7 ${r2.srd.nonFunctional.length} NFR \xB7 ${r2.srd.architecture.adrs.length} ADR)`,
             `  next:     construct check --out ${out2}`
           ].join("\n") + "\n"
@@ -16645,7 +16678,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
           `construct: rendered the ${level} SRD for "${brief.idea}"`,
           `  files:    ${r.files.length} (${r.srd.functional.length} FR \xB7 ${r.srd.nonFunctional.length} NFR \xB7 ${r.srd.architecture.adrs.length} ADR)`,
           ...design ? [`  design:   ${design.components.length} components \xB7 ${design.tokens.length} tokens \xB7 a11y ${design.accessibility.standard}`] : [],
-          `  manifest: ${join26(out2, "SRD.json")}`,
+          `  manifest: ${join27(out2, "SRD.json")}`,
           `  next:     construct check --out ${out2}`
         ].join("\n") + "\n"
       );
@@ -16728,7 +16761,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
         process.stdout.write(JSON.stringify(plan ? readyFrontier(plan) : null, null, 2) + "\n");
         return;
       }
-      const has = (rel) => existsSync13(join26(out2, rel)) ? "\u2713" : "\xB7";
+      const has = (rel) => existsSync13(join27(out2, rel)) ? "\u2713" : "\xB7";
       const planLine = plan ? `  \u2713 BUILD-PLAN.json (build: ${plan.tasks.filter((t) => t.status === "done").length}/${plan.tasks.length} tasks done)` : `  \xB7 BUILD-PLAN.json (build plan)`;
       const bs = loadBrainstorm(out2);
       const bsLine = bs ? (() => {
@@ -16789,7 +16822,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
           "Then fold the returned fragments in yourself and run the fold command named at the tail of each workflow (you stay the sole writer).\n"
         );
       } else {
-        process.stderr.write(`Follow ${join26(runDir, "orchestration", "RUNBOOK.md")} sequentially (the eco path).
+        process.stderr.write(`Follow ${join27(runDir, "orchestration", "RUNBOOK.md")} sequentially (the eco path).
 `);
       }
       return;
@@ -16804,7 +16837,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
   }
 }
 function loadEvidence4(runDir) {
-  const path = join26(runDir, "evidence", "evidence.json");
+  const path = join27(runDir, "evidence", "evidence.json");
   if (!existsSync13(path)) return [];
   try {
     const data = JSON.parse(readFileSync14(path, "utf8"));
