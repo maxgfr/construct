@@ -512,7 +512,7 @@ export function renderComponents(ds: DesignSystem): string {
 
 export function renderScreens(ds: DesignSystem): string {
   const out = [`# Screens & flows`, ``];
-  if (ds.navigation && ds.navigation.trim()) {
+  if (ds.navigation?.trim()) {
     out.push(`## Shell & navigation`, ``, ds.navigation.trim(), ``);
   }
   out.push(`## Screens`, ``);
