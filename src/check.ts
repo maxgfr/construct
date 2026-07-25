@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import type { Stats } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { reduceVerdicts } from "./review.js";
+import { reduceVerdicts, readSrdGeneratedAt } from "./review.js";
 import { srdManifestPath } from "./srd.js";
 import { REQUIRED_NFR, DESIGN_TOKEN_CATEGORIES, DESIGN_TOKENS_SEEDED_BANNER } from "./types.js";
 import type { CheckResult, SRD, EvidenceItem, CoverageReport, ClaimVerifyResult, ClaimVerdict, ClaimEvidencePair } from "./types.js";
@@ -59,9 +59,17 @@ function mdFiles(runDir: string): string[] {
       }
       const rel = relative(runDir, abs).split(sep).join("/");
       if (st.isDirectory()) {
-        if (rel === "evidence" || name === ".construct") continue;
+        // `evidence/` and `orchestration/` are RETRIEVED or GENERATED text, not
+        // authored SRD prose. Scanning them made the gate judge its own inputs:
+        // an evidence snippet containing "TODO" raised a phantom advisory, and a
+        // snippet line beginning "> 🧠 **Decide:**" hard-failed the run on source
+        // text nobody wrote.
+        if (rel === "evidence" || rel === "orchestration" || name === ".construct") continue;
         stack.push(abs);
       } else if (name.endsWith(".md")) {
+        // VERIFY.md is the claim↔evidence worklist — its body is raw evidence
+        // digests, same reasoning as above.
+        if (rel === "VERIFY.md") continue;
         out.push(rel);
       }
     }
@@ -236,6 +244,25 @@ function applySemantic(runDir: string, result: CheckResult, allowUnverified: boo
     return;
   }
 
+  // Staleness gate: verdicts adjudicated against a PREVIOUS render certify
+  // claims that may no longer exist. A re-render renumbers FR/NFR ids and can
+  // rewrite every criterion, so carrying old verdicts forward would green-light
+  // an SRD nobody reviewed. A VERIFY.json with no stamp is pre-3.0 — warn rather
+  // than fail, since it predates the contract.
+  const srdAt = readSrdGeneratedAt(runDir);
+  if (srdAt && sem.srdGeneratedAt && sem.srdGeneratedAt !== srdAt) {
+    skip(
+      `VERIFY.json was adjudicated against a different SRD (verdicts: ${sem.srdGeneratedAt}, current: ${srdAt})`,
+      "the SRD was re-rendered since the review — re-run `construct review` and re-adjudicate",
+    );
+    return;
+  }
+  if (srdAt && !sem.srdGeneratedAt) {
+    result.structural.warnings.push(
+      "--semantic: VERIFY.json carries no SRD stamp (written before 3.0) — re-run `review --apply` to make staleness detectable.",
+    );
+  }
+
   // Coverage gate, evaluated BEFORE trusting the reduction: a truncated/unjudged
   // ledger is not a trustworthy artifact, so (like a missing VERIFY.json) it
   // fails closed and shows NO semantic PASS block — unless --allow-unverified
@@ -395,6 +422,23 @@ export function checkRun(runDir: string, opts: { minGrounding?: number; semantic
   const entityNames = new Set(srd.architecture.dataModel.map((e) => e.name));
   const interfaceNames = new Set(srd.architecture.interfaces.map((i) => i.name));
   const nfrIds = new Set(srd.nonFunctional.map((n) => n.id));
+
+  // Requirement titles must be unique. BUILD-PLAN progress is merged across
+  // re-renders by lowercased feature title (plan.ts taskKey), so two FRs sharing
+  // a title collapse into one entry: they get each other's `status`, `artifacts`
+  // and `tests`, and one of them silently reads as built. SKILL.md warned about
+  // this in prose; nothing enforced it. Enforce it here, where it is cheap to
+  // fix (rename a feature) rather than in the build, where it corrupts progress.
+  const titleSeen = new Map<string, string>();
+  for (const fr of srd.functional) {
+    const key = fr.title.trim().toLowerCase();
+    const first = titleSeen.get(key);
+    if (first) {
+      errors.push(`${fr.id} repeats the title of ${first} ("${fr.title}") — BUILD-PLAN progress is keyed by title, so duplicates share one task. Rename one.`);
+    } else {
+      titleSeen.set(key, fr.id);
+    }
+  }
 
   // Functional requirements: acceptance + reference closure.
   for (const fr of srd.functional) {

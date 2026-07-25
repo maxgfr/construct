@@ -26,7 +26,10 @@ export async function techAngle(ctx: ResearchContext): Promise<SourceResult[]> {
   // of them (never budget-trimmed, same contract as `web --url`).
   if (ctx.docsUrls?.length) {
     const direct = await webFetchUrls(ctx.docsUrls, ideaKw, ctx.perSource, "docs", true);
-    docItems.push(...direct.items);
+    // Same contract as market pins: an operator-named docs page survives the
+    // per-source cap (see registry.ts), because dropping it would silently undo
+    // the fold-in that pinned it.
+    docItems.push(...direct.items.map((it) => ({ ...it, meta: { ...(it.meta ?? {}), pinned: true } })));
     docNotes.push(`Grounded ${ctx.docsUrls.length} docs URL(s) passed via --docs-url.`, ...direct.notes);
   }
   for (const tech of techs) {

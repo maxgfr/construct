@@ -118,9 +118,10 @@ export function runReview(runDir: string, opts: { maxReview?: number } = {}): Re
   // (issue/PR citations). `--max-review N` still caps explicitly, and then the
   // dropped pairs are named in VERIFY.md so the omission is impossible to miss.
   const max = opts.maxReview === undefined ? Number.POSITIVE_INFINITY : Math.max(1, Math.floor(opts.maxReview));
+  const rank = normalizedRank(pairs);
   const sorted =
     pairs.length > max
-      ? pairs.slice().sort((a, b) => b.score - a.score || a.claimId.localeCompare(b.claimId) || a.evidenceId.localeCompare(b.evidenceId))
+      ? pairs.slice().sort((a, b) => rank(b) - rank(a) || a.claimId.localeCompare(b.claimId) || a.evidenceId.localeCompare(b.evidenceId))
       : pairs;
   const kept = sorted.slice(0, Math.min(sorted.length, max));
   const dropped = sorted.slice(kept.length);
@@ -234,8 +235,60 @@ export function applyVerdicts(runDir: string, verdictsPath: string): ClaimVerify
   }
 
   const result = reduceVerdicts(verdicts);
-  writeFileSync(join(runDir, "VERIFY.json"), JSON.stringify({ ...result, verdicts }, null, 2));
-  return result;
+  // Stamp the SRD these verdicts judge, so `check --semantic` can refuse to
+  // certify a re-rendered SRD with stale adjudications.
+  const srdGeneratedAt = readSrdGeneratedAt(runDir);
+  writeFileSync(join(runDir, "VERIFY.json"), JSON.stringify({ ...result, ...(srdGeneratedAt ? { srdGeneratedAt } : {}), verdicts }, null, 2));
+  return { ...result, ...(srdGeneratedAt ? { srdGeneratedAt } : {}) };
+}
+
+/**
+ * Rank pairs on a scale that is comparable ACROSS sources.
+ *
+ * Raw retrieval scores are not comparable: an `oss` item scores the cloned
+ * repo's file count (thousands), a `so` item scores StackOverflow votes (which
+ * can be negative), `market`/`docs` items score keyword coverage (1–8), and
+ * GitLab issues score a hardcoded 0. Sorting the pooled list by raw score
+ * therefore let a single OSS repo outrank every documentation and issue pair —
+ * so `--max-review N` dropped exactly the evidence most worth adjudicating.
+ *
+ * Ranking within each source and mapping to a percentile makes "best market
+ * page" and "best StackOverflow answer" comparable, which is what the cap needs.
+ * Equal raw scores keep an equal percentile.
+ */
+function normalizedRank(pairs: { source: string; score: number }[]): (p: { source: string; score: number }) => number {
+  const bySource = new Map<string, number[]>();
+  for (const p of pairs) {
+    const list = bySource.get(p.source) ?? [];
+    list.push(p.score);
+    bySource.set(p.source, list);
+  }
+  // Distinct scores, best first, per source.
+  const ordered = new Map<string, number[]>();
+  for (const [src, scores] of bySource) {
+    ordered.set(
+      src,
+      [...new Set(scores)].sort((a, b) => b - a),
+    );
+  }
+  return (p) => {
+    const scale = ordered.get(p.source);
+    if (!scale || scale.length <= 1) return 1;
+    const i = scale.indexOf(p.score);
+    return i < 0 ? 0 : 1 - i / (scale.length - 1);
+  };
+}
+
+/** The current SRD's `generatedAt`, or undefined when there is no readable SRD. */
+export function readSrdGeneratedAt(runDir: string): string | undefined {
+  const p = join(runDir, "SRD.json");
+  if (!existsSync(p)) return undefined;
+  try {
+    const srd = JSON.parse(readFileSync(p, "utf8")) as Partial<SRD>;
+    return typeof srd.generatedAt === "string" ? srd.generatedAt : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 // Fold per-pair verdicts into a pass/fail. A claim FAILS if a cited evidence

@@ -1,6 +1,7 @@
 import type { EvidenceItem } from "../types.js";
 import { keywords as extractKeywords } from "../util.js";
 import { HTTP_GET_TIMEOUT_MS, HTTP_JSON_TIMEOUT_MS, RETRY_AFTER_CAP_MS, RETRY_BASE_DELAY_MS, RETRY_JITTER_MS } from "../config.js";
+import { recordFetch } from "./metrics.js";
 
 type RawItem = Omit<EvidenceItem, "id">;
 
@@ -75,6 +76,7 @@ async function httpGetOnce(
     });
     const buf = Buffer.from(await res.arrayBuffer());
     const max = opts.maxBytes ?? 4 * 1024 * 1024;
+    recordFetch(buf.byteLength);
     return {
       ok: res.ok,
       status: res.status,

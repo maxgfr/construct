@@ -37,6 +37,29 @@ export interface EvidenceItem {
 
 export type RawItem = Omit<EvidenceItem, "id">;
 
+// ---------------------------------------------------------------------------
+// Evidence id ledger — what makes `[E7]` mean the same thing across re-runs.
+//
+// Ids used to be positional: the dossier was sorted and numbered E1…En on every
+// research run. That silently broke the loop the skill prescribes — dig deeper,
+// re-run `research` pinning the proven URLs, re-render — because adding one
+// pinned URL renumbered everything underneath the citations already written into
+// the SRD. A hand-authored `[E7]` kept resolving (so `check` stayed quiet) while
+// pointing at a different source.
+//
+// The ledger fixes that by naming evidence by PROVENANCE instead of position:
+// an item that was E7 last run is E7 this run, a genuinely new item takes the
+// next free number, and a number belonging to a vanished item is never recycled.
+// ---------------------------------------------------------------------------
+
+export const ID_LEDGER_SCHEMA_VERSION = 1;
+
+export interface IdLedger {
+  schemaVersion: number;
+  next: number; // the next free ordinal
+  assigned: Record<string, string>; // contentKey -> "E7"
+}
+
 // Where an OSS repo lives and how to reach it (used by the `oss` angle).
 // Produced by resolveRepo(); the slug keys the on-disk cache at /tmp/construct.
 export interface RepoRef {
@@ -85,6 +108,24 @@ export interface DossierMeta {
   evidenceCount: number;
   builtAt: string;
   notes: string[];
+  // Per-angle wall-clock and network cost. Optional so a hand-written or
+  // pre-3.0 meta.json still parses.
+  timings?: AngleTiming[];
+  // Digest of which evidence this dossier holds. The SRD records the one it was
+  // rendered against so `check` can flag citations written against a different
+  // dossier.
+  fingerprint?: string;
+}
+
+// What one research angle cost. Attributed under concurrency by the metrics
+// store (research/metrics.ts), persisted into meta.json so a run's cost is
+// inspectable after the fact rather than only while watching stderr.
+export interface AngleTiming {
+  angle: string;
+  ms: number;
+  requests: number; // requests that hit the network
+  cacheHits: number; // requests served from the on-disk cache
+  bytes: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -229,7 +270,6 @@ export interface FR {
   entities: string[]; // data entities this FR touches (must resolve)
   interfaces: string[]; // interfaces this FR uses (must resolve)
   nfrs: string[]; // NFR ids this FR relates to (must resolve)
-  unresolved: boolean; // true when an open decision (🧠) remains
   module?: string; // owning module id (modules mode; must resolve in srd.modules)
 }
 
@@ -418,7 +458,6 @@ export interface SRD {
   // The design-system contract. Present only at `complex` level without
   // --no-design; absent (undefined) otherwise — keeps light SRDs byte-identical.
   design?: DesignSystem;
-  coverage?: CoverageReport; // filled by `check` (advisory)
 }
 
 // ---------------------------------------------------------------------------
@@ -493,6 +532,11 @@ export interface ClaimVerifyResult {
   failures: { claimId: string; evidenceId: string; verdict: VerdictKind; note: string }[];
   unadjudicated: string[];
   verdicts?: ClaimVerdict[];
+  // The SRD these verdicts were adjudicated against. Without it, a re-render
+  // that rewrote every requirement still passed `check --semantic` on the old
+  // verdicts — the gate certified claims that no longer existed. Optional so a
+  // pre-3.0 VERIFY.json still parses (it degrades to a warning).
+  srdGeneratedAt?: string;
 }
 
 // ---------------------------------------------------------------------------

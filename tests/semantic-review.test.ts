@@ -28,7 +28,6 @@ function run(dir: string, fr: { id: string; ev: string[] }[], evidence: any[]): 
       entities: [],
       interfaces: [],
       nfrs: [],
-      unresolved: false,
     })),
     nonFunctional: [],
     architecture: { context: "", dataModel: [], interfaces: [], adrs: [] },

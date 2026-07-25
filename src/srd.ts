@@ -496,7 +496,6 @@ export function buildSRD(brief: Brief, evidence: EvidenceItem[], opts: { level: 
       entities: [],
       interfaces: [],
       nfrs,
-      unresolved: false,
       ...(f.module ? { module: f.module } : {}),
     };
   });

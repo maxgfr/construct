@@ -23,7 +23,12 @@ export async function marketAngle(ctx: ResearchContext): Promise<SourceResult[]>
   const questions = [query, ...b.featureWishlist.map((f) => `${f.title} ${f.notes ?? ""}`.trim())].filter(Boolean);
   if (pinned.length) {
     const f = await webFetchUrls(pinned, questions.length ? questions : pinned.join(" "), ctx.perSource, "market", true);
-    items.push(...f.items.slice(0, ctx.perSource));
+    // A pin is operator intent, not a discovery guess: keep every excerpt and
+    // mark it so the per-source cap cannot silently drop it. This used to be
+    // `.slice(0, perSource)` — which, at 2 excerpts per page, quietly discarded
+    // half the URLs a fold-in had just proven useful while the note below still
+    // claimed all of them were pinned.
+    items.push(...f.items.map((it) => ({ ...it, meta: { ...(it.meta ?? {}), pinned: true } })));
     notes.push(`Pinned ${pinned.length} market URL(s) via --url.`, ...f.notes);
   }
 
