@@ -71,6 +71,16 @@ export function matchEvidence(text: string, evidence: EvidenceItem[], n: number,
   // Require a meaningful overlap: at least min(2, #kw) distinctive tokens AND a
   // third of the query's tokens. A one-word query (e.g. a competitor name) needs
   // one hit; a long statement needs several — this drops generic-word noise.
+  //
+  // KNOWN LIMITATION: because the floor is a flat RATIO, a long well-written
+  // requirement needs proportionally more matching tokens than a short one — so
+  // the better a requirement is written, the harder it is to auto-ground. A
+  // sub-linear floor (e.g. ceil(sqrt(n))) fixes that, but it also LOOSENS
+  // auto-citation, which cuts against the anti-citation-washing guard in
+  // mentionsEntity. Changing it is a grounding-quality trade-off that deserves
+  // measuring on real dossiers, not a drive-by tweak. Until then, ground long
+  // requirements by hand — `construct analyze` names every one that will render
+  // ungrounded.
   const need = Math.min(2, kws.length);
   const ratioFloor = 0.34;
 

@@ -11437,18 +11437,18 @@ function wordpiece(word, model) {
   const n = word.length;
   while (start2 < n) {
     let end = n;
-    let match = -1;
+    let match2 = -1;
     while (end > start2) {
       const piece = start2 === 0 ? word.slice(start2, end) : "##" + word.slice(start2, end);
       const id = model.vocab.get(piece);
       if (id !== void 0) {
-        match = id;
+        match2 = id;
         break;
       }
       end--;
     }
-    if (match === -1) return model.unkId >= 0 ? [model.unkId] : [];
-    ids.push(match);
+    if (match2 === -1) return model.unkId >= 0 ? [model.unkId] : [];
+    ids.push(match2);
     start2 = end;
   }
   return ids;
@@ -15960,6 +15960,118 @@ function formatReviewReport(r) {
   return lines.join("\n");
 }
 
+// src/requirements-lint.ts
+var SCAFFOLD_THEN = [
+  {
+    // concreteOutcome branch 4 — the pure tautology.
+    re: /is persisted and visible to the user$/,
+    characteristic: "verifiable",
+    fix: "state the observable outcome: what exists, where, and within what bound"
+  },
+  {
+    // concreteOutcome branch 1 — a clause lifted from the brief's notes.
+    re: /^the action succeeds and /,
+    characteristic: "verifiable",
+    fix: "replace the generic 'the action succeeds' with the specific post-condition a test can assert"
+  },
+  {
+    // concreteOutcome branch 2.
+    re: /^the action completes in under /,
+    characteristic: "verifiable",
+    fix: "name what completes and what a caller observes, not only how long it took"
+  },
+  {
+    // concreteOutcome branch 3.
+    re: /^the outcome honours the stated bound: /,
+    characteristic: "verifiable",
+    fix: "spell the bound out as a post-condition on a named artifact"
+  },
+  {
+    // failurePath, integration variant — emitted on every integration FR.
+    re: /^the system surfaces a clear, specific error and makes no partial or inconsistent change$/,
+    characteristic: "unambiguous",
+    fix: "name the error the user sees, what is rolled back, and how they recover"
+  },
+  {
+    // failurePath, plain variant — emitted on every other FR at complex.
+    re: /^the system rejects it with a clear, actionable error and no side effects$/,
+    characteristic: "unambiguous",
+    fix: "name which input is rejected, the message, and what state is left untouched"
+  }
+];
+var VAGUE_THEN = [
+  {
+    re: /\b(gracefully|appropriately|properly|correctly|seamlessly|robustly|as (?:needed|appropriate|expected))\b/i,
+    characteristic: "verifiable",
+    fix: "say what specifically happens \u2014 'handled gracefully' is not something a test can assert"
+  },
+  {
+    re: /\b(and so on|etc\.?|and more|among others)\b/i,
+    characteristic: "complete",
+    fix: "enumerate the cases; an open-ended list leaves the builder guessing"
+  },
+  {
+    re: /\b(fast|quick|slow|scalable|performant|efficient|reliable|secure|simple|intuitive|user-friendly)\b/i,
+    characteristic: "unambiguous",
+    fix: "replace the adjective with a number and a unit"
+  }
+];
+var SCAFFOLD_PROSE = [
+  {
+    get: (srd) => srd.architecture.interfaces.map((i2) => ({ where: `interface "${i2.name}"`, text: i2.summary ?? "" })),
+    re: /Define the contract \(operations, data, failure modes\) during authoring\.$/,
+    characteristic: "complete",
+    fix: "define the operations, payloads and failure modes of this boundary"
+  },
+  {
+    get: (srd) => srd.product.metrics.map((m, i2) => ({ where: `success metric #${i2 + 1}`, text: m })),
+    re: /^Define a measurable launch success metric\.$/,
+    characteristic: "verifiable",
+    fix: "state the outcome and the number that would prove it"
+  },
+  {
+    get: (srd) => srd.scope.assumptions.map((a, i2) => ({ where: `assumption #${i2 + 1}`, text: a })),
+    re: /^No hard constraints were captured; revisit budget, timeline and team before committing\.$/,
+    characteristic: "feasible",
+    fix: "capture the real budget/timeline/team constraints, or record that there are none"
+  }
+];
+function match(text, patterns) {
+  return patterns.find((p) => p.re.test(text.trim()));
+}
+function lintRequirements(srd) {
+  const out2 = [];
+  for (const fr of srd.functional) {
+    fr.acceptance.forEach((a, i2) => {
+      const then = (a.then ?? "").trim();
+      if (!then) return;
+      const where = `${fr.id} acceptance #${i2 + 1}`;
+      const scaffold = match(then, SCAFFOLD_THEN);
+      if (scaffold) {
+        out2.push({ where, text: then, kind: "scaffold", characteristic: scaffold.characteristic, fix: scaffold.fix });
+        return;
+      }
+      const vague = match(then, VAGUE_THEN);
+      if (vague) out2.push({ where, text: then, kind: "vague", characteristic: vague.characteristic, fix: vague.fix });
+    });
+  }
+  for (const group of SCAFFOLD_PROSE) {
+    for (const { where, text } of group.get(srd)) {
+      if (text && group.re.test(text.trim())) {
+        out2.push({ where, text: text.trim(), kind: "scaffold", characteristic: group.characteristic, fix: group.fix });
+      }
+    }
+  }
+  return out2;
+}
+function formatFinding(f) {
+  const head = f.kind === "scaffold" ? "still the renderer's scaffold" : "not verifiable as written";
+  return `${f.where}: ${head} [29148 \xA75.2.4 ${f.characteristic}] \u2014 "${truncate(f.text)}". Fix: ${f.fix}.`;
+}
+function truncate(s, n = 90) {
+  return s.length <= n ? s : `${s.slice(0, n - 1)}\u2026`;
+}
+
 // src/check.ts
 var DESIGN_REQUIRED_FILES = [
   "design/PRINCIPLES.md",
@@ -16072,7 +16184,6 @@ function computeCoverage(srd, evidence) {
     resolved
   };
 }
-var TEMPLATED_THEN_RE = /is persisted and visible to the user$/;
 var TEMPLATED_METRIC_RE = /^A measurable target for "/;
 function uncoveredPairs(runDir, verdicts) {
   const key = (c2, e) => `${c2}::${e}`;
@@ -16294,11 +16405,24 @@ function checkRun(runDir, opts = {}) {
   }
   checkDesign(runDir, srd, errors, warnings);
   checkModules(runDir, srd, errors, warnings);
-  const templatedThen = srd.functional.reduce((n, fr) => n + fr.acceptance.filter((a) => TEMPLATED_THEN_RE.test(a.then)).length, 0);
-  if (templatedThen) {
-    const msg = `${templatedThen} acceptance criteria are still renderer-templated \u2014 sharpen them into observable, bounded outcomes (see references/acceptance-criteria.md).`;
+  const lint = lintRequirements(srd);
+  const scaffold = lint.filter((f) => f.kind === "scaffold");
+  const vague = lint.filter((f) => f.kind === "vague");
+  if (scaffold.length) {
+    const head = `${scaffold.length} requirement(s) still carry the renderer's scaffold \u2014 author them before this SRD certifies anything (see references/requirements-rubric.md).`;
+    const lines = [head, ...scaffold.slice(0, 10).map((f) => `    ${formatFinding(f)}`)];
+    if (scaffold.length > 10) lines.push(`    \u2026 and ${scaffold.length - 10} more.`);
+    const msg = lines.join("\n");
     if (srd.level === "complex") errors.push(msg);
     else warnings.push(msg);
+  }
+  if (vague.length) {
+    const lines = [
+      `${vague.length} acceptance criterion/criteria are not verifiable as written (see references/forbidden-patterns.md).`,
+      ...vague.slice(0, 10).map((f) => `    ${formatFinding(f)}`)
+    ];
+    if (vague.length > 10) lines.push(`    \u2026 and ${vague.length - 10} more.`);
+    warnings.push(lines.join("\n"));
   }
   const templatedMetrics = srd.nonFunctional.filter((n) => n.metric && TEMPLATED_METRIC_RE.test(n.metric)).length;
   if (templatedMetrics) {

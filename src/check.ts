@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import type { Stats } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { reduceVerdicts, readSrdGeneratedAt } from "./review.js";
+import { lintRequirements, formatFinding } from "./requirements-lint.js";
 import { srdManifestPath } from "./srd.js";
 import { REQUIRED_NFR, DESIGN_TOKEN_CATEGORIES, DESIGN_TOKENS_SEEDED_BANNER } from "./types.js";
 import type { CheckResult, SRD, EvidenceItem, CoverageReport, ClaimVerifyResult, ClaimVerdict, ClaimEvidencePair } from "./types.js";
@@ -155,10 +156,9 @@ function computeCoverage(srd: SRD, evidence: EvidenceItem[]): CoverageReport & {
   };
 }
 
-// Renderer-templated phrasings the agent is expected to sharpen during
-// authoring. ONLY the renderer emits these exact strings (same reasoning as the
-// 🧠-only rule), so flagging them carries zero false positives. Advisory.
-const TEMPLATED_THEN_RE = /is persisted and visible to the user$/;
+// The generic NFR metric the renderer falls back to. Acceptance-criterion
+// scaffold now lives in requirements-lint.ts, which covers every branch the
+// renderer can emit rather than only this one string.
 const TEMPLATED_METRIC_RE = /^A measurable target for "/;
 
 // Every claim↔evidence pair that OUGHT to carry an adjudicated verdict but does
@@ -490,15 +490,32 @@ export function checkRun(runDir: string, opts: { minGrounding?: number; semantic
   // Module partition (only when present) — additive structural gate.
   checkModules(runDir, srd, errors, warnings);
 
-  // Criteria/metrics still carrying the renderer's own template phrasing —
-  // complete but not yet sharpened into something testable. A complex SRD
-  // certifies build-readiness, so surviving templates HARD-FAIL there; at
-  // light they stay an advisory nudge.
-  const templatedThen = srd.functional.reduce((n, fr) => n + fr.acceptance.filter((a) => TEMPLATED_THEN_RE.test(a.then)).length, 0);
-  if (templatedThen) {
-    const msg = `${templatedThen} acceptance criteria are still renderer-templated — sharpen them into observable, bounded outcomes (see references/acceptance-criteria.md).`;
+  // Requirement quality, anchored to ISO/IEC/IEEE 29148:2018 (see
+  // requirements-lint.ts for the two families and why their severities differ).
+  //
+  // SCAFFOLD findings are text only the renderer emits — zero false positives,
+  // so at `complex` (the level that certifies build-readiness) they HARD-FAIL,
+  // and at `light` they nudge. VAGUE findings are a heuristic over hand-written
+  // prose and always warn: a heuristic that blocks a build is a heuristic people
+  // learn to route around.
+  const lint = lintRequirements(srd);
+  const scaffold = lint.filter((f) => f.kind === "scaffold");
+  const vague = lint.filter((f) => f.kind === "vague");
+  if (scaffold.length) {
+    const head = `${scaffold.length} requirement(s) still carry the renderer's scaffold — author them before this SRD certifies anything (see references/requirements-rubric.md).`;
+    const lines = [head, ...scaffold.slice(0, 10).map((f) => `    ${formatFinding(f)}`)];
+    if (scaffold.length > 10) lines.push(`    … and ${scaffold.length - 10} more.`);
+    const msg = lines.join("\n");
     if (srd.level === "complex") errors.push(msg);
     else warnings.push(msg);
+  }
+  if (vague.length) {
+    const lines = [
+      `${vague.length} acceptance criterion/criteria are not verifiable as written (see references/forbidden-patterns.md).`,
+      ...vague.slice(0, 10).map((f) => `    ${formatFinding(f)}`),
+    ];
+    if (vague.length > 10) lines.push(`    … and ${vague.length - 10} more.`);
+    warnings.push(lines.join("\n"));
   }
   const templatedMetrics = srd.nonFunctional.filter((n) => n.metric && TEMPLATED_METRIC_RE.test(n.metric)).length;
   if (templatedMetrics) {

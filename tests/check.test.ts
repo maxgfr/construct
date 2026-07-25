@@ -7,6 +7,7 @@ import { renderSRD } from "../src/render.js";
 import { checkRun, formatCheckReport } from "../src/check.js";
 import { srdManifestPath } from "../src/srd.js";
 import { DESIGN_TOKENS_SEEDED_BANNER } from "../src/types.js";
+import { authorSRD } from "./helpers/author.js";
 import type { Brief, CheckResult, EvidenceItem, SRD, Level } from "../src/types.js";
 
 const FIX = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
@@ -14,7 +15,12 @@ const brief = JSON.parse(readFileSync(join(FIX, "sample-brief.json"), "utf8")) a
 const evidence = JSON.parse(readFileSync(join(FIX, "sample-evidence.json"), "utf8")) as EvidenceItem[];
 
 const dirs: string[] = [];
-function renderRun(opts: { level?: Level; briefOverride?: Partial<Brief>; withEvidence?: boolean } = {}): string {
+// A rendered run. `authored: false` keeps the raw SCAFFOLD — which, at complex,
+// legitimately fails the requirements lint (that is the contract: complex
+// certifies build-readiness, and un-authored criteria certify nothing). Tests
+// asserting some OTHER rule get the authored form by default so the lint does
+// not mask what they are actually about.
+function renderRun(opts: { level?: Level; briefOverride?: Partial<Brief>; withEvidence?: boolean; authored?: boolean } = {}): string {
   const out = mkdtempSync(join(tmpdir(), "construct-check-"));
   dirs.push(out);
   if (opts.withEvidence !== false) {
@@ -27,6 +33,7 @@ function renderRun(opts: { level?: Level; briefOverride?: Partial<Brief>; withEv
     merge: false,
     generatedAt: "T",
   });
+  if (opts.authored !== false) authorSRD(out);
   return out;
 }
 function mutateSRD(dir: string, fn: (srd: SRD) => void): void {
@@ -231,8 +238,9 @@ describe("checkRun — renderer-templated criteria gate", () => {
     mutateSRD(dir, (s) => (s.functional[0]!.acceptance[0]!.then = 'the result of "save an article" is persisted and visible to the user'));
     const r = checkRun(dir);
     expect(r.ok).toBe(false);
-    expect(r.structural.errors.join(" ")).toMatch(/renderer-templated/);
-    expect(r.structural.errors.join(" ")).toMatch(/acceptance-criteria\.md/);
+    expect(r.structural.errors.join(" ")).toMatch(/renderer's scaffold/);
+    expect(r.structural.errors.join(" ")).toMatch(/29148/);
+    expect(r.structural.errors.join(" ")).toMatch(/requirements-rubric\.md/);
   });
 
   it("stays an advisory warning at light", () => {
@@ -240,7 +248,7 @@ describe("checkRun — renderer-templated criteria gate", () => {
     mutateSRD(dir, (s) => (s.functional[0]!.acceptance[0]!.then = 'the result of "save an article" is persisted and visible to the user'));
     const r = checkRun(dir);
     expect(r.ok).toBe(true);
-    expect(r.structural.warnings.join(" ")).toMatch(/renderer-templated/);
+    expect(r.structural.warnings.join(" ")).toMatch(/renderer's scaffold/);
   });
 
   it("stays silent once every criterion is sharpened", () => {

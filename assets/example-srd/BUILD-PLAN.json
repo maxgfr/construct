@@ -1,0 +1,200 @@
+{
+  "schemaVersion": 1,
+  "product": "Readpile",
+  "generatedAt": "2026-07-25T11:37:45.707Z",
+  "conventions": {
+    "frTagPattern": "FR-\\d{3}",
+    "testCommand": null,
+    "appDir": null
+  },
+  "tasks": [
+    {
+      "id": "T-000",
+      "title": "Project skeleton — repo layout, test harness, CI",
+      "milestone": "M1",
+      "frIds": [],
+      "acceptance": [],
+      "dependsOn": [],
+      "artifacts": [],
+      "tests": [],
+      "verify": {
+        "commands": []
+      },
+      "status": "todo"
+    },
+    {
+      "id": "T-001",
+      "title": "FR-001 — Save an article from a URL or browser extension",
+      "milestone": "M1",
+      "frIds": [
+        "FR-001"
+      ],
+      "acceptance": [
+        {
+          "frId": "FR-001",
+          "index": 0
+        },
+        {
+          "frId": "FR-001",
+          "index": 1
+        },
+        {
+          "frId": "FR-001",
+          "index": 2
+        }
+      ],
+      "dependsOn": [
+        "T-000"
+      ],
+      "artifacts": [],
+      "tests": [],
+      "verify": {
+        "commands": []
+      },
+      "status": "todo"
+    },
+    {
+      "id": "T-002",
+      "title": "FR-002 — Full-text search across all saved articles",
+      "milestone": "M1",
+      "frIds": [
+        "FR-002"
+      ],
+      "acceptance": [
+        {
+          "frId": "FR-002",
+          "index": 0
+        },
+        {
+          "frId": "FR-002",
+          "index": 1
+        },
+        {
+          "frId": "FR-002",
+          "index": 2
+        }
+      ],
+      "dependsOn": [
+        "T-000"
+      ],
+      "artifacts": [],
+      "tests": [],
+      "verify": {
+        "commands": []
+      },
+      "status": "todo"
+    },
+    {
+      "id": "T-003",
+      "title": "FR-003 — Tag and organize saved articles",
+      "milestone": "M2",
+      "frIds": [
+        "FR-003"
+      ],
+      "acceptance": [
+        {
+          "frId": "FR-003",
+          "index": 0
+        },
+        {
+          "frId": "FR-003",
+          "index": 1
+        },
+        {
+          "frId": "FR-003",
+          "index": 2
+        }
+      ],
+      "dependsOn": [
+        "T-000",
+        "T-001"
+      ],
+      "artifacts": [],
+      "tests": [],
+      "verify": {
+        "commands": []
+      },
+      "status": "todo"
+    },
+    {
+      "id": "T-004",
+      "title": "FR-004 — Import an existing Pocket or Instapaper export",
+      "milestone": "M2",
+      "frIds": [
+        "FR-004"
+      ],
+      "acceptance": [
+        {
+          "frId": "FR-004",
+          "index": 0
+        },
+        {
+          "frId": "FR-004",
+          "index": 1
+        },
+        {
+          "frId": "FR-004",
+          "index": 2
+        }
+      ],
+      "dependsOn": [
+        "T-000",
+        "T-001"
+      ],
+      "artifacts": [],
+      "tests": [],
+      "verify": {
+        "commands": []
+      },
+      "status": "todo"
+    },
+    {
+      "id": "T-005",
+      "title": "FR-005 — Read articles offline on mobile",
+      "milestone": "M3",
+      "frIds": [
+        "FR-005"
+      ],
+      "acceptance": [
+        {
+          "frId": "FR-005",
+          "index": 0
+        },
+        {
+          "frId": "FR-005",
+          "index": 1
+        },
+        {
+          "frId": "FR-005",
+          "index": 2
+        }
+      ],
+      "dependsOn": [
+        "T-000",
+        "T-001"
+      ],
+      "artifacts": [],
+      "tests": [],
+      "verify": {
+        "commands": []
+      },
+      "status": "todo"
+    },
+    {
+      "id": "T-006",
+      "title": "Design foundation — design tokens, base components, accessibility baseline",
+      "milestone": "M1",
+      "frIds": [],
+      "acceptance": [],
+      "dependsOn": [
+        "T-000"
+      ],
+      "artifacts": [],
+      "tests": [],
+      "verify": {
+        "commands": []
+      },
+      "status": "todo"
+    }
+  ]
+}

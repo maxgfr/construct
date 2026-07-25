@@ -38,6 +38,23 @@ jobs:
           test -f /tmp/construct-demo/SRD.json
           test -f /tmp/construct-demo/requirements/FUNCTIONAL.md
           test -f /tmp/construct-demo/SRD.md
+      # The gate has to work in BOTH directions, so prove both.
+      - name: The gate REFUSES an un-authored complex scaffold
+        run: |
+          rm -rf /tmp/construct-scaffold
+          mkdir -p /tmp/construct-scaffold/evidence
+          cp tests/fixtures/sample-brief.json /tmp/construct-scaffold/brief.json
+          cp tests/fixtures/sample-evidence.json /tmp/construct-scaffold/evidence/evidence.json
+          node scripts/construct.mjs render --out /tmp/construct-scaffold --level complex
+          if node scripts/construct.mjs check --out /tmp/construct-scaffold; then
+            echo "::error::check accepted a complex scaffold whose acceptance criteria are still the renderer's"
+            exit 1
+          fi
+      - name: The shipped example SRD is in sync with its manifest and passes the gate
+        run: |
+          node scripts/construct.mjs render --out assets/example-srd --from-srd
+          git diff --exit-code -- assets/example-srd
+          node scripts/construct.mjs check --out assets/example-srd --min-grounding 66
 
   install-bundle:
     runs-on: ubuntu-latest

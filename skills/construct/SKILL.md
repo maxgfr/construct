@@ -351,7 +351,9 @@ See `references/semantic-setup.md`.
 - `references/adversarial-review.md` — the red-team checklist and its findings contract.
 - `references/srd-authoring.md` — resolving 🧠 callouts, writing testable requirements and ADRs.
 - `references/design-system-authoring.md` — enriching the `complex` design system: tokens, components, screens/flows and the accessibility contract.
+- `references/requirements-rubric.md` — the ISO/IEC/IEEE 29148:2018 characteristics `check` holds requirements to, the two severities, and what a green gate does and does not mean.
 - `references/acceptance-criteria.md` — bad→good Given/When/Then rewrites and measurable NFR metric patterns.
+- `references/forbidden-patterns.md` — the phrasings that never survive review, and the shape that replaces each.
 - `references/citation-format.md` — the `[E#]` grounding convention.
 - `references/grounding-coverage.md` — what the advisory coverage report means and how to raise it.
 - `references/build-playbook.md` — the build loop: task TDD, FR-tag convention, milestone gates, the milestone review.

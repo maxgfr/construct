@@ -6,6 +6,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { VERSION, REQUIRED_NFR } from "../src/types.js";
 import type { BuildPlanDoc, SRD } from "../src/types.js";
+import { authorSRD } from "./helpers/author.js";
 
 // End-to-end: drive the REAL bundled binary (scripts/construct.mjs) as a
 // subprocess through the lifecycle an agent actually runs — render → status →
@@ -55,10 +56,19 @@ function seeded(): string {
   return run;
 }
 
-function rendered(level: "light" | "complex" = "complex", extra: string[] = []): string {
+// A rendered AND authored run. A raw `complex` scaffold now legitimately fails
+// `check` — every FR carries a boilerplate failure-path criterion, and the level
+// exists to certify build-readiness — so tests asserting some OTHER behaviour
+// author it first (helpers/author.ts), exactly as the workflow's step 4 does.
+// `authored: false` keeps the scaffold, for the tests that assert the refusal.
+function rendered(level: "light" | "complex" = "complex", extra: string[] = [], opts: { authored?: boolean } = {}): string {
   const run = seeded();
   const r = cli(["render", "--out", run, "--level", level, ...extra]);
   expect(r.status, r.stderr).toBe(0);
+  if (opts.authored !== false && level === "complex") {
+    authorSRD(run);
+    expect(cli(["render", "--out", run, "--from-srd", ...extra.filter((e) => e === "--no-design")]).status).toBe(0);
+  }
   return run;
 }
 
@@ -200,6 +210,10 @@ describe("e2e: modules mode (per-module PRDs)", () => {
     const run = seededModules();
     const r = cli(["render", "--out", run, "--level", "complex"]);
     expect(r.status, r.stderr).toBe(0);
+    // Author the criteria before asserting `check` passes — a complex scaffold
+    // is deliberately not gate-clean (see helpers/author.ts).
+    authorSRD(run);
+    expect(cli(["render", "--out", run, "--from-srd"]).status).toBe(0);
 
     const srd = JSON.parse(readFileSync(join(run, "SRD.json"), "utf8")) as SRD;
     expect(srd.modules!.length).toBe(3);

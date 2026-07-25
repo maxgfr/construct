@@ -16,6 +16,7 @@ import { renderSRD } from "../src/render.js";
 import { checkRun } from "../src/check.js";
 import { applyVerdicts } from "../src/review.js";
 import { srdManifestPath } from "../src/srd.js";
+import { authorSRD } from "./helpers/author.js";
 import type { Brief, DossierMeta, EvidenceItem, RawItem, SourceResult, SRD } from "../src/types.js";
 
 const FIX = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
@@ -39,6 +40,9 @@ function renderRun(): string {
   mkdirSync(join(out, "evidence"), { recursive: true });
   writeFileSync(join(out, "evidence", "evidence.json"), JSON.stringify(evidenceFixture));
   renderSRD(brief, evidenceFixture, { level: "complex", out, merge: false, generatedAt: "T" });
+  // A raw complex scaffold fails the requirements lint by design; these tests
+  // are about other rules, so author it first.
+  authorSRD(out);
   return out;
 }
 

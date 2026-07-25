@@ -1,0 +1,1157 @@
+{
+  "schemaVersion": 1,
+  "level": "complex",
+  "generatedAt": "2026-07-25T11:37:45.707Z",
+  "product": {
+    "name": "Readpile",
+    "problem": "People save articles to read later but never find them again; hosted services lock data in and die.",
+    "valueProp": "Own your reading queue: a private, fast, searchable archive of everything you save.",
+    "users": [
+      "self-hosting individuals",
+      "small teams sharing a knowledge base"
+    ],
+    "metrics": [
+      "A user re-finds any saved article in under 10 seconds, measured end to end from opening the app",
+      "1,000 self-hosted installs reporting in during the first year"
+    ]
+  },
+  "scope": {
+    "inScope": [
+      "Save an article from a URL or browser extension",
+      "Full-text search across all saved articles",
+      "Tag and organize saved articles",
+      "Import an existing Pocket or Instapaper export"
+    ],
+    "outOfScope": [
+      "A hosted multi-tenant SaaS offering",
+      "A social/sharing network"
+    ],
+    "assumptions": [
+      "One full-stack developer, 8 weeks to MVP, no paid infrastructure beyond a ~$10/month VPS.",
+      "Users can run docker-compose; a one-command install is in scope, a hosted option is not.",
+      "Article extraction quality is bounded by what the source page exposes; paywalled content is out of scope."
+    ]
+  },
+  "functional": [
+    {
+      "id": "FR-001",
+      "title": "Save an article from a URL or browser extension",
+      "description": "A signed-in user saves a web article by pasting its URL into the Web App or clicking the browser extension. Readpile fetches the page, extracts the readable body, and stores it locally so the saved copy survives the original going offline.",
+      "priority": "must",
+      "acceptance": [
+        {
+          "given": "a signed-in user with a reachable article URL",
+          "when": "they submit it via the Web App or the browser extension",
+          "then": "the readable body (title, author, text, inline images) is extracted and stored locally, and the article appears at the top of their list within 2 seconds [E4]"
+        },
+        {
+          "given": "the article URL returns HTTP 404, or does not respond within 10 seconds",
+          "when": "the user submits it",
+          "then": "the save is rejected with the HTTP status in the message, nothing partial is written to the library, and the URL stays in the input so the user can retry without re-typing it"
+        },
+        {
+          "given": "a URL the user has already saved",
+          "when": "they submit it again",
+          "then": "no duplicate is created; the existing article is re-fetched, its body replaced, and its original saved-at timestamp preserved"
+        }
+      ],
+      "rationaleEvidence": [
+        "E4",
+        "E1"
+      ],
+      "entities": [
+        "Article"
+      ],
+      "interfaces": [
+        "Web App",
+        "Browser Extension"
+      ],
+      "nfrs": [
+        "NFR-001",
+        "NFR-002",
+        "NFR-003"
+      ]
+    },
+    {
+      "id": "FR-002",
+      "title": "Full-text search across all saved articles",
+      "description": "A user finds any saved article by searching its full text. Search covers title, author and body, tolerates one typo per word, and returns results fast enough to feel instant while typing.",
+      "priority": "must",
+      "acceptance": [
+        {
+          "given": "a library of 5,000 saved articles",
+          "when": "the user types a two-word query containing one typo",
+          "then": "matching articles are returned in under 300 ms at p95, ranked by relevance, with the typo tolerated and the matched terms highlighted in the excerpt [E3]"
+        },
+        {
+          "given": "the search backend is unreachable",
+          "when": "the user submits a query",
+          "then": "the Web App falls back to a substring match over titles held locally, labels the results as degraded, and does not report zero results as an empty library"
+        },
+        {
+          "given": "a query matching no article",
+          "when": "the user submits it",
+          "then": "an empty state names the query and offers to clear the active tag filter, rather than rendering a blank list"
+        }
+      ],
+      "rationaleEvidence": [
+        "E3"
+      ],
+      "entities": [
+        "Article"
+      ],
+      "interfaces": [
+        "Web App"
+      ],
+      "nfrs": [
+        "NFR-001",
+        "NFR-002",
+        "NFR-003"
+      ]
+    },
+    {
+      "id": "FR-003",
+      "title": "Tag and organize saved articles",
+      "description": "A user organises the library with free-form tags. Tags are created inline while tagging, can be applied in bulk from the list view, and filter the library additively.",
+      "priority": "should",
+      "acceptance": [
+        {
+          "given": "an article open in the reader",
+          "when": "the user types a tag name that does not exist yet and confirms",
+          "then": "the tag is created, applied to that article, and offered as a suggestion the next time any article is tagged"
+        },
+        {
+          "given": "a tag applied to 40 articles",
+          "when": "the user deletes the tag",
+          "then": "the tag is removed from all 40 articles in one operation, the articles themselves are untouched, and the action is reported with the count"
+        },
+        {
+          "given": "two tags selected as filters",
+          "when": "the user views the library",
+          "then": "only articles carrying BOTH tags are listed, and the active filters are shown with a one-click way to clear each"
+        }
+      ],
+      "rationaleEvidence": [
+        "E1"
+      ],
+      "entities": [
+        "Article",
+        "Tag"
+      ],
+      "interfaces": [
+        "Web App"
+      ],
+      "nfrs": [
+        "NFR-001",
+        "NFR-002",
+        "NFR-003"
+      ]
+    },
+    {
+      "id": "FR-004",
+      "title": "Import an existing Pocket or Instapaper export",
+      "description": "A user migrates off a hosted service by importing a Pocket or Instapaper export file. The import is incremental and resumable: a single unreadable entry never aborts the run.",
+      "priority": "should",
+      "acceptance": [
+        {
+          "given": "a Pocket export containing up to 10,000 articles",
+          "when": "the user uploads it",
+          "then": "entries are imported in batches of 100 with a visible progress count, and the import survives a browser refresh by resuming from the last committed batch [E5]"
+        },
+        {
+          "given": "an export in which 12 entries have an unreachable URL",
+          "when": "the import runs",
+          "then": "the other entries import successfully, the 12 failures are listed with their URL and reason in a downloadable report, and the import completes rather than aborting wholesale [E5]"
+        },
+        {
+          "given": "a file that is not a recognised Pocket or Instapaper export",
+          "when": "the user uploads it",
+          "then": "the upload is rejected before any write, naming which formats are accepted; the library is unchanged"
+        }
+      ],
+      "rationaleEvidence": [
+        "E5",
+        "E2"
+      ],
+      "entities": [
+        "Article",
+        "Tag",
+        "ImportJob"
+      ],
+      "interfaces": [
+        "Web App"
+      ],
+      "nfrs": [
+        "NFR-001",
+        "NFR-002",
+        "NFR-003"
+      ]
+    },
+    {
+      "id": "FR-005",
+      "title": "Read articles offline on mobile",
+      "description": "A user reads previously synced articles on a phone with no connectivity. Article bodies and images are cached on the device; reading position syncs back when connectivity returns.",
+      "priority": "could",
+      "acceptance": [
+        {
+          "given": "a device that has synced 200 articles and is now in airplane mode",
+          "when": "the user opens any of those 200 articles",
+          "then": "the full text and inline images render from the local cache within 1 second, and no network error is shown"
+        },
+        {
+          "given": "an article that was never synced to the device",
+          "when": "the user opens it while offline",
+          "then": "the reader shows the stored title and excerpt with an explicit 'not downloaded' state and a retry action, instead of a blank page or a generic error"
+        },
+        {
+          "given": "reading position advanced on 3 articles while offline",
+          "when": "connectivity returns",
+          "then": "the positions sync to the server within 30 seconds; if the server holds a newer position for an article, the most recently updated one wins and the other is discarded silently"
+        }
+      ],
+      "rationaleEvidence": [
+        "E2"
+      ],
+      "entities": [
+        "Article"
+      ],
+      "interfaces": [
+        "Web App"
+      ],
+      "nfrs": [
+        "NFR-001",
+        "NFR-002",
+        "NFR-003"
+      ]
+    }
+  ],
+  "nonFunctional": [
+    {
+      "id": "NFR-001",
+      "category": "performance",
+      "statement": "Search and library rendering stay responsive on a self-hosted single-node install.",
+      "metric": "p95 search latency < 300 ms over a 5,000-article library on 2 vCPU / 2 GB RAM; library list first paint < 1 s [E3]",
+      "rationaleEvidence": [
+        "E3"
+      ]
+    },
+    {
+      "id": "NFR-002",
+      "category": "security",
+      "statement": "A self-hosted instance is safe to expose to the public internet.",
+      "metric": "every endpoint except /health requires an authenticated session; credentials and session tokens never appear in logs; dependencies scanned in CI and no known-exploited CVE ships in a release",
+      "rationaleEvidence": []
+    },
+    {
+      "id": "NFR-003",
+      "category": "reliability",
+      "statement": "A crash or a bad deploy never costs the user their library.",
+      "metric": "99.5% monthly availability measured from the instance's own health endpoint; RPO ≤ 24 h via nightly snapshot, RTO ≤ 1 h with a documented single-command restore verified on every release",
+      "rationaleEvidence": []
+    },
+    {
+      "id": "NFR-004",
+      "category": "usability",
+      "statement": "A new self-hoster reaches value without reading documentation end to end.",
+      "metric": "a first-time user saves their first article within 2 minutes of first login, unaided, in moderated testing with 5 participants",
+      "rationaleEvidence": []
+    },
+    {
+      "id": "NFR-005",
+      "category": "observability",
+      "statement": "A failure can be diagnosed from the instance's own logs, without reproducing it.",
+      "metric": "every request carries a trace id echoed in error responses; save, search and import each emit a structured success/failure event with duration",
+      "rationaleEvidence": []
+    },
+    {
+      "id": "NFR-006",
+      "category": "cost",
+      "statement": "Running a personal instance costs about what a cheap VPS costs.",
+      "metric": "runs within 2 vCPU / 2 GB RAM / 20 GB disk for a single user with 5,000 articles — under $10/month at 2026 VPS pricing, matching the stated side-project budget",
+      "rationaleEvidence": []
+    },
+    {
+      "id": "NFR-007",
+      "category": "privacy",
+      "statement": "The user owns their data and can leave without loss.",
+      "metric": "full export to JSON + original HTML on demand; account deletion removes all rows and cached bodies within 24 h; no third-party analytics or telemetry ships enabled [E1]",
+      "rationaleEvidence": [
+        "E1"
+      ]
+    }
+  ],
+  "architecture": {
+    "context": "\"Readpile\" serves self-hosting individuals, small teams sharing a knowledge base. Built on PostgreSQL, Meilisearch, Next.js. It integrates with: a browser extension. Each integration boundary is owned by an ADR and detailed in INTERFACES.md during authoring.",
+    "dataModel": [
+      {
+        "name": "Article",
+        "attributes": [
+          {
+            "name": "id",
+            "type": "uuid"
+          },
+          {
+            "name": "url",
+            "type": "text"
+          },
+          {
+            "name": "title",
+            "type": "text"
+          },
+          {
+            "name": "author",
+            "type": "text"
+          },
+          {
+            "name": "body",
+            "type": "text"
+          },
+          {
+            "name": "excerpt",
+            "type": "text"
+          },
+          {
+            "name": "savedAt",
+            "type": "timestamptz"
+          },
+          {
+            "name": "readPosition",
+            "type": "float"
+          },
+          {
+            "name": "syncedAt",
+            "type": "timestamptz"
+          }
+        ],
+        "referencedByFRs": [
+          "FR-001",
+          "FR-002",
+          "FR-003",
+          "FR-004",
+          "FR-005"
+        ]
+      },
+      {
+        "name": "Tag",
+        "attributes": [
+          {
+            "name": "id",
+            "type": "uuid"
+          },
+          {
+            "name": "name",
+            "type": "text"
+          },
+          {
+            "name": "createdAt",
+            "type": "timestamptz"
+          }
+        ],
+        "referencedByFRs": [
+          "FR-003",
+          "FR-004"
+        ]
+      },
+      {
+        "name": "ImportJob",
+        "attributes": [
+          {
+            "name": "id",
+            "type": "uuid"
+          },
+          {
+            "name": "source",
+            "type": "text"
+          },
+          {
+            "name": "totalEntries",
+            "type": "int"
+          },
+          {
+            "name": "committedEntries",
+            "type": "int"
+          },
+          {
+            "name": "failures",
+            "type": "jsonb"
+          },
+          {
+            "name": "startedAt",
+            "type": "timestamptz"
+          },
+          {
+            "name": "finishedAt",
+            "type": "timestamptz"
+          }
+        ],
+        "referencedByFRs": [
+          "FR-004"
+        ]
+      }
+    ],
+    "interfaces": [
+      {
+        "name": "Web App",
+        "kind": "ui",
+        "summary": "Server-rendered Next.js UI over an internal JSON API: POST /articles (save), GET /articles?q= (search + filter), POST /tags, POST /imports (multipart upload), GET /imports/:id (progress). Session-cookie authenticated; 401 on any unauthenticated call, 503 with a Retry-After when the search index is unreachable.",
+        "relatedFRs": [
+          "FR-001",
+          "FR-002",
+          "FR-003",
+          "FR-004",
+          "FR-005"
+        ]
+      },
+      {
+        "name": "Browser Extension",
+        "kind": "api",
+        "summary": "A WebExtension that POSTs {url, title} to the instance's /articles endpoint using a long-lived token the user pastes once. Failure modes: unreachable instance (surface the host and keep the URL in the popup), 401 (prompt to re-paste the token), 409 duplicate (report the existing article rather than erroring).",
+        "relatedFRs": [
+          "FR-001"
+        ]
+      }
+    ],
+    "adrs": [
+      {
+        "id": "0001",
+        "title": "Primary technology stack",
+        "status": "accepted",
+        "context": "The product is a single-developer, 8-week MVP that must run on a cheap VPS and be installable by non-experts. It needs relational storage, full-text search with typo tolerance, and a server-rendered web UI.",
+        "decision": "Build on Next.js with PostgreSQL as the system of record and Meilisearch as the search index, shipped together as a docker-compose stack [E3].",
+        "consequences": "One language across server and client keeps a solo developer productive. Meilisearch adds a second stateful service to run and back up, which is the main operational cost of the choice; PostgreSQL full-text search was rejected because typo tolerance would have to be hand-built. The stack fits the 2 vCPU / 2 GB target.",
+        "alternatives": [
+          "PostgreSQL full-text search alone — one fewer service, but no typo tolerance without significant custom work.",
+          "SQLite + FTS5 — simplest to operate, but weak concurrent-write behaviour under import load."
+        ],
+        "evidence": [
+          "E3"
+        ]
+      },
+      {
+        "id": "0002",
+        "title": "Self-hosting and data-ownership model",
+        "status": "accepted",
+        "context": "The value proposition is data ownership: users are leaving hosted read-it-later services precisely because those services lock data in or shut down.",
+        "decision": "Ship self-hosted only for the MVP: no hosted multi-tenant offering, no account on any Readpile-operated server [E1].",
+        "consequences": "Removes all multi-tenancy, billing and abuse-handling work from the MVP, which is what makes 8 weeks credible. It also caps adoption to people who can run docker-compose — accepted deliberately, and the reason the install path is a first-class usability requirement.",
+        "alternatives": [
+          "A hosted tier alongside self-hosting — contradicts the stated non-goal and roughly doubles the MVP surface."
+        ],
+        "evidence": [
+          "E1"
+        ]
+      },
+      {
+        "id": "0003",
+        "title": "Data persistence and integration approach",
+        "status": "accepted",
+        "context": "Saved articles must survive the source going offline, and imports of up to 10,000 entries must not lose data or block the UI. Prior art shows bulk imports are where read-it-later tools break [E5].",
+        "decision": "Store extracted article bodies as rows in PostgreSQL with images on the filesystem, and process imports through a resumable batch job that commits every 100 entries [E5][E2].",
+        "consequences": "A refresh or a crash mid-import loses at most one batch, and a single bad entry is recorded rather than fatal. Storing bodies in PostgreSQL keeps backup to a single pg_dump; large libraries grow the database rather than an object store, which is acceptable at the stated single-user scale.",
+        "alternatives": [
+          "One transaction for the whole import — simpler, but a 10,000-entry rollback loses hours of work.",
+          "Object storage for bodies — better at scale, but adds a service the self-hosting target does not need."
+        ],
+        "evidence": [
+          "E5",
+          "E2"
+        ]
+      }
+    ]
+  },
+  "competitive": {
+    "competitors": [
+      {
+        "name": "Pocket",
+        "note": "Pocket and Instapaper are hosted read-it-later services; Omnivore is the open-source self-hosted alternative with full-text search and tagging.",
+        "evidence": [
+          "E1"
+        ]
+      },
+      {
+        "name": "Instapaper",
+        "note": "Pocket and Instapaper are hosted read-it-later services; Omnivore is the open-source self-hosted alternative with full-text search and tagging.",
+        "evidence": [
+          "E1"
+        ]
+      },
+      {
+        "name": "Omnivore",
+        "note": "Pocket and Instapaper are hosted read-it-later services; Omnivore is the open-source self-hosted alternative with full-text search and tagging.",
+        "evidence": [
+          "E1"
+        ]
+      }
+    ],
+    "oss": [
+      {
+        "name": "omnivore-app/omnivore",
+        "url": "https://github.com/omnivore-app/omnivore",
+        "note": "Languages: ts:800, tsx:200.",
+        "evidence": [
+          "E2"
+        ]
+      },
+      {
+        "name": "wallabag/wallabag",
+        "url": "https://github.com/wallabag/wallabag",
+        "note": "Seed OSS project mined for prior art.",
+        "evidence": []
+      }
+    ]
+  },
+  "buildPlan": [
+    {
+      "title": "M1 — Walking skeleton (must-haves)",
+      "outcome": "A usable end-to-end slice covering every must-have requirement.",
+      "frIds": [
+        "FR-001",
+        "FR-002"
+      ],
+      "risks": []
+    },
+    {
+      "title": "M2 — Rounded product (should-haves)",
+      "outcome": "The product is complete enough for real users.",
+      "frIds": [
+        "FR-003",
+        "FR-004"
+      ],
+      "risks": []
+    },
+    {
+      "title": "M3 — Enhancements (could-haves)",
+      "outcome": "Nice-to-have capabilities that differentiate the product.",
+      "frIds": [
+        "FR-005"
+      ],
+      "risks": []
+    }
+  ],
+  "traceability": [
+    {
+      "fr": "FR-001",
+      "nfrs": [
+        "NFR-001",
+        "NFR-002",
+        "NFR-003"
+      ],
+      "adrs": [
+        "0001",
+        "0003"
+      ],
+      "entities": [
+        "Article"
+      ],
+      "interfaces": [
+        "Web App",
+        "Browser Extension"
+      ],
+      "components": [
+        "App Shell & Navigation",
+        "Button & Actions",
+        "Form & Input",
+        "List & Collection",
+        "Detail View",
+        "Feedback & Notifications",
+        "Empty & Error States"
+      ],
+      "screens": [
+        "Home / Dashboard",
+        "Save an article from a URL or browser extension"
+      ]
+    },
+    {
+      "fr": "FR-002",
+      "nfrs": [
+        "NFR-001",
+        "NFR-002",
+        "NFR-003"
+      ],
+      "adrs": [
+        "0001",
+        "0003"
+      ],
+      "entities": [
+        "Article"
+      ],
+      "interfaces": [
+        "Web App"
+      ],
+      "components": [
+        "App Shell & Navigation",
+        "Button & Actions",
+        "Form & Input",
+        "List & Collection",
+        "Detail View",
+        "Search & Filter",
+        "Feedback & Notifications",
+        "Empty & Error States"
+      ],
+      "screens": [
+        "Home / Dashboard",
+        "Full-text search across all saved articles"
+      ]
+    },
+    {
+      "fr": "FR-003",
+      "nfrs": [
+        "NFR-001",
+        "NFR-002",
+        "NFR-003"
+      ],
+      "adrs": [
+        "0001",
+        "0003"
+      ],
+      "entities": [
+        "Article",
+        "Tag"
+      ],
+      "interfaces": [
+        "Web App"
+      ],
+      "components": [
+        "App Shell & Navigation",
+        "Button & Actions",
+        "Form & Input",
+        "List & Collection",
+        "Detail View",
+        "Search & Filter",
+        "Feedback & Notifications",
+        "Empty & Error States"
+      ],
+      "screens": [
+        "Tag and organize saved articles"
+      ]
+    },
+    {
+      "fr": "FR-004",
+      "nfrs": [
+        "NFR-001",
+        "NFR-002",
+        "NFR-003"
+      ],
+      "adrs": [
+        "0001",
+        "0003"
+      ],
+      "entities": [
+        "Article",
+        "Tag",
+        "ImportJob"
+      ],
+      "interfaces": [
+        "Web App"
+      ],
+      "components": [
+        "App Shell & Navigation",
+        "Button & Actions",
+        "Form & Input",
+        "List & Collection",
+        "Detail View",
+        "Feedback & Notifications",
+        "Empty & Error States"
+      ],
+      "screens": [
+        "Import an existing Pocket or Instapaper export"
+      ]
+    },
+    {
+      "fr": "FR-005",
+      "nfrs": [
+        "NFR-001",
+        "NFR-002",
+        "NFR-003"
+      ],
+      "adrs": [
+        "0001",
+        "0003"
+      ],
+      "entities": [
+        "Article"
+      ],
+      "interfaces": [
+        "Web App"
+      ],
+      "components": [
+        "App Shell & Navigation",
+        "Button & Actions",
+        "Form & Input",
+        "Detail View",
+        "Feedback & Notifications",
+        "Empty & Error States"
+      ],
+      "screens": []
+    }
+  ],
+  "openQuestions": [],
+  "evidenceIndex": [
+    "E1",
+    "E2",
+    "E3",
+    "E4"
+  ],
+  "design": {
+    "principles": [
+      "Privacy by default — the UI never surfaces or transmits data the user did not choose to share.",
+      "Perceived performance first — optimistic UI, skeletons over spinners, immediate feedback on every action.",
+      "Accessible to everyone — every flow works with the keyboard and assistive technology, by construction.",
+      "Consistency over novelty — reuse tokens and components before inventing new ones.",
+      "Progressive disclosure — show the essential first; reveal complexity only on demand."
+    ],
+    "tokens": [
+      {
+        "category": "color",
+        "name": "color.bg",
+        "value": "#FBF9F4",
+        "note": "Primary surface"
+      },
+      {
+        "category": "color",
+        "name": "color.fg",
+        "value": "#1B2A41",
+        "note": "Primary text"
+      },
+      {
+        "category": "color",
+        "name": "color.primary",
+        "value": "#C1654A",
+        "note": "Primary action / brand accent"
+      },
+      {
+        "category": "color",
+        "name": "color.danger",
+        "value": "#A8322D",
+        "note": "Destructive / error"
+      },
+      {
+        "category": "color",
+        "name": "color.muted",
+        "value": "#5A6B7D",
+        "note": "Secondary text / borders"
+      },
+      {
+        "category": "typography",
+        "name": "font.sans",
+        "value": "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+      },
+      {
+        "category": "typography",
+        "name": "font.mono",
+        "value": "ui-monospace, SFMono-Regular, Menlo, monospace"
+      },
+      {
+        "category": "typography",
+        "name": "scale.body",
+        "value": "16px / 1.5"
+      },
+      {
+        "category": "typography",
+        "name": "scale.h1",
+        "value": "32px / 1.25"
+      },
+      {
+        "category": "typography",
+        "name": "scale.small",
+        "value": "13px / 1.4"
+      },
+      {
+        "category": "spacing",
+        "name": "space.1",
+        "value": "4px"
+      },
+      {
+        "category": "spacing",
+        "name": "space.2",
+        "value": "8px"
+      },
+      {
+        "category": "spacing",
+        "name": "space.3",
+        "value": "12px"
+      },
+      {
+        "category": "spacing",
+        "name": "space.4",
+        "value": "16px"
+      },
+      {
+        "category": "spacing",
+        "name": "space.6",
+        "value": "24px"
+      },
+      {
+        "category": "spacing",
+        "name": "space.8",
+        "value": "32px"
+      },
+      {
+        "category": "radius",
+        "name": "radius.sm",
+        "value": "4px"
+      },
+      {
+        "category": "radius",
+        "name": "radius.md",
+        "value": "8px"
+      },
+      {
+        "category": "radius",
+        "name": "radius.lg",
+        "value": "12px"
+      },
+      {
+        "category": "elevation",
+        "name": "shadow.sm",
+        "value": "0 1px 2px rgba(0,0,0,0.06)"
+      },
+      {
+        "category": "elevation",
+        "name": "shadow.md",
+        "value": "0 4px 12px rgba(0,0,0,0.10)"
+      },
+      {
+        "category": "motion",
+        "name": "motion.fast",
+        "value": "120ms ease-out"
+      },
+      {
+        "category": "motion",
+        "name": "motion.base",
+        "value": "200ms ease-out"
+      }
+    ],
+    "components": [
+      {
+        "name": "App Shell & Navigation",
+        "purpose": "Overall layout, navigation and routing chrome that frames every screen.",
+        "states": [
+          "default",
+          "hover",
+          "focus",
+          "active",
+          "disabled",
+          "loading",
+          "empty",
+          "error"
+        ],
+        "relatedFRs": [
+          "FR-001",
+          "FR-002",
+          "FR-003",
+          "FR-004",
+          "FR-005"
+        ],
+        "evidence": []
+      },
+      {
+        "name": "Button & Actions",
+        "purpose": "Primary, secondary and destructive action controls with loading/disabled states.",
+        "states": [
+          "default",
+          "hover",
+          "focus",
+          "active",
+          "disabled",
+          "loading",
+          "empty",
+          "error"
+        ],
+        "relatedFRs": [
+          "FR-001",
+          "FR-002",
+          "FR-003",
+          "FR-004",
+          "FR-005"
+        ],
+        "evidence": []
+      },
+      {
+        "name": "Form & Input",
+        "purpose": "Labelled inputs with inline validation and accessible error messaging.",
+        "states": [
+          "default",
+          "hover",
+          "focus",
+          "active",
+          "disabled",
+          "loading",
+          "empty",
+          "error"
+        ],
+        "relatedFRs": [
+          "FR-001",
+          "FR-002",
+          "FR-003",
+          "FR-004",
+          "FR-005"
+        ],
+        "evidence": []
+      },
+      {
+        "name": "List & Collection",
+        "purpose": "Paginated/virtualised lists of saved items with selection and bulk actions.",
+        "states": [
+          "default",
+          "hover",
+          "focus",
+          "active",
+          "disabled",
+          "loading",
+          "empty",
+          "error"
+        ],
+        "relatedFRs": [
+          "FR-001",
+          "FR-002",
+          "FR-003",
+          "FR-004"
+        ],
+        "evidence": []
+      },
+      {
+        "name": "Detail View",
+        "purpose": "The focused reading/detail surface for a single item.",
+        "states": [
+          "default",
+          "hover",
+          "focus",
+          "active",
+          "disabled",
+          "loading",
+          "empty",
+          "error"
+        ],
+        "relatedFRs": [
+          "FR-001",
+          "FR-002",
+          "FR-003",
+          "FR-004",
+          "FR-005"
+        ],
+        "evidence": []
+      },
+      {
+        "name": "Search & Filter",
+        "purpose": "Query input, filters and ranked results with empty/no-match handling.",
+        "states": [
+          "default",
+          "hover",
+          "focus",
+          "active",
+          "disabled",
+          "loading",
+          "empty",
+          "error"
+        ],
+        "relatedFRs": [
+          "FR-002",
+          "FR-003"
+        ],
+        "evidence": []
+      },
+      {
+        "name": "Feedback & Notifications",
+        "purpose": "Toasts, banners and inline status for success, error and async progress.",
+        "states": [
+          "default",
+          "hover",
+          "focus",
+          "active",
+          "disabled",
+          "loading",
+          "empty",
+          "error"
+        ],
+        "relatedFRs": [
+          "FR-001",
+          "FR-002",
+          "FR-003",
+          "FR-004",
+          "FR-005"
+        ],
+        "evidence": []
+      },
+      {
+        "name": "Empty & Error States",
+        "purpose": "First-run, no-data and failure states that teach the next action.",
+        "states": [
+          "default",
+          "hover",
+          "focus",
+          "active",
+          "disabled",
+          "loading",
+          "empty",
+          "error"
+        ],
+        "relatedFRs": [
+          "FR-001",
+          "FR-002",
+          "FR-003",
+          "FR-004",
+          "FR-005"
+        ],
+        "evidence": []
+      }
+    ],
+    "screens": [
+      {
+        "name": "Home / Dashboard",
+        "purpose": "The landing surface after sign-in; entry point to the primary tasks.",
+        "relatedFRs": [
+          "FR-001",
+          "FR-002"
+        ]
+      },
+      {
+        "name": "Save an article from a URL or browser extension",
+        "purpose": "Where a user can save an article from a URL or browser extension.",
+        "relatedFRs": [
+          "FR-001"
+        ]
+      },
+      {
+        "name": "Full-text search across all saved articles",
+        "purpose": "Where a user can full-text search across all saved articles.",
+        "relatedFRs": [
+          "FR-002"
+        ]
+      },
+      {
+        "name": "Tag and organize saved articles",
+        "purpose": "Where a user can tag and organize saved articles.",
+        "relatedFRs": [
+          "FR-003"
+        ]
+      },
+      {
+        "name": "Import an existing Pocket or Instapaper export",
+        "purpose": "Where a user can import an existing Pocket or Instapaper export.",
+        "relatedFRs": [
+          "FR-004"
+        ]
+      },
+      {
+        "name": "Settings & Account",
+        "purpose": "Preferences, data export/delete and account management.",
+        "relatedFRs": []
+      }
+    ],
+    "flows": [
+      {
+        "name": "First-run onboarding",
+        "steps": [
+          "Arrive at an empty, explanatory first-run state",
+          "Complete the minimal setup",
+          "Reach the dashboard ready to act"
+        ],
+        "frIds": [
+          "FR-001",
+          "FR-002"
+        ]
+      },
+      {
+        "name": "Save an article from a URL or browser extension — happy path",
+        "steps": [
+          "Navigate to the relevant screen",
+          "Perform: save an article from a URL or browser extension",
+          "Receive clear confirmation of the outcome"
+        ],
+        "frIds": [
+          "FR-001"
+        ]
+      },
+      {
+        "name": "Full-text search across all saved articles — happy path",
+        "steps": [
+          "Navigate to the relevant screen",
+          "Perform: full-text search across all saved articles",
+          "Receive clear confirmation of the outcome"
+        ],
+        "frIds": [
+          "FR-002"
+        ]
+      }
+    ],
+    "accessibility": {
+      "standard": "WCAG 2.2 AA",
+      "requirements": [
+        {
+          "id": "A11Y-001",
+          "statement": "Every interactive control is fully keyboard operable.",
+          "acceptance": [
+            {
+              "given": "a user navigates with the keyboard only",
+              "when": "they tab through any flow",
+              "then": "every interactive control is reachable, operable and follows a logical focus order"
+            }
+          ]
+        },
+        {
+          "id": "A11Y-002",
+          "statement": "Focus is always visible.",
+          "acceptance": [
+            {
+              "given": "an element receives keyboard focus",
+              "when": "the user is navigating",
+              "then": "a visible focus indicator is shown and meets the non-text contrast minimum"
+            }
+          ]
+        },
+        {
+          "id": "A11Y-003",
+          "statement": "Colour contrast meets the target standard.",
+          "acceptance": [
+            {
+              "given": "any text or essential UI element",
+              "when": "it is rendered in any supported theme",
+              "then": "contrast meets the target (≥ 4.5:1 for body text, ≥ 3:1 for large text and UI)"
+            }
+          ]
+        },
+        {
+          "id": "A11Y-004",
+          "statement": "Every control and image exposes an accessible name.",
+          "acceptance": [
+            {
+              "given": "a form control, icon-only button or meaningful image",
+              "when": "it is read by assistive technology",
+              "then": "it exposes a programmatic label/name and images carry meaningful alt text (decorative images are hidden)"
+            }
+          ]
+        },
+        {
+          "id": "A11Y-005",
+          "statement": "Structure and async changes are conveyed semantically.",
+          "acceptance": [
+            {
+              "given": "a screen is parsed by a screen reader",
+              "when": "the user explores it",
+              "then": "headings, landmarks and roles convey the structure and live regions announce asynchronous changes"
+            }
+          ]
+        },
+        {
+          "id": "A11Y-006",
+          "statement": "Reduced motion and zoom are respected.",
+          "acceptance": [
+            {
+              "given": "a user prefers reduced motion or zooms to 200%",
+              "when": "they use the product",
+              "then": "non-essential motion is reduced or disabled and content reflows without loss of content or function"
+            }
+          ]
+        }
+      ]
+    },
+    "contentVoice": [
+      "Voice & tone: clear, concise and human — plain language over jargon.",
+      "Label actions with the outcome the user gets, not the system operation behind it.",
+      "Error messages state what happened, why, and the next step — never blame the user.",
+      "Empty states teach the first useful action; success states confirm exactly what changed."
+    ],
+    "tokensAuthored": true
+  }
+}

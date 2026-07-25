@@ -1,18 +1,19 @@
 {
   "name": "construct",
   "version": "2.6.0",
-  "description": "Turn a product idea into a grounded, buildable SRD suite — requirements grounded in real market, OSS prior-art, and tech-feasibility research, not the model's memory. A skills.sh agent skill.",
+  "description": "Turn a product idea into a grounded, buildable SRD suite \u2014 requirements grounded in real market, OSS prior-art, and tech-feasibility research, not the model's memory. A skills.sh agent skill.",
   "type": "module",
   "packageManager": "pnpm@10.33.0",
   "bin": {
     "construct": "scripts/construct.mjs"
   },
   "files": [
-    "skills",
-    "scripts",
-    "src",
+    "assets",
+    "docker",
     "docker-compose.yml",
-    "docker"
+    "scripts",
+    "skills",
+    "src"
   ],
   "engines": {
     "node": ">=18"
@@ -28,8 +29,9 @@
     "format": "biome format --write .",
     "verify:bundle": "node scripts/verify-skill-bundle.mjs",
     "check:build": "tsup && node scripts/copy-bundle.mjs && git diff --exit-code -- scripts/construct.mjs skills/construct/scripts/construct.mjs skills/construct/docker-compose.yml skills/construct/docker/searxng/settings.yml && node scripts/verify-skill-bundle.mjs && node scripts/sync-engine.mjs --check",
-    "demo": "rm -rf /tmp/construct-demo && mkdir -p /tmp/construct-demo/evidence && cp tests/fixtures/sample-brief.json /tmp/construct-demo/brief.json && cp tests/fixtures/sample-evidence.json /tmp/construct-demo/evidence/evidence.json && node scripts/construct.mjs render --out /tmp/construct-demo --level complex --merge && node scripts/construct.mjs check --out /tmp/construct-demo",
-    "release": "semantic-release"
+    "demo": "rm -rf /tmp/construct-demo && mkdir -p /tmp/construct-demo/evidence && cp tests/fixtures/sample-brief.json /tmp/construct-demo/brief.json && cp tests/fixtures/sample-evidence.json /tmp/construct-demo/evidence/evidence.json && node scripts/construct.mjs render --out /tmp/construct-demo --level light --merge && node scripts/construct.mjs check --out /tmp/construct-demo",
+    "release": "semantic-release",
+    "example": "node scripts/construct.mjs render --out assets/example-srd --from-srd && node scripts/construct.mjs check --out assets/example-srd --min-grounding 66"
   },
   "keywords": [
     "skills",
