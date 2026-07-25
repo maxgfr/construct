@@ -2,6 +2,38 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [3.0.0](https://github.com/maxgfr/construct/compare/v2.6.0...v3.0.0) (2026-07-25)
+
+
+* feat(check)!: hold requirements to ISO/IEC/IEEE 29148, and ship an SRD that passes ([b086131](https://github.com/maxgfr/construct/commit/b08613104666a87e5f3904cf37351c3e51056465))
+* fix(grounding)!: name evidence by provenance so citations survive a re-research ([5857951](https://github.com/maxgfr/construct/commit/5857951d63fde03339848e5c7dd008e26225a09f))
+
+
+### Features
+
+* **skill:** give the agent an entry point, a failure map, and worked examples ([c94abd4](https://github.com/maxgfr/construct/commit/c94abd49abc3961350a45c3f5982e7fd65b93688))
+
+
+### Performance Improvements
+
+* **research:** unblock the event loop, overlap retrievals, cache pages ([a25bfa0](https://github.com/maxgfr/construct/commit/a25bfa060a718d14d30539ea48a5c20d420d9e5d))
+
+
+### BREAKING CHANGES
+
+* `construct check` now fails a `--level complex` SRD whose
+acceptance criteria, interface contracts, success metrics or assumptions still
+carry the renderer's scaffold. An SRD that passed before will fail until those
+are authored — which is the point: they were never reviewed. Render at --level
+light, or author the criteria (references/requirements-rubric.md), to restore a
+green gate.
+* evidence ids are no longer positional. A run whose dossier was
+built before 3.0 has no evidence/ids.json; the first `research` re-run creates
+one and may renumber once, after which ids are stable. Re-check citations after
+that first re-run. `FR.unresolved` and `SRD.coverage` (both dead — the latter
+documented as "filled by check", which never happened) are removed from
+SRD.json.
+
 # [2.6.0](https://github.com/maxgfr/construct/compare/v2.5.0...v2.6.0) (2026-07-24)
 
 
