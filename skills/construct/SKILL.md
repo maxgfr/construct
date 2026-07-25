@@ -89,12 +89,21 @@ No `npm install`, no API keys. Run `--help` for the full surface. Key commands:
   harness* below.
 - `semantic up|down|status` — optional local Docker stack (Qdrant + Ollama +
   SearXNG).
+- `cache status|clean [--all] [--json]` — inspect or prune the on-disk page
+  cache. Retrieved pages are cached (a week by default), so the `research`
+  re-run every fold-in requires costs almost nothing the second time. `clean`
+  drops stale entries, `--all` drops everything.
 
 **Conventions across the surface.** `--out <run>` (alias `--run`) names the run
-folder; `--q <focus>` (alias `--question`) focuses a query. `--refresh` forces a
-re-clone of mined OSS repos. `--web-engine auto|searxng|ddg|claude` pins
-discovery. Most commands accept `--json` — prefer it whenever you branch on the
-result rather than read it as prose.
+folder; `--q <focus>` (alias `--question`) focuses a query. `--refresh` ignores
+the page cache and re-clones mined OSS repos; `--offline` works only from the
+cache and reports a miss honestly instead of treating it as an empty page.
+`--web-engine auto|searxng|ddg|claude` pins discovery. `--concurrency <n>`
+(default 4) bounds how many pages one angle fetches at once, and `--max-tech
+<n>` (default 3) how many candidate technologies the `tech` angle grounds —
+raise it when the brief lists more and you want them all covered. Most commands
+accept `--json` — prefer it whenever you branch on the result rather than read
+it as prose.
 
 **Exit codes.** `0` ok · `1` a gate failed (act on it) · `2` usage error or a
 phase whose worklist does not exist yet (the message names the command that

@@ -60,6 +60,8 @@ function ctx(): ResearchContext {
     webEngine: "auto",
     semantic: false,
     perSource: 6,
+    concurrency: 4,
+    maxTech: 3,
     refresh: false,
   };
 }
@@ -69,7 +71,7 @@ beforeEach(() => {
   writeFileSync(join(REPO_DIR, "README.md"), "# r\n\nA self-hosted read-it-later app with full-text search and tagging.\n");
   writeFileSync(join(REPO_DIR, "index.ts"), "export const x = 1;\n");
   writeFileSync(join(REPO_DIR, "server.ts"), "export const y = 2;\n");
-  vi.mocked(ensureClone).mockImplementation(() => REPO_DIR);
+  vi.mocked(ensureClone).mockImplementation(async () => REPO_DIR);
 });
 afterEach(() => {
   rmSync(REPO_DIR, { recursive: true, force: true });

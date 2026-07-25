@@ -55,6 +55,8 @@ function ctx(candidateTech: string[], docsUrls?: string[]): ResearchContext {
     webEngine: "auto",
     semantic: false,
     perSource: 6,
+    concurrency: 4,
+    maxTech: 3,
     refresh: false,
     docsUrls,
   };

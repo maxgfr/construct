@@ -23,13 +23,19 @@ var DESIGN_TOKENS_SEEDED_BANNER = "Seeded defaults \u2014 replace these with the
 var BUILD_PLAN_SCHEMA_VERSION = 1;
 
 // src/util.ts
-import { spawnSync } from "child_process";
+import { execFile, spawnSync } from "child_process";
 
 // src/config.ts
 var HTTP_GET_TIMEOUT_MS = 2e4;
 var HTTP_JSON_TIMEOUT_MS = 3e4;
 var SEARXNG_TIMEOUT_MS = 8e3;
 var DDG_TIMEOUT_MS = 12e3;
+var FETCH_CONCURRENCY = 4;
+var SEED_CONCURRENCY = 2;
+var SO_CONCURRENCY = 1;
+var MAX_TECH = 3;
+var EMBED_CONCURRENCY = 3;
+var CACHE_TTL_HOURS = 168;
 var RETRY_BASE_DELAY_MS = 300;
 var RETRY_JITTER_MS = 150;
 var RETRY_AFTER_CAP_MS = 1e4;
@@ -63,6 +69,27 @@ function sh(cmd, args2, opts = {}) {
     stderr: res.stderr ?? (res.error ? String(res.error.message) : ""),
     missing
   };
+}
+function shAsync(cmd, args2, opts = {}) {
+  return new Promise((resolve6) => {
+    execFile(
+      cmd,
+      args2,
+      {
+        cwd: opts.cwd,
+        encoding: "utf8",
+        timeout: opts.timeoutMs ?? SH_DEFAULT_TIMEOUT_MS,
+        maxBuffer: 64 * 1024 * 1024,
+        env: opts.env ?? process.env
+      },
+      (error, stdout, stderr) => {
+        const err3 = error;
+        const missing = !!err3 && err3.code === "ENOENT";
+        const status = !err3 ? 0 : typeof err3.code === "number" ? err3.code : null;
+        resolve6({ ok: !err3, status, stdout: stdout ?? "", stderr: stderr || (err3 ? String(err3.message) : ""), missing });
+      }
+    );
+  });
 }
 var whichCache = /* @__PURE__ */ new Map();
 function have(cmd) {
@@ -1119,6 +1146,123 @@ async function timeAngle(angle, sink, fn) {
   }
 }
 
+// src/research/cache.ts
+import { createHash } from "crypto";
+import { existsSync as existsSync3, mkdirSync as mkdirSync3, readFileSync as readFileSync3, readdirSync, rmSync, statSync, writeFileSync as writeFileSync3 } from "fs";
+import { homedir } from "os";
+import { join as join3 } from "path";
+var options = { refresh: false, offline: false };
+function configureCache(opts) {
+  options = { ...options, ...opts };
+}
+function cacheOptions() {
+  return { ...options };
+}
+function cacheDir() {
+  const override = process.env.CONSTRUCT_CACHE_DIR;
+  if (override && override.trim()) return override.trim();
+  return join3(homedir(), ".cache", "construct", "http");
+}
+function ttlMs() {
+  const raw = Number(process.env.CONSTRUCT_CACHE_TTL_HOURS);
+  const hours = Number.isFinite(raw) && raw >= 0 ? raw : CACHE_TTL_HOURS;
+  return hours * 36e5;
+}
+function keyFor(url) {
+  return createHash("sha256").update(url).digest("hex").slice(0, 32);
+}
+function paths(url) {
+  const k = keyFor(url);
+  const dir = cacheDir();
+  return { meta: join3(dir, `${k}.json`), body: join3(dir, `${k}.body`) };
+}
+function read(url) {
+  const { meta, body: body2 } = paths(url);
+  if (!existsSync3(meta) || !existsSync3(body2)) return null;
+  try {
+    const entry = JSON.parse(readFileSync3(meta, "utf8"));
+    if (typeof entry?.fetchedAt !== "number") return null;
+    return { entry, body: readFileSync3(body2, "utf8") };
+  } catch {
+    return null;
+  }
+}
+function isFresh(entry, now = Date.now()) {
+  return now - entry.fetchedAt < ttlMs();
+}
+function write(url, entry, body2, now = Date.now()) {
+  try {
+    mkdirSync3(cacheDir(), { recursive: true });
+    const p = paths(url);
+    writeFileSync3(p.body, body2);
+    writeFileSync3(p.meta, JSON.stringify({ url, fetchedAt: now, ...entry }, null, 2));
+  } catch {
+  }
+}
+function touch(url, now = Date.now()) {
+  const cur = read(url);
+  if (!cur) return;
+  write(url, { status: cur.entry.status, contentType: cur.entry.contentType, etag: cur.entry.etag, lastModified: cur.entry.lastModified }, cur.body, now);
+}
+function revalidationHeaders(entry) {
+  const h = {};
+  if (entry.etag) h["if-none-match"] = entry.etag;
+  if (entry.lastModified) h["if-modified-since"] = entry.lastModified;
+  return h;
+}
+function stats(now = Date.now()) {
+  const dir = cacheDir();
+  const out2 = { dir, entries: 0, bytes: 0, fresh: 0, stale: 0, ttlHours: ttlMs() / 36e5 };
+  if (!existsSync3(dir)) return out2;
+  let oldest = Number.POSITIVE_INFINITY;
+  let newest = 0;
+  for (const name2 of readdirSync(dir)) {
+    const abs = join3(dir, name2);
+    try {
+      out2.bytes += statSync(abs).size;
+    } catch {
+      continue;
+    }
+    if (!name2.endsWith(".json")) continue;
+    try {
+      const entry = JSON.parse(readFileSync3(abs, "utf8"));
+      out2.entries++;
+      if (isFresh(entry, now)) out2.fresh++;
+      else out2.stale++;
+      if (entry.fetchedAt < oldest) oldest = entry.fetchedAt;
+      if (entry.fetchedAt > newest) newest = entry.fetchedAt;
+    } catch {
+    }
+  }
+  if (out2.entries) {
+    out2.oldest = new Date(oldest).toISOString();
+    out2.newest = new Date(newest).toISOString();
+  }
+  return out2;
+}
+function clean(all, now = Date.now()) {
+  const dir = cacheDir();
+  if (!existsSync3(dir)) return 0;
+  let removed = 0;
+  for (const name2 of readdirSync(dir)) {
+    if (!name2.endsWith(".json")) continue;
+    const meta = join3(dir, name2);
+    let drop = all;
+    if (!drop) {
+      try {
+        drop = !isFresh(JSON.parse(readFileSync3(meta, "utf8")), now);
+      } catch {
+        drop = true;
+      }
+    }
+    if (!drop) continue;
+    rmSync(meta, { force: true });
+    rmSync(join3(dir, name2.replace(/\.json$/, ".body")), { force: true });
+    removed++;
+  }
+  return removed;
+}
+
 // src/research/fetch.ts
 var UA = "construct/0.x (+https://github.com/maxgfr/construct)";
 var BROWSER_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
@@ -1156,7 +1300,9 @@ async function httpGetOnce(url, opts) {
       status: res.status,
       body: buf.subarray(0, max).toString("utf8"),
       contentType: res.headers.get("content-type") ?? "",
-      retryAfter: res.headers.get("retry-after") ?? void 0
+      retryAfter: res.headers.get("retry-after") ?? void 0,
+      etag: res.headers.get("etag") ?? void 0,
+      lastModified: res.headers.get("last-modified") ?? void 0
     };
   } catch (e) {
     return { ok: false, status: 0, body: "", contentType: "", error: e.message };
@@ -1251,7 +1397,26 @@ function metaDescriptionOf(html) {
   return d || void 0;
 }
 async function fetchAndExtract(url) {
-  let res = await httpGet(url, { accept: "text/html,text/plain,*/*" });
+  const { refresh, offline } = cacheOptions();
+  const cached = refresh ? null : read(url);
+  if (cached && isFresh(cached.entry)) {
+    recordFetch(Buffer.byteLength(cached.body), true);
+    return extract(cached.body, cached.entry.contentType);
+  }
+  if (offline) {
+    if (cached) {
+      recordFetch(Buffer.byteLength(cached.body), true);
+      return extract(cached.body, cached.entry.contentType);
+    }
+    return { text: "", note: `Offline: ${url} is not in the cache (drop --offline, or warm it with a normal run).` };
+  }
+  const conditional = cached ? revalidationHeaders(cached.entry) : {};
+  let res = await httpGet(url, { accept: "text/html,text/plain,*/*", headers: conditional });
+  if (cached && res.status === 304) {
+    touch(url);
+    recordFetch(Buffer.byteLength(cached.body), true);
+    return extract(cached.body, cached.entry.contentType);
+  }
   if (!res.ok && (res.status === 403 || res.status === 429)) {
     res = await httpGet(url, {
       accept: "text/html,application/xhtml+xml,*/*",
@@ -1259,8 +1424,18 @@ async function fetchAndExtract(url) {
     });
   }
   if (!res.ok) {
+    if (cached) {
+      recordFetch(Buffer.byteLength(cached.body), true);
+      const out2 = extract(cached.body, cached.entry.contentType);
+      return { ...out2, note: `${url} returned ${res.status}; served the cached copy from ${new Date(cached.entry.fetchedAt).toISOString()}.` };
+    }
     return { text: "", note: `Could not fetch ${url} (status ${res.status}${res.error ? ", " + res.error : ""}).` };
   }
+  write(url, { status: res.status, contentType: res.contentType, etag: res.etag, lastModified: res.lastModified }, res.body);
+  return extract(res.body, res.contentType);
+}
+function extract(body2, contentType) {
+  const res = { body: body2, contentType };
   const isHtml = /html/i.test(res.contentType) || /^\s*</.test(res.body);
   const metaDescription = isHtml ? metaDescriptionOf(res.body) : void 0;
   const rawText = isHtml ? htmlToText(res.body) : res.body;
@@ -1313,6 +1488,27 @@ function excerptsFromText(text, url, title, source, question, perSource) {
   return items;
 }
 
+// src/research/pool.ts
+async function pool(items, limit, fn) {
+  const width = Math.max(1, Math.floor(limit));
+  if (items.length <= 1 || width === 1) {
+    const out2 = [];
+    for (let i2 = 0; i2 < items.length; i2++) out2.push(await fn(items[i2], i2));
+    return out2;
+  }
+  const results = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(width, items.length) }, async () => {
+    for (; ; ) {
+      const i2 = next++;
+      if (i2 >= items.length) return;
+      results[i2] = await fn(items[i2], i2);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 // src/research/web.ts
 var SEARXNG_BASE = process.env.CONSTRUCT_SEARXNG || "http://localhost:8888";
 async function viaSearxng(query2, n) {
@@ -1349,10 +1545,12 @@ async function viaDuckDuckGo(query2, n) {
   }
   return urls.length ? urls : null;
 }
+var searxngDown = false;
 async function discover(query2, engine, n) {
   const notes = [];
   if (engine === "searxng" || engine === "auto") {
-    const s = await viaSearxng(query2, n);
+    const s = searxngDown ? null : await viaSearxng(query2, n);
+    if (s === null) searxngDown = true;
     if (s?.length) return { urls: s, via: "searxng", notes };
     if (engine === "searxng") {
       notes.push(s === null ? `SearXNG unreachable at ${SEARXNG_BASE}. Run \`construct semantic up\`.` : "SearXNG returned no results.");
@@ -1370,12 +1568,18 @@ async function discover(query2, engine, n) {
   }
   return { urls: [], via: "none", notes };
 }
-async function webFetchUrls(urls, question, perSource, source = "market", fetchAll = false) {
+async function webFetchUrls(urls, question, perSource, source = "market", fetchAll = false, concurrency = FETCH_CONCURRENCY) {
   const items = [];
   const notes = [];
   const toFetch = fetchAll ? urls : urls.slice(0, Math.max(1, Math.ceil(perSource / 2)));
-  for (const url of toFetch) {
-    const { text, note, metaDescription } = await fetchAndExtract(url);
+  const fetched = await pool(toFetch, concurrency, async (url) => {
+    try {
+      return { url, ...await fetchAndExtract(url) };
+    } catch (e) {
+      return { url, text: "", note: `Could not fetch ${url}: ${e.message}` };
+    }
+  });
+  for (const { url, text, note, metaDescription } of fetched) {
     if (note) notes.push(note);
     if (!text) continue;
     const ex = excerptsFromText(text, url, `${labelFor(source)} \u2014 ${url}`, source, question, perSource);
@@ -1412,7 +1616,7 @@ async function marketAngle(ctx) {
   const pinned = ctx.marketUrls ?? [];
   const questions = [query2, ...b.featureWishlist.map((f) => `${f.title} ${f.notes ?? ""}`.trim())].filter(Boolean);
   if (pinned.length) {
-    const f = await webFetchUrls(pinned, questions.length ? questions : pinned.join(" "), ctx.perSource, "market", true);
+    const f = await webFetchUrls(pinned, questions.length ? questions : pinned.join(" "), ctx.perSource, "market", true, ctx.concurrency);
     items.push(...f.items.map((it) => ({ ...it, meta: { ...it.meta ?? {}, pinned: true } })));
     notes.push(`Pinned ${pinned.length} market URL(s) via --url.`, ...f.notes);
   }
@@ -1426,7 +1630,7 @@ async function marketAngle(ctx) {
     if (urls.length === 0) {
       notes.push(`Market discovery via ${via}.`, ...discoveryNotes);
     } else {
-      const fetched = await webFetchUrls(urls, questions, budget, "market");
+      const fetched = await webFetchUrls(urls, questions, budget, "market", false, ctx.concurrency);
       items.push(...fetched.items);
       notes.push(`Market discovery via ${via} for "${query2}".`, ...discoveryNotes, ...fetched.notes);
     }
@@ -1435,17 +1639,17 @@ async function marketAngle(ctx) {
 }
 
 // src/clone.ts
-import { existsSync as existsSync3, statSync, mkdirSync as mkdirSync3, readdirSync, rmSync } from "fs";
-import { resolve, join as join3, basename } from "path";
+import { existsSync as existsSync4, statSync as statSync2, mkdirSync as mkdirSync4, readdirSync as readdirSync2, rmSync as rmSync2 } from "fs";
+import { resolve, join as join4, basename } from "path";
 import { tmpdir } from "os";
 function cacheRoot() {
-  return join3(tmpdir(), "construct");
+  return join4(tmpdir(), "construct");
 }
 function resolveRepo(raw) {
   const trimmed = raw.trim();
   if (trimmed) {
     const asPath = resolve(trimmed);
-    if (existsSync3(asPath) && statSync(asPath).isDirectory()) {
+    if (existsSync4(asPath) && statSync2(asPath).isDirectory()) {
       return {
         raw: trimmed,
         host: "local",
@@ -1492,33 +1696,33 @@ function resolveRepo(raw) {
     slug: slugify(`${host}/${path}`)
   };
 }
-function ensureClone(ref, opts = {}) {
+async function ensureClone(ref, opts = {}) {
   if (ref.isLocal) return resolve(ref.raw);
-  const dir = join3(cacheRoot(), ref.slug);
-  const alreadyCloned = existsSync3(join3(dir, ".git"));
+  const dir = join4(cacheRoot(), ref.slug);
+  const alreadyCloned = existsSync4(join4(dir, ".git"));
   if (alreadyCloned && !opts.refresh) return dir;
   if (alreadyCloned && opts.refresh) {
-    sh("git", ["-C", dir, "fetch", "--depth", "1", "origin"], { timeoutMs: GIT_FETCH_TIMEOUT_MS });
-    sh("git", ["-C", dir, "reset", "--hard", "FETCH_HEAD"], { timeoutMs: GIT_RESET_TIMEOUT_MS });
+    await shAsync("git", ["-C", dir, "fetch", "--depth", "1", "origin"], { timeoutMs: GIT_FETCH_TIMEOUT_MS });
+    await shAsync("git", ["-C", dir, "reset", "--hard", "FETCH_HEAD"], { timeoutMs: GIT_RESET_TIMEOUT_MS });
     return dir;
   }
-  mkdirSync3(cacheRoot(), { recursive: true });
+  mkdirSync4(cacheRoot(), { recursive: true });
   const args2 = ["clone", "--depth", "1", "--filter=blob:none"];
   if (opts.branch) args2.push("--branch", opts.branch);
   args2.push(ref.cloneUrl, dir);
-  const res = sh("git", args2, { timeoutMs: GIT_CLONE_TIMEOUT_MS });
+  const res = await shAsync("git", args2, { timeoutMs: GIT_CLONE_TIMEOUT_MS });
   if (!res.ok) {
     if (res.missing) {
       throw new Error(`git is not installed or not on PATH \u2014 cannot clone ${ref.cloneUrl}`);
     }
-    if (existsSync3(dir)) {
+    if (existsSync4(dir)) {
       try {
-        rmSync(dir, { recursive: true, force: true });
+        rmSync2(dir, { recursive: true, force: true });
       } catch (e) {
         throw new Error(`could not remove the partial clone at ${dir} before retrying: ${e.message} \u2014 delete it manually and re-run`);
       }
     }
-    const fallback = sh("git", ["clone", "--depth", "1", ...opts.branch ? ["--branch", opts.branch] : [], ref.cloneUrl, dir], {
+    const fallback = await shAsync("git", ["clone", "--depth", "1", ...opts.branch ? ["--branch", opts.branch] : [], ref.cloneUrl, dir], {
       timeoutMs: GIT_CLONE_TIMEOUT_MS
     });
     if (!fallback.ok) {
@@ -1531,7 +1735,7 @@ function ensureClone(ref, opts = {}) {
       );
     }
   }
-  if (!existsSync3(dir) || readdirSync(dir).length === 0) {
+  if (!existsSync4(dir) || readdirSync2(dir).length === 0) {
     throw new Error(`clone produced an empty tree at ${dir}`);
   }
   return dir;
@@ -1539,26 +1743,26 @@ function ensureClone(ref, opts = {}) {
 
 // src/vendor/codeindex-engine.mjs
 import { spawnSync as spawnSync2 } from "child_process";
-import { readdirSync as readdirSync2, statSync as statSync2, lstatSync, readFileSync as readFileSync3, realpathSync } from "fs";
-import { join as join4, sep, extname } from "path";
-import { createHash } from "crypto";
-import { readFileSync as readFileSync22, existsSync as existsSync4 } from "fs";
-import { homedir } from "os";
+import { readdirSync as readdirSync3, statSync as statSync3, lstatSync, readFileSync as readFileSync4, realpathSync } from "fs";
+import { join as join5, sep, extname } from "path";
+import { createHash as createHash2 } from "crypto";
+import { readFileSync as readFileSync22, existsSync as existsSync5 } from "fs";
+import { homedir as homedir2 } from "os";
 import { dirname, join as join22 } from "path";
 import { fileURLToPath } from "url";
 import { basename as basename2 } from "path";
 import { posix } from "path";
 import { join as join42 } from "path";
 import { posix as posix2 } from "path";
-import { join as join5 } from "path";
+import { join as join52 } from "path";
 import { join as join6 } from "path";
 import { join as join7 } from "path";
 import { join as join8 } from "path";
-import { readFileSync as readFileSync4, writeFileSync as writeFileSync22 } from "fs";
+import { readFileSync as readFileSync42, writeFileSync as writeFileSync22 } from "fs";
 import { join as join9 } from "path";
-import { mkdirSync as mkdirSync22, readdirSync as readdirSync22, readFileSync as readFileSync5, rmSync as rmSync2, statSync as statSync22, writeFileSync as writeFileSync3 } from "fs";
+import { mkdirSync as mkdirSync22, readdirSync as readdirSync22, readFileSync as readFileSync5, rmSync as rmSync22, statSync as statSync22, writeFileSync as writeFileSync32 } from "fs";
 import { dirname as dirname3, join as join10 } from "path";
-import { existsSync as existsSync32, readdirSync as readdirSync3, statSync as statSync3 } from "fs";
+import { existsSync as existsSync32, readdirSync as readdirSync32, statSync as statSync32 } from "fs";
 import { join as join11 } from "path";
 import { createHash as createHash3 } from "crypto";
 import { existsSync as existsSync42, readFileSync as readFileSync6 } from "fs";
@@ -1567,12 +1771,12 @@ import { readFileSync as readFileSync7, statSync as statSync4 } from "fs";
 import { join as join14 } from "path";
 import { createInterface } from "readline";
 import { basename as basename22 } from "path";
-import { createHash as createHash2 } from "crypto";
-import { existsSync as existsSync22, mkdirSync as mkdirSync4, mkdtempSync, readFileSync as readFileSync32, renameSync, rmSync as rmSync3, writeFileSync as writeFileSync4 } from "fs";
+import { createHash as createHash22 } from "crypto";
+import { existsSync as existsSync22, mkdirSync as mkdirSync5, mkdtempSync, readFileSync as readFileSync32, renameSync, rmSync as rmSync3, writeFileSync as writeFileSync4 } from "fs";
 import { dirname as dirname2, join as join32, resolve as resolve2, sep as sep2 } from "path";
 import { gunzipSync } from "zlib";
 import { join as join12 } from "path";
-import { existsSync as existsSync5, mkdirSync as mkdirSync32, readFileSync as readFileSync8, writeFileSync as writeFileSync42 } from "fs";
+import { existsSync as existsSync52, mkdirSync as mkdirSync32, readFileSync as readFileSync8, writeFileSync as writeFileSync42 } from "fs";
 import { join as join15, resolve as resolve22 } from "path";
 var __defProp = Object.defineProperty;
 var __getOwnPropNames = Object.getOwnPropertyNames;
@@ -1915,7 +2119,7 @@ function walk(root, opts = {}) {
     if (!contained(real)) continue;
     let entries;
     try {
-      entries = readdirSync2(frame.dir, { withFileTypes: true }).sort(
+      entries = readdirSync3(frame.dir, { withFileTypes: true }).sort(
         (a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0
       );
     } catch {
@@ -1923,18 +2127,18 @@ function walk(root, opts = {}) {
     }
     let rules = frame.rules;
     if (useGitignore && entries.some((e) => e.name === ".gitignore")) {
-      const parsed = parseGitignore(readText(join4(frame.dir, ".gitignore")), frame.rel);
+      const parsed = parseGitignore(readText(join5(frame.dir, ".gitignore")), frame.rel);
       if (parsed.length) rules = [...rules, ...parsed];
     }
     for (const entry of entries) {
       const name2 = entry.name;
-      const abs = join4(frame.dir, name2);
+      const abs = join5(frame.dir, name2);
       const rel = frame.rel ? `${frame.rel}/${name2}` : name2;
       const isLink = entry.isSymbolicLink();
       if (entry.isDirectory() && ignoreDirs.has(name2)) continue;
       let st;
       try {
-        st = isLink ? statSync2(abs) : lstatSync(abs);
+        st = isLink ? statSync3(abs) : lstatSync(abs);
       } catch {
         continue;
       }
@@ -1985,7 +2189,7 @@ function walk(root, opts = {}) {
 }
 function readText(abs) {
   try {
-    const buf = readFileSync3(abs);
+    const buf = readFileSync4(abs);
     if (buf.length >= 2 && buf[0] === 255 && buf[1] === 254) {
       return buf.subarray(2, 2 + (buf.length - 2 & ~1)).toString("utf16le");
     }
@@ -2261,7 +2465,7 @@ var init_git = __esm({
   }
 });
 function sha1(s) {
-  return createHash("sha1").update(s).digest("hex");
+  return createHash2("sha1").update(s).digest("hex");
 }
 function shortHash(s, n = 8) {
   return sha1(s).slice(0, n);
@@ -6550,7 +6754,7 @@ ${JSON.stringify(symbolNames, null, 2)}`);
        *  - The parser has not yet had a language assigned with {@link Parser#setLanguage}.
        *  - The progress callback returned true.
        */
-      parse(callback, oldTree, options) {
+      parse(callback, oldTree, options2) {
         if (typeof callback === "string") {
           C.currentParseCallback = (index) => callback.slice(index);
         } else if (typeof callback === "function") {
@@ -6558,8 +6762,8 @@ ${JSON.stringify(symbolNames, null, 2)}`);
         } else {
           throw new Error("Argument must be a string or a function");
         }
-        if (options?.progressCallback) {
-          C.currentProgressCallback = options.progressCallback;
+        if (options2?.progressCallback) {
+          C.currentProgressCallback = options2.progressCallback;
         } else {
           C.currentProgressCallback = null;
         }
@@ -6572,12 +6776,12 @@ ${JSON.stringify(symbolNames, null, 2)}`);
         }
         let rangeCount = 0;
         let rangeAddress = 0;
-        if (options?.includedRanges) {
-          rangeCount = options.includedRanges.length;
+        if (options2?.includedRanges) {
+          rangeCount = options2.includedRanges.length;
           rangeAddress = C._calloc(rangeCount, SIZE_OF_RANGE);
           let address = rangeAddress;
           for (let i2 = 0; i2 < rangeCount; i2++) {
-            marshalRange(address, options.includedRanges[i2]);
+            marshalRange(address, options2.includedRanges[i2]);
             address += SIZE_OF_RANGE;
           }
         }
@@ -6872,18 +7076,18 @@ ${JSON.stringify(symbolNames, null, 2)}`);
        *
        * @param {QueryOptions} options - Options for query execution.
        */
-      matches(node, options = {}) {
-        const startPosition = options.startPosition ?? ZERO_POINT;
-        const endPosition = options.endPosition ?? ZERO_POINT;
-        const startIndex = options.startIndex ?? 0;
-        const endIndex = options.endIndex ?? 0;
-        const startContainingPosition = options.startContainingPosition ?? ZERO_POINT;
-        const endContainingPosition = options.endContainingPosition ?? ZERO_POINT;
-        const startContainingIndex = options.startContainingIndex ?? 0;
-        const endContainingIndex = options.endContainingIndex ?? 0;
-        const matchLimit = options.matchLimit ?? 4294967295;
-        const maxStartDepth = options.maxStartDepth ?? 4294967295;
-        const progressCallback = options.progressCallback;
+      matches(node, options2 = {}) {
+        const startPosition = options2.startPosition ?? ZERO_POINT;
+        const endPosition = options2.endPosition ?? ZERO_POINT;
+        const startIndex = options2.startIndex ?? 0;
+        const endIndex = options2.endIndex ?? 0;
+        const startContainingPosition = options2.startContainingPosition ?? ZERO_POINT;
+        const endContainingPosition = options2.endContainingPosition ?? ZERO_POINT;
+        const startContainingIndex = options2.startContainingIndex ?? 0;
+        const endContainingIndex = options2.endContainingIndex ?? 0;
+        const matchLimit = options2.matchLimit ?? 4294967295;
+        const maxStartDepth = options2.maxStartDepth ?? 4294967295;
+        const progressCallback = options2.progressCallback;
         if (typeof matchLimit !== "number") {
           throw new Error("Arguments must be numbers");
         }
@@ -6963,18 +7167,18 @@ ${JSON.stringify(symbolNames, null, 2)}`);
        *
        * @param {QueryOptions} options - Options for query execution.
        */
-      captures(node, options = {}) {
-        const startPosition = options.startPosition ?? ZERO_POINT;
-        const endPosition = options.endPosition ?? ZERO_POINT;
-        const startIndex = options.startIndex ?? 0;
-        const endIndex = options.endIndex ?? 0;
-        const startContainingPosition = options.startContainingPosition ?? ZERO_POINT;
-        const endContainingPosition = options.endContainingPosition ?? ZERO_POINT;
-        const startContainingIndex = options.startContainingIndex ?? 0;
-        const endContainingIndex = options.endContainingIndex ?? 0;
-        const matchLimit = options.matchLimit ?? 4294967295;
-        const maxStartDepth = options.maxStartDepth ?? 4294967295;
-        const progressCallback = options.progressCallback;
+      captures(node, options2 = {}) {
+        const startPosition = options2.startPosition ?? ZERO_POINT;
+        const endPosition = options2.endPosition ?? ZERO_POINT;
+        const startIndex = options2.startIndex ?? 0;
+        const endIndex = options2.endIndex ?? 0;
+        const startContainingPosition = options2.startContainingPosition ?? ZERO_POINT;
+        const endContainingPosition = options2.endContainingPosition ?? ZERO_POINT;
+        const startContainingIndex = options2.startContainingIndex ?? 0;
+        const endContainingIndex = options2.endContainingIndex ?? 0;
+        const matchLimit = options2.matchLimit ?? 4294967295;
+        const maxStartDepth = options2.maxStartDepth ?? 4294967295;
+        const progressCallback = options2.progressCallback;
         if (typeof matchLimit !== "number") {
           throw new Error("Arguments must be numbers");
         }
@@ -7134,13 +7338,13 @@ function grammarKeyForExt(ext) {
 }
 function sharedGrammarsCacheDir() {
   const xdg = process.env.XDG_CACHE_HOME;
-  const base = xdg && xdg.trim() ? xdg.trim() : join22(homedir(), ".cache");
+  const base = xdg && xdg.trim() ? xdg.trim() : join22(homedir2(), ".cache");
   return join22(base, "codeindex", "grammars", ENGINE_VERSION);
 }
 function resolveGrammarsTier(opts = {}) {
-  const cacheDir = sharedGrammarsCacheDir();
+  const cacheDir2 = sharedGrammarsCacheDir();
   const legacy = process.env.CODEINDEX_GRAMMAR_DIR ?? process.env.ULTRAINDEX_GRAMMAR_DIR;
-  if (legacy && legacy.trim() && existsSync4(legacy)) return { tier: "env", dir: legacy, cacheDir };
+  if (legacy && legacy.trim() && existsSync5(legacy)) return { tier: "env", dir: legacy, cacheDir: cacheDir2 };
   const here = opts.moduleDir ?? dirname(fileURLToPath(import.meta.url));
   const adjacent = [
     join22(here, "grammars"),
@@ -7149,11 +7353,11 @@ function resolveGrammarsTier(opts = {}) {
     // dev: src/ast → <repo>/scripts/grammars
     join22(here, "..", "scripts", "grammars")
   ];
-  for (const c2 of adjacent) if (existsSync4(c2)) return { tier: "adjacent", dir: c2, cacheDir };
+  for (const c2 of adjacent) if (existsSync5(c2)) return { tier: "adjacent", dir: c2, cacheDir: cacheDir2 };
   const env = process.env.CODEINDEX_GRAMMARS_DIR;
-  if (env && env.trim() && existsSync4(env)) return { tier: "env", dir: env, cacheDir };
-  if (existsSync4(cacheDir)) return { tier: "cache", dir: cacheDir, cacheDir };
-  return { tier: "none", cacheDir };
+  if (env && env.trim() && existsSync5(env)) return { tier: "env", dir: env, cacheDir: cacheDir2 };
+  if (existsSync5(cacheDir2)) return { tier: "cache", dir: cacheDir2, cacheDir: cacheDir2 };
+  return { tier: "none", cacheDir: cacheDir2 };
 }
 function resolveGrammarsDir(opts) {
   return resolveGrammarsTier(opts).dir;
@@ -7163,7 +7367,7 @@ async function ensureGrammars(keys) {
   if (!dir) return;
   if (!runtimeReady) {
     const runtime = join22(dir, "web-tree-sitter.wasm");
-    if (!existsSync4(runtime)) return;
+    if (!existsSync5(runtime)) return;
     await Parser.init({ wasmBinary: readFileSync22(runtime) });
     runtimeReady = true;
     parser = new Parser();
@@ -7171,7 +7375,7 @@ async function ensureGrammars(keys) {
   for (const key of new Set(keys)) {
     if (loaded.has(key) || failed.has(key)) continue;
     const wasm = join22(dir, `${key}.wasm`);
-    if (!existsSync4(wasm)) {
+    if (!existsSync5(wasm)) {
       failed.add(key);
       continue;
     }
@@ -9199,7 +9403,7 @@ function buildGraph(scan2, ctx, modules, moduleOf, meta) {
   if (unique.size) {
     for (const f of scan2.files) {
       if (f.kind !== "doc") continue;
-      const content = scan2.docText.get(f.rel) ?? readText(join5(scan2.root, f.rel));
+      const content = scan2.docText.get(f.rel) ?? readText(join52(scan2.root, f.rel));
       if (!content) continue;
       const tokens = /* @__PURE__ */ new Map();
       for (const tok of content.split(/[^A-Za-z0-9_]+/)) {
@@ -9864,7 +10068,7 @@ function resolveUniqueSymbol(scan2, namePath, file) {
   throw new Error(`"${namePath}" is ambiguous (${matches.length} matches: ${list}) \u2014 qualify with \`file\` or a Parent/name path`);
 }
 function readLines(abs) {
-  return readFileSync4(abs, "utf8").split("\n");
+  return readFileSync42(abs, "utf8").split("\n");
 }
 function replaceSymbolBody(scan2, namePath, body2, file) {
   const sym = resolveUniqueSymbol(scan2, namePath, file);
@@ -9907,16 +10111,16 @@ var init_edit = __esm({
   }
 });
 function sanitize(name2) {
-  const clean = name2.replace(/^mem:/, "").replace(/\.md$/, "");
-  if (!clean) throw new Error("memory name is empty");
-  const segments = clean.split("/");
+  const clean2 = name2.replace(/^mem:/, "").replace(/\.md$/, "");
+  if (!clean2) throw new Error("memory name is empty");
+  const segments = clean2.split("/");
   for (const seg of segments) {
     if (!seg || seg === "." || seg === ".." || seg.includes("\\")) {
       throw new Error(`invalid memory name: "${name2}"`);
     }
     if (!/^[\w][\w.-]*$/.test(seg)) throw new Error(`invalid memory name segment: "${seg}"`);
   }
-  return clean;
+  return clean2;
 }
 function memoryPath(repo, name2) {
   return join10(repo, ...MEMORY_DIR, `${sanitize(name2)}.md`);
@@ -9924,7 +10128,7 @@ function memoryPath(repo, name2) {
 function writeMemory(repo, name2, content) {
   const path = memoryPath(repo, name2);
   mkdirSync22(dirname3(path), { recursive: true });
-  writeFileSync3(path, content.endsWith("\n") ? content : content + "\n");
+  writeFileSync32(path, content.endsWith("\n") ? content : content + "\n");
   return sanitize(name2);
 }
 function readMemory(repo, name2) {
@@ -9941,7 +10145,7 @@ function deleteMemory(repo, name2) {
   } catch {
     return false;
   }
-  rmSync2(path);
+  rmSync22(path);
   return true;
 }
 function listMemories(repo) {
@@ -10128,15 +10332,15 @@ function ownArtifactId(pom) {
   return stripped.match(/<artifactId>\s*([^<]+?)\s*<\/artifactId>/)?.[1];
 }
 function addPackage(root, dir, found, kind, warnings) {
-  const clean = dir.replace(/^\.\//, "").replace(/\/+$/, "");
-  if (!clean || clean === "." || found.has(clean)) return;
-  if (clean.split("/").includes("..")) return;
-  const pkg = packageAt(root, clean, kind, warnings);
-  if (pkg) found.set(clean, pkg);
+  const clean2 = dir.replace(/^\.\//, "").replace(/\/+$/, "");
+  if (!clean2 || clean2 === "." || found.has(clean2)) return;
+  if (clean2.split("/").includes("..")) return;
+  const pkg = packageAt(root, clean2, kind, warnings);
+  if (pkg) found.set(clean2, pkg);
 }
 function isDirAt(root, rel) {
   try {
-    return statSync3(join11(root, rel)).isDirectory();
+    return statSync32(join11(root, rel)).isDirectory();
   } catch {
     return false;
   }
@@ -10144,7 +10348,7 @@ function isDirAt(root, rel) {
 function subdirsOf(root, base) {
   let entries;
   try {
-    entries = readdirSync3(base ? join11(root, base) : root, { withFileTypes: true });
+    entries = readdirSync32(base ? join11(root, base) : root, { withFileTypes: true });
   } catch {
     return [];
   }
@@ -12698,7 +12902,7 @@ async function fetchGrammarsTarball(url, expectedSha256) {
   if (!res.ok) throw new Error(`HTTP ${res.status} from ${url}`);
   const buf = Buffer.from(await res.arrayBuffer());
   if (expectedSha256) {
-    const got = createHash2("sha256").update(buf).digest("hex");
+    const got = createHash22("sha256").update(buf).digest("hex");
     if (got !== expectedSha256) {
       throw new Error(`sha256 mismatch: expected ${expectedSha256}, got ${got}`);
     }
@@ -12766,7 +12970,7 @@ function extractTarInto(rawTar, destDir) {
     if (dest !== root && !dest.startsWith(root + sep2)) {
       throw new Error(`tar entry escapes destination: ${entry.name}`);
     }
-    mkdirSync4(dirname2(dest), { recursive: true });
+    mkdirSync5(dirname2(dest), { recursive: true });
     writeFileSync4(dest, entry.data);
     written.push(rel);
   }
@@ -12777,7 +12981,7 @@ function extractGrammarsTarball(bytes, destDir) {
   const raw = b.length >= 2 && b[0] === 31 && b[1] === 139 ? gunzipSync(b) : b;
   return extractTarInto(raw, destDir);
 }
-async function pullGrammars(cacheDir, opts = {}) {
+async function pullGrammars(cacheDir2, opts = {}) {
   const note = opts.onNote ?? (() => {
   });
   const target = resolveGrammarsPullTarget();
@@ -12790,8 +12994,8 @@ async function pullGrammars(cacheDir, opts = {}) {
 `);
     }
   }
-  const runtime = join32(cacheDir, "web-tree-sitter.wasm");
-  const markerPath = join32(dirname2(cacheDir), `${ENGINE_VERSION}.sha256`);
+  const runtime = join32(cacheDir2, "web-tree-sitter.wasm");
+  const markerPath = join32(dirname2(cacheDir2), `${ENGINE_VERSION}.sha256`);
   if (existsSync22(runtime) && expected && existsSync22(markerPath)) {
     let marker = "";
     try {
@@ -12799,11 +13003,11 @@ async function pullGrammars(cacheDir, opts = {}) {
     } catch {
     }
     if (marker === expected) {
-      return { ok: true, status: "up-to-date", cacheDir, message: `codeindex: grammars already present at ${cacheDir} (up to date)
+      return { ok: true, status: "up-to-date", cacheDir: cacheDir2, message: `codeindex: grammars already present at ${cacheDir2} (up to date)
 ` };
     }
   }
-  note(`codeindex: fetching grammars from ${target.url} \u2192 ${cacheDir}
+  note(`codeindex: fetching grammars from ${target.url} \u2192 ${cacheDir2}
 `);
   let bytes;
   try {
@@ -12812,21 +13016,21 @@ async function pullGrammars(cacheDir, opts = {}) {
     return {
       ok: false,
       status: "failed",
-      cacheDir,
+      cacheDir: cacheDir2,
       message: `codeindex: pull failed \u2014 ${e instanceof Error ? e.message : String(e)} (nothing written)
 `
     };
   }
   let tmp;
   try {
-    mkdirSync4(dirname2(cacheDir), { recursive: true });
-    tmp = mkdtempSync(join32(dirname2(cacheDir), ".grammars-tmp-"));
+    mkdirSync5(dirname2(cacheDir2), { recursive: true });
+    tmp = mkdtempSync(join32(dirname2(cacheDir2), ".grammars-tmp-"));
     extractGrammarsTarball(bytes, tmp);
     if (!existsSync22(join32(tmp, "web-tree-sitter.wasm"))) {
       throw new Error("archive is missing web-tree-sitter.wasm");
     }
-    if (existsSync22(cacheDir)) rmSync3(cacheDir, { recursive: true, force: true });
-    renameSync(tmp, cacheDir);
+    if (existsSync22(cacheDir2)) rmSync3(cacheDir2, { recursive: true, force: true });
+    renameSync(tmp, cacheDir2);
     tmp = void 0;
     if (expected) writeFileSync4(markerPath, expected + "\n");
   } catch (e) {
@@ -12839,12 +13043,12 @@ async function pullGrammars(cacheDir, opts = {}) {
     return {
       ok: false,
       status: "failed",
-      cacheDir,
+      cacheDir: cacheDir2,
       message: `codeindex: pull failed \u2014 ${e instanceof Error ? e.message : String(e)} (nothing written)
 `
     };
   }
-  return { ok: true, status: "pulled", cacheDir, message: `codeindex: grammars extracted \u2192 ${cacheDir}
+  return { ok: true, status: "pulled", cacheDir: cacheDir2, message: `codeindex: grammars extracted \u2192 ${cacheDir2}
 ` };
 }
 init_loader();
@@ -13331,7 +13535,7 @@ async function runCli(argv) {
     return;
   }
   const flags2 = parseFlags(rest);
-  if (!existsSync5(flags2.repo)) throw new Error(`--repo path does not exist: ${flags2.repo}`);
+  if (!existsSync52(flags2.repo)) throw new Error(`--repo path does not exist: ${flags2.repo}`);
   const scans = !SCANLESS_COMMANDS.has(cmd) && !(cmd === "embed" && flags2.positional !== "build");
   let precomputedWalk;
   if (scans && !flags2.noAst) {
@@ -13589,23 +13793,23 @@ async function runCli(argv) {
     }
   } else if (cmd === "grammars") {
     const sub = flags2.positional;
-    const cacheDir = sharedGrammarsCacheDir();
+    const cacheDir2 = sharedGrammarsCacheDir();
     if (sub === "status") {
       const info2 = resolveGrammarsTier();
-      const runtimePresent = info2.dir ? existsSync5(join15(info2.dir, "web-tree-sitter.wasm")) : false;
+      const runtimePresent = info2.dir ? existsSync52(join15(info2.dir, "web-tree-sitter.wasm")) : false;
       const target = resolveGrammarsPullTarget();
       const status = {
         engineVersion: ENGINE_VERSION,
         tier: info2.tier,
         dir: info2.dir ?? null,
-        cacheDir,
+        cacheDir: cacheDir2,
         runtimePresent,
         pullNeeded: !runtimePresent,
         url: target.url
       };
       emit(JSON.stringify(status, null, 2) + "\n", flags2.out);
     } else if (sub === "pull") {
-      const res = await pullGrammars(cacheDir, { onNote: (m) => process.stderr.write(m) });
+      const res = await pullGrammars(cacheDir2, { onNote: (m) => process.stderr.write(m) });
       process.stderr.write(res.message);
       if (!res.ok) process.exitCode = 1;
     } else {
@@ -13717,7 +13921,7 @@ async function canonicalRepo(ref) {
     return i2 > 0 ? { owner: full.slice(0, i2), repo: full.slice(i2 + 1) } : fallback;
   };
   if (ghUsable(ref.host)) {
-    const r = sh("gh", ["api", `repos/${ref.owner}/${ref.repo}`, "--jq", ".full_name"]);
+    const r = await shAsync("gh", ["api", `repos/${ref.owner}/${ref.repo}`, "--jq", ".full_name"]);
     if (r.ok && r.stdout.includes("/")) resolved = parse(r.stdout.trim());
   } else {
     const r = await httpGet(`${apiBase(ref.host)}/repos/${ref.owner}/${ref.repo}`, { accept: "application/vnd.github+json" });
@@ -13735,7 +13939,20 @@ async function canonicalRepo(ref) {
 async function query(ref, terms, kind, perSource) {
   const q = `repo:${ref.owner}/${ref.repo} type:${kind} ${terms.join(" ")}`.trim();
   if (ghUsable(ref.host)) {
-    const res = sh("gh", ["api", "-X", "GET", "search/issues", "-f", `q=${q}`, "-f", `per_page=${perSource}`, "-f", "sort=updated", "-f", "order=desc"]);
+    const res = await shAsync("gh", [
+      "api",
+      "-X",
+      "GET",
+      "search/issues",
+      "-f",
+      `q=${q}`,
+      "-f",
+      `per_page=${perSource}`,
+      "-f",
+      "sort=updated",
+      "-f",
+      "order=desc"
+    ]);
     if (res.ok) {
       try {
         return { items: toItems(JSON.parse(res.stdout).items, kind) };
@@ -13944,13 +14161,14 @@ async function ossAngle(ctx) {
   const issueItems = [];
   const prItems = [];
   const q = ctx.query || ctx.brief.idea;
-  for (const seed of seeds) {
+  const perSeed = await pool(seeds, SEED_CONCURRENCY, async (seed) => {
+    const local = { oss: [], issues: [], prs: [], notes: [] };
     const ref = resolveRepo(seed);
     let dir;
     try {
-      dir = ensureClone(ref, { refresh: ctx.refresh });
+      dir = await ensureClone(ref, { refresh: ctx.refresh });
     } catch (e) {
-      notes.push(`Could not clone ${ref.raw}: ${e.message}`);
+      local.notes.push(`Could not clone ${ref.raw}: ${e.message}`);
     }
     const repoLabel = ref.owner && ref.repo ? `${ref.owner}/${ref.repo}` : ref.slug;
     if (dir) {
@@ -13965,7 +14183,7 @@ async function ossAngle(ctx) {
 
 ${ex[0].snippet}`;
       }
-      ossItems.push({
+      local.oss.push({
         source: "oss",
         title: `${repoLabel} \u2014 prior art`,
         ref: repoLabel,
@@ -13977,13 +14195,18 @@ ${ex[0].snippet}`;
     }
     if (ref.owner && ref.repo) {
       const provider = providerFor(ref.host);
-      const iss = await provider.search(ref, q, "issue", ctx.perSource);
-      issueItems.push(...iss.items);
-      notes.push(...iss.notes);
-      const prs = await provider.search(ref, q, "pr", ctx.perSource);
-      prItems.push(...prs.items);
-      notes.push(...prs.notes);
+      const [iss, prs] = await Promise.all([provider.search(ref, q, "issue", ctx.perSource), provider.search(ref, q, "pr", ctx.perSource)]);
+      local.issues.push(...iss.items);
+      local.prs.push(...prs.items);
+      local.notes.push(...iss.notes, ...prs.notes);
     }
+    return local;
+  });
+  for (const r of perSeed) {
+    ossItems.push(...r.oss);
+    issueItems.push(...r.issues);
+    prItems.push(...r.prs);
+    notes.push(...r.notes);
   }
   return [
     { source: "oss", items: ossItems, notes },
@@ -14067,28 +14290,33 @@ ${body2 || "(no body)"}`,
 // src/research/tech.ts
 async function techAngle(ctx) {
   const allTechs = ctx.brief.candidateTech;
-  const techs = allTechs.slice(0, 3);
+  const techs = allTechs.slice(0, ctx.maxTech);
   const ideaKw = ctx.query || ctx.brief.idea;
   const docItems = [];
   const docNotes = [];
   if (allTechs.length > techs.length) {
     docNotes.push(
-      `Only the first ${techs.length} of ${allTechs.length} candidate technologies were grounded; skipped: ${allTechs.slice(techs.length).join(", ")}. Drill them with \`construct tech --out <run> --q "<tech>"\`.`
+      `Only the first ${techs.length} of ${allTechs.length} candidate technologies were grounded (--max-tech ${ctx.maxTech}); skipped: ${allTechs.slice(techs.length).join(", ")}. Raise --max-tech, or drill them with \`construct tech --out <run> --q "<tech>"\`.`
     );
   }
   if (ctx.docsUrls?.length) {
-    const direct = await webFetchUrls(ctx.docsUrls, ideaKw, ctx.perSource, "docs", true);
+    const direct = await webFetchUrls(ctx.docsUrls, ideaKw, ctx.perSource, "docs", true, ctx.concurrency);
     docItems.push(...direct.items.map((it) => ({ ...it, meta: { ...it.meta ?? {}, pinned: true } })));
     docNotes.push(`Grounded ${ctx.docsUrls.length} docs URL(s) passed via --docs-url.`, ...direct.notes);
   }
-  for (const tech of techs) {
+  const perTech = await pool(techs, ctx.concurrency, async (tech) => {
     const q = `${tech} official documentation`;
     const { urls, via, notes } = await discover(q, ctx.webEngine, ctx.perSource);
-    docNotes.push(`Docs discovery for "${tech}" via ${via}.`, ...notes);
-    if (!urls.length) continue;
-    const fetched = await webFetchUrls(urls.slice(0, 1), `${tech} ${ideaKw}`, ctx.perSource, "docs");
-    docItems.push(...fetched.items);
-    docNotes.push(...fetched.notes);
+    const out2 = { items: [], notes: [`Docs discovery for "${tech}" via ${via}.`, ...notes] };
+    if (!urls.length) return out2;
+    const fetched = await webFetchUrls(urls.slice(0, 1), `${tech} ${ideaKw}`, ctx.perSource, "docs", false, ctx.concurrency);
+    out2.items = fetched.items;
+    out2.notes.push(...fetched.notes);
+    return out2;
+  });
+  for (const r of perTech) {
+    docItems.push(...r.items);
+    docNotes.push(...r.notes);
   }
   if (techs.length === 0 && !ctx.docsUrls?.length) docNotes.push("No candidate technologies in the brief \u2014 nothing to ground feasibility against.");
   const topKw = rankedKeywords(ideaKw)[0] ?? "";
@@ -14096,9 +14324,17 @@ async function techAngle(ctx) {
   const soNotes = [];
   const seen = /* @__PURE__ */ new Set();
   const per = Math.max(2, Math.ceil(ctx.perSource / Math.max(1, techs.length)));
-  for (const tech of techs) {
-    const q = `${tech} ${topKw}`.trim();
-    const r = await stackoverflow(q, per, { tag: soTagFor(tech) });
+  const perTechSo = await pool(
+    techs,
+    SO_CONCURRENCY,
+    (tech) => (
+      // Scope the lookup to the tech's StackOverflow tag so a per-candidate query
+      // stays on-topic (with an untagged retry inside stackoverflow if the tag
+      // yields nothing).
+      stackoverflow(`${tech} ${topKw}`.trim(), per, { tag: soTagFor(tech) })
+    )
+  );
+  for (const r of perTechSo) {
     for (const it of r.items) {
       if (!seen.has(it.ref)) {
         seen.add(it.ref);
@@ -14157,17 +14393,13 @@ async function semanticRescore(results, query2) {
   const out2 = [];
   let failures = 0;
   for (const r of results) {
-    const items = [];
-    for (const it of r.items) {
+    const items = await pool(r.items, EMBED_CONCURRENCY, async (it) => {
       const v = await embed(`${it.title}
 ${it.snippet}`);
-      if (v) {
-        items.push({ ...it, score: Number(cosine(qv, v).toFixed(4)), meta: { ...it.meta ?? {}, semantic: true } });
-      } else {
-        failures++;
-        items.push({ ...it, score: -1, meta: { ...it.meta ?? {}, semantic: false } });
-      }
-    }
+      if (v) return { ...it, score: Number(cosine(qv, v).toFixed(4)), meta: { ...it.meta ?? {}, semantic: true } };
+      failures++;
+      return { ...it, score: -1, meta: { ...it.meta ?? {}, semantic: false } };
+    });
     out2.push({ ...r, items });
   }
   const notes = [`Semantic rescoring via Ollama + ${EMBED_MODEL} (local).`];
@@ -14219,7 +14451,7 @@ ${up.stderr}`, code: 1 };
 
 // src/research/dossier.ts
 import { createHash as createHash4 } from "crypto";
-import { existsSync as existsSync7, mkdirSync as mkdirSync5, readFileSync as readFileSync9, writeFileSync as writeFileSync5 } from "fs";
+import { existsSync as existsSync7, mkdirSync as mkdirSync6, readFileSync as readFileSync9, writeFileSync as writeFileSync5 } from "fs";
 import { join as join17 } from "path";
 var SOURCE_ORDER = ["market", "oss", "docs", "so", "issue", "pr"];
 var SOURCE_LABEL = {
@@ -14330,7 +14562,7 @@ function fmtBytes(n) {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 function writeDossier(dir, evidence, meta, ledger = emptyLedger()) {
-  mkdirSync5(dir, { recursive: true });
+  mkdirSync6(dir, { recursive: true });
   const evidenceJson = join17(dir, "evidence.json");
   const evidenceMd = join17(dir, "EVIDENCE.md");
   const metaJson = join17(dir, "meta.json");
@@ -14410,12 +14642,12 @@ async function runResearch(ctx, builtAt) {
     timings,
     fingerprint: fingerprint(evidence)
   };
-  const paths = writeDossier(dir, evidence, meta, ledger);
-  return { dir, evidence, meta, paths };
+  const paths2 = writeDossier(dir, evidence, meta, ledger);
+  return { dir, evidence, meta, paths: paths2 };
 }
 
 // src/render.ts
-import { existsSync as existsSync9, mkdirSync as mkdirSync6, readFileSync as readFileSync11, writeFileSync as writeFileSync7, rmSync as rmSync4 } from "fs";
+import { existsSync as existsSync9, mkdirSync as mkdirSync7, readFileSync as readFileSync11, writeFileSync as writeFileSync7, rmSync as rmSync4 } from "fs";
 import { join as join21, dirname as dirname5 } from "path";
 
 // src/srd.ts
@@ -14431,13 +14663,22 @@ function pad4(n) {
 }
 var GROUND_REQUIREMENT = ["market", "oss", "docs", "so", "issue", "pr"];
 var GROUND_QUALITY = ["oss", "docs", "so", "issue", "pr"];
+var tokenCache = /* @__PURE__ */ new WeakMap();
+function tokensOf(e) {
+  let hay = tokenCache.get(e);
+  if (!hay) {
+    hay = new Set(keywords(`${e.title} ${e.snippet}`).map((k) => k.toLowerCase()));
+    tokenCache.set(e, hay);
+  }
+  return hay;
+}
 function matchEvidence(text, evidence, n, onlySources) {
   const kws = keywords(text).map((k) => k.toLowerCase());
   if (kws.length === 0) return [];
   const need = Math.min(2, kws.length);
   const ratioFloor = 0.34;
   const scored = evidence.filter((e) => !onlySources || onlySources.includes(e.source)).map((e) => {
-    const hay = new Set(keywords(`${e.title} ${e.snippet}`).map((k) => k.toLowerCase()));
+    const hay = tokensOf(e);
     let cov = 0;
     for (const kw of kws) if (hay.has(kw)) cov++;
     return { id: e.id, key: e.url || `${e.source}:${e.ref}`, cov, ratio: cov / kws.length, score: e.score };
@@ -15166,10 +15407,10 @@ function noteFrom(ids, evById) {
   return void 0;
 }
 function firstSentence(s) {
-  const clean = s.replace(/\s+/g, " ").trim();
-  if (!clean) return "";
-  const m = /^(.{1,200}?[.!?])(\s|$)/.exec(clean);
-  return (m ? m[1] : clean.slice(0, 160)).trim();
+  const clean2 = s.replace(/\s+/g, " ").trim();
+  if (!clean2) return "";
+  const m = /^(.{1,200}?[.!?])(\s|$)/.exec(clean2);
+  return (m ? m[1] : clean2.slice(0, 160)).trim();
 }
 function timeTokenFromGoals(goals) {
   for (const g of goals) {
@@ -15357,7 +15598,7 @@ function writePlan(runDir, plan) {
 // src/render.ts
 function writeFile(out2, rel, content, files) {
   const abs = join21(out2, rel);
-  mkdirSync6(dirname5(abs), { recursive: true });
+  mkdirSync7(dirname5(abs), { recursive: true });
   writeFileSync7(abs, content.endsWith("\n") ? content : content + "\n");
   files.push(rel);
 }
@@ -16439,7 +16680,7 @@ function formatVerifyReport(r, runDir) {
 }
 
 // src/orchestrate.ts
-import { existsSync as existsSync14, mkdirSync as mkdirSync7, readFileSync as readFileSync16, writeFileSync as writeFileSync9 } from "fs";
+import { existsSync as existsSync14, mkdirSync as mkdirSync8, readFileSync as readFileSync16, writeFileSync as writeFileSync9 } from "fs";
 import { join as join28, resolve as resolve4 } from "path";
 
 // src/orchestrate-templates.ts
@@ -16885,8 +17126,8 @@ function orchestrateRun(runDir, engineAbs, opts = {}) {
   }
   const orchDir = join28(run2, "orchestration");
   const agentsDir = join28(orchDir, "agents");
-  mkdirSync7(join28(orchDir, "out"), { recursive: true });
-  mkdirSync7(agentsDir, { recursive: true });
+  mkdirSync8(join28(orchDir, "out"), { recursive: true });
+  mkdirSync8(agentsDir, { recursive: true });
   const written = [];
   let idea = "";
   try {
@@ -16939,6 +17180,7 @@ Usage:
   construct status   --out <run> [--json]
   construct orchestrate --out <run> [--phase research|claim-review|adr-judges|build] [--adr <id>] [--eco] [--list]
   construct semantic up|down|status
+  construct cache    status|clean [--all] [--json]
 
 Commands:
   init       Scaffold a run folder + brief.json (fill it via the interview).
@@ -16976,6 +17218,9 @@ Commands:
              phase's worklist does not exist yet \u2014 and says which command
              produces it. Re-run after any worklist change (idempotent).
   semantic   Manage the optional local Docker stack (Qdrant + Ollama + SearXNG).
+  cache      Inspect or prune the on-disk page cache that makes a 'research'
+             re-run (the dig-deeper fold-in) nearly free. 'clean' drops stale
+             entries; --all drops everything.
 
 Options:
   --idea <s>           One-line product idea                     (required for init)
@@ -17013,13 +17258,18 @@ Options:
   --strict             For 'verify': a built must-have FR with no referencing test FAILS
   --web-engine <e>     auto | searxng | ddg | claude             (default: auto)
   --per-source <n>     Max evidence items kept per source        (default: 6)
+  --concurrency <n>    Max retrievals in flight inside one angle  (default: 4)
+  --max-tech <n>       Candidate technologies the tech angle grounds (default: 3)
   --merge              Also emit a single-file SRD.md bundle
   --no-design          For 'render': skip the design-system subtree (complex only)
   --prd                For 'render': also emit one PRD file per FR (requirements/prd/)
   --no-prd             For 'render': deliberately delete an existing requirements/prd/
                        (without it, a render that omits --prd refuses to destroy the tree)
   --semantic           Rescore evidence with the local embedding model
-  --refresh            Force re-clone of mined OSS repos
+  --refresh            Ignore the page cache and re-clone mined OSS repos
+  --offline            Work only from the page cache; never hit the network
+                       (a miss is reported honestly, never treated as empty)
+  --all                For 'cache clean': drop fresh entries too
   --json               Machine-readable output
   -h, --help           Show this help
   -v, --version        Show version
@@ -17045,7 +17295,8 @@ var COMMANDS = /* @__PURE__ */ new Set([
   "review",
   "status",
   "orchestrate",
-  "semantic"
+  "semantic",
+  "cache"
 ]);
 var VALUE_FLAGS = /* @__PURE__ */ new Set([
   "idea",
@@ -17066,7 +17317,9 @@ var VALUE_FLAGS = /* @__PURE__ */ new Set([
   "apply",
   "max-review",
   "phase",
-  "adr"
+  "adr",
+  "concurrency",
+  "max-tech"
 ]);
 var BOOL_FLAGS = /* @__PURE__ */ new Set([
   "semantic",
@@ -17081,7 +17334,9 @@ var BOOL_FLAGS = /* @__PURE__ */ new Set([
   "allow-unverified",
   "from-srd",
   "eco",
-  "list"
+  "list",
+  "offline",
+  "all"
 ]);
 function fail(message) {
   process.stderr.write(`construct: ${message}
@@ -17178,6 +17433,11 @@ function buildResearchContext(p, runDir, angles) {
   const brief = loadBrief(runDir, warnBrief);
   const perSource = p.values["per-source"] ? Number(p.values["per-source"]) : 6;
   if (!Number.isFinite(perSource) || perSource <= 0) fail("invalid --per-source");
+  const concurrency = p.values.concurrency ? Number(p.values.concurrency) : FETCH_CONCURRENCY;
+  if (!Number.isFinite(concurrency) || concurrency <= 0) fail("invalid --concurrency");
+  const maxTech = p.values["max-tech"] ? Number(p.values["max-tech"]) : MAX_TECH;
+  if (!Number.isFinite(maxTech) || maxTech <= 0) fail("invalid --max-tech");
+  configureCache({ refresh: p.bools.has("refresh"), offline: p.bools.has("offline") });
   const webEngine = oneOf("web-engine", p.values["web-engine"] ?? "auto", ["auto", "searxng", "ddg", "claude"]);
   if (p.values.seeds) brief.ossSeeds = csv(p.values.seeds);
   return {
@@ -17188,6 +17448,8 @@ function buildResearchContext(p, runDir, angles) {
     webEngine,
     semantic: p.bools.has("semantic"),
     perSource,
+    concurrency,
+    maxTech,
     refresh: p.bools.has("refresh"),
     docsUrls: p.values["docs-url"] ? csv(p.values["docs-url"]) : void 0,
     marketUrls: p.values.url ? csv(p.values.url) : void 0
@@ -17521,6 +17783,41 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
       const r = semanticControl(action);
       process.stdout.write(r.message + "\n");
       if (r.code !== 0) process.exit(r.code);
+      return;
+    }
+    case "cache": {
+      const action = p.positional[0] ?? "status";
+      if (action === "clean") {
+        const all = p.bools.has("all");
+        const removed = clean(all);
+        const out2 = { action: "clean", all, removed, dir: stats().dir };
+        if (p.bools.has("json")) process.stdout.write(`${JSON.stringify(out2, null, 2)}
+`);
+        else process.stdout.write(`Removed ${removed} ${all ? "" : "stale "}cache entr${removed === 1 ? "y" : "ies"} from ${out2.dir}
+`);
+        return;
+      }
+      if (action !== "status") fail(`unknown cache action "${action}" \u2014 use status | clean`);
+      const st = stats();
+      if (p.bools.has("json")) {
+        process.stdout.write(`${JSON.stringify(st, null, 2)}
+`);
+        return;
+      }
+      const mb = (st.bytes / (1024 * 1024)).toFixed(1);
+      process.stdout.write(
+        [
+          `HTTP cache: ${st.dir}`,
+          `  entries:  ${st.entries} (${st.fresh} fresh \xB7 ${st.stale} stale)`,
+          `  size:     ${mb} MB`,
+          `  ttl:      ${st.ttlHours} h (CONSTRUCT_CACHE_TTL_HOURS)`,
+          ...st.entries ? [`  oldest:   ${st.oldest}`, `  newest:   ${st.newest}`] : [],
+          "",
+          "  A cached page makes a `research` re-run free \u2014 which is what the",
+          "  dig-deeper loop does on every fold-in. `--refresh` bypasses it,",
+          "  `--offline` requires it, `cache clean [--all]` prunes it."
+        ].join("\n") + "\n"
+      );
       return;
     }
   }

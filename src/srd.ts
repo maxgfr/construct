@@ -50,6 +50,21 @@ export const GROUND_QUALITY = ["oss", "docs", "so", "issue", "pr"];
 // (so a single generic token can't ground a claim), and de-duplicates on a
 // stable key — the URL, or `source:ref` for url-less items (e.g. local-repo OSS
 // summaries) — so two excerpts of one page/repo never both cite.
+// Tokenising an evidence item is pure and depends only on its title+snippet, but
+// buildSRD calls matchEvidence once per FR, NFR, ADR, competitor and OSS row —
+// so every snippet in the dossier was re-tokenised a few dozen times per render.
+// Memoise per item. Keyed by identity, so a re-render with a rebuilt dossier
+// simply repopulates rather than serving stale tokens.
+const tokenCache = new WeakMap<EvidenceItem, Set<string>>();
+function tokensOf(e: EvidenceItem): Set<string> {
+  let hay = tokenCache.get(e);
+  if (!hay) {
+    hay = new Set(keywords(`${e.title} ${e.snippet}`).map((k) => k.toLowerCase()));
+    tokenCache.set(e, hay);
+  }
+  return hay;
+}
+
 export function matchEvidence(text: string, evidence: EvidenceItem[], n: number, onlySources?: string[]): string[] {
   const kws = keywords(text).map((k) => k.toLowerCase());
   if (kws.length === 0) return [];
@@ -62,7 +77,7 @@ export function matchEvidence(text: string, evidence: EvidenceItem[], n: number,
   const scored = evidence
     .filter((e) => !onlySources || onlySources.includes(e.source))
     .map((e) => {
-      const hay = new Set(keywords(`${e.title} ${e.snippet}`).map((k) => k.toLowerCase()));
+      const hay = tokensOf(e);
       let cov = 0;
       for (const kw of kws) if (hay.has(kw)) cov++;
       return { id: e.id, key: e.url || `${e.source}:${e.ref}`, cov, ratio: cov / kws.length, score: e.score };

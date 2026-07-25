@@ -2,7 +2,7 @@ import { existsSync, statSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { resolve, join, basename } from "node:path";
 import { tmpdir } from "node:os";
 import type { RepoRef } from "./types.js";
-import { sh, slugify } from "./util.js";
+import { shAsync, slugify } from "./util.js";
 import { GIT_CLONE_TIMEOUT_MS, GIT_FETCH_TIMEOUT_MS, GIT_RESET_TIMEOUT_MS } from "./config.js";
 
 // Root of the on-disk clone/index cache. Everything construct writes for a repo
@@ -93,7 +93,7 @@ export function resolveRepo(raw: string): RepoRef {
 // Local repos are used in place. Remote repos are shallow-cloned into the cache
 // (reused on subsequent runs unless `refresh`). Throws a readable error if the
 // clone fails (private repo, bad URL, no network).
-export function ensureClone(ref: RepoRef, opts: { refresh?: boolean; branch?: string } = {}): string {
+export async function ensureClone(ref: RepoRef, opts: { refresh?: boolean; branch?: string } = {}): Promise<string> {
   if (ref.isLocal) return resolve(ref.raw);
 
   const dir = join(cacheRoot(), ref.slug);
@@ -102,8 +102,8 @@ export function ensureClone(ref: RepoRef, opts: { refresh?: boolean; branch?: st
   if (alreadyCloned && !opts.refresh) return dir;
 
   if (alreadyCloned && opts.refresh) {
-    sh("git", ["-C", dir, "fetch", "--depth", "1", "origin"], { timeoutMs: GIT_FETCH_TIMEOUT_MS });
-    sh("git", ["-C", dir, "reset", "--hard", "FETCH_HEAD"], { timeoutMs: GIT_RESET_TIMEOUT_MS });
+    await shAsync("git", ["-C", dir, "fetch", "--depth", "1", "origin"], { timeoutMs: GIT_FETCH_TIMEOUT_MS });
+    await shAsync("git", ["-C", dir, "reset", "--hard", "FETCH_HEAD"], { timeoutMs: GIT_RESET_TIMEOUT_MS });
     return dir;
   }
 
@@ -112,7 +112,7 @@ export function ensureClone(ref: RepoRef, opts: { refresh?: boolean; branch?: st
   if (opts.branch) args.push("--branch", opts.branch);
   args.push(ref.cloneUrl!, dir);
 
-  const res = sh("git", args, { timeoutMs: GIT_CLONE_TIMEOUT_MS });
+  const res = await shAsync("git", args, { timeoutMs: GIT_CLONE_TIMEOUT_MS });
   if (!res.ok) {
     // No git at all is not a retryable clone failure — name the real problem.
     if (res.missing) {
@@ -128,7 +128,7 @@ export function ensureClone(ref: RepoRef, opts: { refresh?: boolean; branch?: st
       }
     }
     // Retry without the partial-clone filter; some servers reject it.
-    const fallback = sh("git", ["clone", "--depth", "1", ...(opts.branch ? ["--branch", opts.branch] : []), ref.cloneUrl!, dir], {
+    const fallback = await shAsync("git", ["clone", "--depth", "1", ...(opts.branch ? ["--branch", opts.branch] : []), ref.cloneUrl!, dir], {
       timeoutMs: GIT_CLONE_TIMEOUT_MS,
     });
     if (!fallback.ok) {

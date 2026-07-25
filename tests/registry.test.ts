@@ -47,6 +47,8 @@ function ctx(over: Partial<ResearchContext> = {}): ResearchContext {
     webEngine: "auto",
     semantic: false,
     perSource: 6,
+    concurrency: 4,
+    maxTech: 3,
     refresh: false,
     ...over,
   };

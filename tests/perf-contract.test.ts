@@ -14,6 +14,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { resetMetrics, timeAngle, recordFetch, totals, type AngleTiming } from "../src/research/metrics.js";
 import { makeProbe, maxOverlap } from "./helpers/concurrency.js";
+import { pool } from "../src/research/pool.js";
 
 beforeEach(() => resetMetrics());
 
@@ -119,6 +120,71 @@ describe("request budget", () => {
     const r = await fetchAndExtract("https://example.com/blocked");
     expect(r.text).toBe("");
     expect(n).toBe(2);
+    vi.unstubAllGlobals();
+  });
+});
+
+// --- concurrency contracts ---------------------------------------------------
+//
+// These lock in the Lot-3 win. A future refactor that reintroduces a serial
+// `for (const url of urls) await …` turns them red — which is the whole point,
+// because nothing else in the suite would notice.
+
+describe("pool", () => {
+  it("runs up to `limit` items at once and no more", async () => {
+    const probe = makeProbe(20);
+    await pool(["a", "b", "c", "d", "e", "f"], 3, (x) => probe.fn(x));
+    expect(maxOverlap(probe.spans)).toBe(3);
+  });
+
+  it("preserves input order regardless of completion order", async () => {
+    // Evidence ranking and the id ledger both depend on a deterministic
+    // sequence; a race-ordered dossier would make runs non-reproducible.
+    const delays = [40, 5, 25, 1];
+    const out = await pool(delays, 4, async (ms, i) => {
+      await new Promise((r) => setTimeout(r, ms));
+      return i;
+    });
+    expect(out).toEqual([0, 1, 2, 3]);
+  });
+
+  it("degrades to a serial loop at limit 1 — the StackOverflow contract", async () => {
+    const probe = makeProbe(10);
+    await pool(["a", "b", "c"], 1, (x) => probe.fn(x));
+    expect(maxOverlap(probe.spans)).toBe(1);
+  });
+
+  it("propagates a rejection rather than silently dropping the item", async () => {
+    await expect(
+      pool([1, 2, 3], 2, async (n) => {
+        if (n === 2) throw new Error("boom");
+        return n;
+      }),
+    ).rejects.toThrow("boom");
+  });
+});
+
+describe("page fetching overlaps", () => {
+  it("fetches a batch of URLs concurrently instead of one at a time", async () => {
+    const spans: { label: string; start: number; end: number }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const start = performance.now();
+        await new Promise((r) => setTimeout(r, 25));
+        spans.push({ label: String(url), start, end: performance.now() });
+        return new Response("<html><body><p>page body here</p></body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
+      }),
+    );
+    const { webFetchUrls } = await import("../src/research/web.js");
+    const urls = ["https://c1.example", "https://c2.example", "https://c3.example", "https://c4.example"];
+    await webFetchUrls(urls, "page body", 6, "market", true, 4);
+
+    expect(spans).toHaveLength(4);
+    expect(maxOverlap(spans)).toBeGreaterThan(1);
     vi.unstubAllGlobals();
   });
 });

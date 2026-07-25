@@ -3,6 +3,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SourceResult } from "../types.js";
 import { httpJson, httpGet } from "./fetch.js";
+import { pool } from "./pool.js";
 import { sh, have } from "../util.js";
 import {
   REACHABLE_TIMEOUT_MS,
@@ -11,6 +12,7 @@ import {
   COMPOSE_PS_TIMEOUT_MS,
   COMPOSE_UP_TIMEOUT_MS,
   OLLAMA_PULL_TIMEOUT_MS,
+  EMBED_CONCURRENCY,
 } from "../config.js";
 
 // All endpoints are local and keyless; the heavy compute (embeddings) runs in a
@@ -97,21 +99,22 @@ export async function semanticRescore(results: SourceResult[], query: string): P
   const qv = await embed(query);
   if (!qv) return unchanged(`could not embed the query (is the '${EMBED_MODEL}' model pulled?)`);
 
+  // One embedding call per item, previously strictly serial: a run-sized dossier
+  // meant dozens of sequential local inferences. They are independent, so run a
+  // few at a time. (Ollama also exposes a batch endpoint, but its shape differs
+  // across versions — bounded concurrency gets most of the win without betting
+  // on which one the user has running.)
   const out: SourceResult[] = [];
   let failures = 0;
   for (const r of results) {
-    const items = [];
-    for (const it of r.items) {
+    const items = await pool(r.items, EMBED_CONCURRENCY, async (it) => {
       const v = await embed(`${it.title}\n${it.snippet}`);
-      if (v) {
-        items.push({ ...it, score: Number(cosine(qv, v).toFixed(4)), meta: { ...(it.meta ?? {}), semantic: true } });
-      } else {
-        // Never leave a failed item on the lexical scale next to 0..1 cosines —
-        // it would outrank everything. Sink it with a sentinel score.
-        failures++;
-        items.push({ ...it, score: -1, meta: { ...(it.meta ?? {}), semantic: false } });
-      }
-    }
+      if (v) return { ...it, score: Number(cosine(qv, v).toFixed(4)), meta: { ...(it.meta ?? {}), semantic: true } };
+      // Never leave a failed item on the lexical scale next to 0..1 cosines —
+      // it would outrank everything. Sink it with a sentinel score.
+      failures++;
+      return { ...it, score: -1, meta: { ...(it.meta ?? {}), semantic: false } };
+    });
     out.push({ ...r, items });
   }
   const notes = [`Semantic rescoring via Ollama + ${EMBED_MODEL} (local).`];

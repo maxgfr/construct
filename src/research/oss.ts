@@ -3,6 +3,8 @@ import { walk, readText } from "../walk.js";
 import { providerFor } from "../providers/registry.js";
 import { discover } from "./web.js";
 import { excerptsFromText } from "./fetch.js";
+import { pool } from "./pool.js";
+import { SEED_CONCURRENCY } from "../config.js";
 import type { ResearchContext, SourceResult, RawItem } from "../types.js";
 
 // Top-level GitHub/GitLab namespaces that are site sections, not repo owners.
@@ -107,13 +109,19 @@ export async function ossAngle(ctx: ResearchContext): Promise<SourceResult[]> {
   const prItems: RawItem[] = [];
   const q = ctx.query || ctx.brief.idea;
 
-  for (const seed of seeds) {
+  // One independent chain per seed (clone → fingerprint → issues → PRs). They
+  // used to run strictly one after another, so three seeds meant three serial
+  // clones plus up to a dozen serial search round-trips each. Overlap a couple
+  // at a time — clones are heavy on disk and network, so this is deliberately
+  // narrower than the page-fetch pool — and fold in seed order.
+  const perSeed = await pool(seeds, SEED_CONCURRENCY, async (seed) => {
+    const local = { oss: [] as RawItem[], issues: [] as RawItem[], prs: [] as RawItem[], notes: [] as string[] };
     const ref = resolveRepo(seed);
     let dir: string | undefined;
     try {
-      dir = ensureClone(ref, { refresh: ctx.refresh });
+      dir = await ensureClone(ref, { refresh: ctx.refresh });
     } catch (e) {
-      notes.push(`Could not clone ${ref.raw}: ${(e as Error).message}`);
+      local.notes.push(`Could not clone ${ref.raw}: ${(e as Error).message}`);
     }
     const repoLabel = ref.owner && ref.repo ? `${ref.owner}/${ref.repo}` : ref.slug;
 
@@ -130,7 +138,7 @@ export async function ossAngle(ctx: ResearchContext): Promise<SourceResult[]> {
         const ex = excerptsFromText(text, ref.webUrl ?? ref.raw, repoLabel, "oss", q, 1);
         if (ex[0]) snippet += `\n\n${ex[0].snippet}`;
       }
-      ossItems.push({
+      local.oss.push({
         source: "oss",
         title: `${repoLabel} — prior art`,
         ref: repoLabel,
@@ -142,16 +150,23 @@ export async function ossAngle(ctx: ResearchContext): Promise<SourceResult[]> {
     }
 
     // Pitfalls: related issues/PRs (works even if the clone failed, as long as
-    // owner/repo resolved).
+    // owner/repo resolved). Issues and PRs are independent queries — run them
+    // together rather than back to back.
     if (ref.owner && ref.repo) {
       const provider = providerFor(ref.host);
-      const iss = await provider.search(ref, q, "issue", ctx.perSource);
-      issueItems.push(...iss.items);
-      notes.push(...iss.notes);
-      const prs = await provider.search(ref, q, "pr", ctx.perSource);
-      prItems.push(...prs.items);
-      notes.push(...prs.notes);
+      const [iss, prs] = await Promise.all([provider.search(ref, q, "issue", ctx.perSource), provider.search(ref, q, "pr", ctx.perSource)]);
+      local.issues.push(...iss.items);
+      local.prs.push(...prs.items);
+      local.notes.push(...iss.notes, ...prs.notes);
     }
+    return local;
+  });
+
+  for (const r of perSeed) {
+    ossItems.push(...r.oss);
+    issueItems.push(...r.issues);
+    prItems.push(...r.prs);
+    notes.push(...r.notes);
   }
 
   return [

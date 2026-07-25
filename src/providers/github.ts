@@ -1,5 +1,5 @@
 import type { RepoRef } from "../types.js";
-import { sh, have, rankedKeywords } from "../util.js";
+import { shAsync, have, rankedKeywords } from "../util.js";
 import { httpGet } from "../research/fetch.js";
 import type { Provider, RawItem, IssueKind } from "./registry.js";
 
@@ -64,7 +64,7 @@ async function canonicalRepo(ref: RepoRef): Promise<{ owner: string; repo: strin
     return i > 0 ? { owner: full.slice(0, i), repo: full.slice(i + 1) } : fallback;
   };
   if (ghUsable(ref.host)) {
-    const r = sh("gh", ["api", `repos/${ref.owner}/${ref.repo}`, "--jq", ".full_name"]);
+    const r = await shAsync("gh", ["api", `repos/${ref.owner}/${ref.repo}`, "--jq", ".full_name"]);
     if (r.ok && r.stdout.includes("/")) resolved = parse(r.stdout.trim());
   } else {
     const r = await httpGet(`${apiBase(ref.host)}/repos/${ref.owner}/${ref.repo}`, { accept: "application/vnd.github+json" });
@@ -87,7 +87,20 @@ async function query(ref: RepoRef, terms: string[], kind: IssueKind, perSource: 
   const q = `repo:${ref.owner}/${ref.repo} type:${kind} ${terms.join(" ")}`.trim();
 
   if (ghUsable(ref.host)) {
-    const res = sh("gh", ["api", "-X", "GET", "search/issues", "-f", `q=${q}`, "-f", `per_page=${perSource}`, "-f", "sort=updated", "-f", "order=desc"]);
+    const res = await shAsync("gh", [
+      "api",
+      "-X",
+      "GET",
+      "search/issues",
+      "-f",
+      `q=${q}`,
+      "-f",
+      `per_page=${perSource}`,
+      "-f",
+      "sort=updated",
+      "-f",
+      "order=desc",
+    ]);
     if (res.ok) {
       try {
         return { items: toItems(JSON.parse(res.stdout).items, kind) };

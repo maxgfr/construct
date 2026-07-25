@@ -94,6 +94,8 @@ export interface ResearchContext {
   webEngine: WebEngine;
   semantic: boolean;
   perSource: number;
+  concurrency: number; // max retrievals in flight inside one angle
+  maxTech: number; // how many candidate technologies the tech angle grounds
   refresh: boolean;
   docsUrls?: string[]; // --docs-url: docs pages to ground directly (tech angle)
   marketUrls?: string[]; // --url: market pages to pin into the dossier (market angle)

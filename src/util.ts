@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { SH_DEFAULT_TIMEOUT_MS } from "./config.js";
 
 // Result of a subprocess call. `ok` is true on exit code 0 with the binary
@@ -33,6 +33,44 @@ export function sh(cmd: string, args: string[], opts: { cwd?: string; input?: st
     stderr: res.stderr ?? (res.error ? String(res.error.message) : ""),
     missing,
   };
+}
+
+/**
+ * The async twin of `sh` — same result shape, but it does NOT block the event
+ * loop.
+ *
+ * This matters in exactly one place and it matters a lot: the research angles
+ * run concurrently (`Promise.all` in research/registry.ts), and the `oss` angle
+ * shells out to `git clone` and `gh`. Under `spawnSync` those calls froze the
+ * whole process, so the market and tech angles' in-flight fetches stopped
+ * progressing until the clone finished — the concurrency was nominal. A baseline
+ * run spent 13.7 s inside the oss angle without issuing a single HTTP request.
+ *
+ * Sequential callers (verify's test commands, docker compose) keep using `sh`:
+ * there is nothing to overlap there, and sync keeps them simple.
+ */
+export function shAsync(cmd: string, args: string[], opts: { cwd?: string; timeoutMs?: number; env?: NodeJS.ProcessEnv } = {}): Promise<ShResult> {
+  return new Promise((resolve) => {
+    execFile(
+      cmd,
+      args,
+      {
+        cwd: opts.cwd,
+        encoding: "utf8",
+        timeout: opts.timeoutMs ?? SH_DEFAULT_TIMEOUT_MS,
+        maxBuffer: 64 * 1024 * 1024,
+        env: opts.env ?? process.env,
+      },
+      (error, stdout, stderr) => {
+        const err = error as (Error & { code?: number | string; killed?: boolean }) | null;
+        const missing = !!err && err.code === "ENOENT";
+        // execFile reports the exit code on `error.code` for a non-zero exit and
+        // leaves it unset on success; normalise to sh()'s `status` contract.
+        const status = !err ? 0 : typeof err.code === "number" ? err.code : null;
+        resolve({ ok: !err, status, stdout: stdout ?? "", stderr: stderr || (err ? String(err.message) : ""), missing });
+      },
+    );
+  });
 }
 
 // Is a binary available on PATH? Cached because we probe the same few tools

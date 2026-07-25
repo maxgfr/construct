@@ -2,6 +2,7 @@ import type { EvidenceItem } from "../types.js";
 import { keywords as extractKeywords } from "../util.js";
 import { HTTP_GET_TIMEOUT_MS, HTTP_JSON_TIMEOUT_MS, RETRY_AFTER_CAP_MS, RETRY_BASE_DELAY_MS, RETRY_JITTER_MS } from "../config.js";
 import { recordFetch } from "./metrics.js";
+import * as cache from "./cache.js";
 
 type RawItem = Omit<EvidenceItem, "id">;
 
@@ -17,6 +18,8 @@ export interface HttpResult {
   contentType: string;
   error?: string;
   retryAfter?: string; // raw Retry-After header, when the server sent one
+  etag?: string; // validators kept so a stale cache entry can be revalidated
+  lastModified?: string;
 }
 
 // A failure worth one more try: the network hiccuped (status 0), the server
@@ -83,6 +86,8 @@ async function httpGetOnce(
       body: buf.subarray(0, max).toString("utf8"),
       contentType: res.headers.get("content-type") ?? "",
       retryAfter: res.headers.get("retry-after") ?? undefined,
+      etag: res.headers.get("etag") ?? undefined,
+      lastModified: res.headers.get("last-modified") ?? undefined,
     };
   } catch (e) {
     return { ok: false, status: 0, body: "", contentType: "", error: (e as Error).message };
@@ -220,7 +225,34 @@ function metaDescriptionOf(html: string): string | undefined {
 // (when present) as a low-signal fallback for pinned pages whose body doesn't
 // match the question.
 export async function fetchAndExtract(url: string): Promise<{ text: string; note?: string; metaDescription?: string }> {
-  let res = await httpGet(url, { accept: "text/html,text/plain,*/*" });
+  const { refresh, offline } = cache.cacheOptions();
+  const cached = refresh ? null : cache.read(url);
+
+  // A fresh entry answers without touching the network at all — this is what
+  // makes the fold-in re-run the skill prescribes nearly free.
+  if (cached && cache.isFresh(cached.entry)) {
+    recordFetch(Buffer.byteLength(cached.body), true);
+    return extract(cached.body, cached.entry.contentType);
+  }
+
+  if (offline) {
+    // Stale-but-present beats nothing when the operator asked for offline; a
+    // genuine miss is reported, never silently treated as an empty page.
+    if (cached) {
+      recordFetch(Buffer.byteLength(cached.body), true);
+      return extract(cached.body, cached.entry.contentType);
+    }
+    return { text: "", note: `Offline: ${url} is not in the cache (drop --offline, or warm it with a normal run).` };
+  }
+
+  // Stale entry: revalidate. A 304 costs headers instead of a body.
+  const conditional = cached ? cache.revalidationHeaders(cached.entry) : {};
+  let res = await httpGet(url, { accept: "text/html,text/plain,*/*", headers: conditional });
+  if (cached && res.status === 304) {
+    cache.touch(url);
+    recordFetch(Buffer.byteLength(cached.body), true);
+    return extract(cached.body, cached.entry.contentType);
+  }
   // Some sites block the polite bot UA — retry once as a browser before giving up.
   if (!res.ok && (res.status === 403 || res.status === 429)) {
     res = await httpGet(url, {
@@ -229,8 +261,22 @@ export async function fetchAndExtract(url: string): Promise<{ text: string; note
     });
   }
   if (!res.ok) {
+    // A stale copy is better than a hole when the origin is briefly down.
+    if (cached) {
+      recordFetch(Buffer.byteLength(cached.body), true);
+      const out = extract(cached.body, cached.entry.contentType);
+      return { ...out, note: `${url} returned ${res.status}; served the cached copy from ${new Date(cached.entry.fetchedAt).toISOString()}.` };
+    }
     return { text: "", note: `Could not fetch ${url} (status ${res.status}${res.error ? ", " + res.error : ""}).` };
   }
+  cache.write(url, { status: res.status, contentType: res.contentType, etag: res.etag, lastModified: res.lastModified }, res.body);
+  return extract(res.body, res.contentType);
+}
+
+// Turn a fetched body into readable text + the page's meta description. Shared
+// by the network and cache paths so a cached page extracts identically.
+function extract(body: string, contentType: string): { text: string; metaDescription?: string } {
+  const res = { body, contentType };
   const isHtml = /html/i.test(res.contentType) || /^\s*</.test(res.body);
   const metaDescription = isHtml ? metaDescriptionOf(res.body) : undefined;
   const rawText = isHtml ? htmlToText(res.body) : res.body;

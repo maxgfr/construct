@@ -1,6 +1,7 @@
 import type { RawItem, SourceKind, WebEngine } from "../types.js";
-import { SEARXNG_TIMEOUT_MS, DDG_TIMEOUT_MS } from "../config.js";
+import { SEARXNG_TIMEOUT_MS, DDG_TIMEOUT_MS, FETCH_CONCURRENCY } from "../config.js";
 import { httpGet, fetchAndExtract, excerptsFromText } from "./fetch.js";
+import { pool } from "./pool.js";
 
 const SEARXNG_BASE = process.env.CONSTRUCT_SEARXNG || "http://localhost:8888";
 
@@ -54,12 +55,25 @@ async function viaDuckDuckGo(query: string, n: number): Promise<string[] | null>
 // returns no URLs and signals the model to use its built-in WebSearch and feed
 // URLs back via `construct research --url` (the drill commands only print —
 // `research --url` is what pins the pages into the dossier).
+// A local SearXNG that refused one connection will refuse the next: probing it
+// again for every query bought nothing and cost a round-trip each time (five per
+// run, once per discovery call). Remember the verdict for the process.
+let searxngDown = false;
+
+/** Forget the memoized reachability verdict (tests drive several scenarios). */
+export function resetDiscoveryProbes(): void {
+  searxngDown = false;
+}
+
 export async function discover(query: string, engine: WebEngine, n: number): Promise<{ urls: string[]; via: string; notes: string[] }> {
   const notes: string[] = [];
   if (engine === "searxng" || engine === "auto") {
-    const s = await viaSearxng(query, n);
+    // null = unreachable/parse failure; [] = reachable but zero results. Once
+    // it is unreachable, stay off it — but keep reporting it when the user
+    // pinned that engine explicitly, or the failure would go unexplained.
+    const s = searxngDown ? null : await viaSearxng(query, n);
+    if (s === null) searxngDown = true;
     if (s?.length) return { urls: s, via: "searxng", notes };
-    // null = unreachable/parse failure; [] = reachable but zero results.
     if (engine === "searxng") {
       notes.push(s === null ? `SearXNG unreachable at ${SEARXNG_BASE}. Run \`construct semantic up\`.` : "SearXNG returned no results.");
     }
@@ -87,14 +101,26 @@ export async function webFetchUrls(
   perSource: number,
   source: SourceKind = "market",
   fetchAll = false,
+  concurrency: number = FETCH_CONCURRENCY,
 ): Promise<{ items: RawItem[]; notes: string[] }> {
   const items: RawItem[] = [];
   const notes: string[] = [];
   // Discovery shares the per-source budget across pages; but URLs the user named
   // explicitly (fetchAll) must all be fetched, never silently dropped.
   const toFetch = fetchAll ? urls : urls.slice(0, Math.max(1, Math.ceil(perSource / 2)));
-  for (const url of toFetch) {
-    const { text, note, metaDescription } = await fetchAndExtract(url);
+
+  // Fetch concurrently, fold in order. Pages are independent; fetching them one
+  // at a time made page latency additive and dominated the whole run.
+  const fetched = await pool(toFetch, concurrency, async (url) => {
+    try {
+      return { url, ...(await fetchAndExtract(url)) };
+    } catch (e) {
+      // One unreachable page must never abort the angle.
+      return { url, text: "", note: `Could not fetch ${url}: ${(e as Error).message}` };
+    }
+  });
+
+  for (const { url, text, note, metaDescription } of fetched) {
     if (note) notes.push(note);
     if (!text) continue;
     const ex = excerptsFromText(text, url, `${labelFor(source)} — ${url}`, source, question, perSource);

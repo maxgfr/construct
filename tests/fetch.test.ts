@@ -1,15 +1,16 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { excerptsFromText, fetchAndExtract, htmlToText, httpGet, httpJson, stripConsentBoilerplate } from "../src/research/fetch.js";
 
-function res(body: string, opts: { ok?: boolean; status?: number; contentType?: string; retryAfter?: string } = {}) {
+function res(body: string, opts: { ok?: boolean; status?: number; contentType?: string; retryAfter?: string; headers?: Record<string, string> } = {}) {
   return {
     ok: opts.ok ?? true,
     status: opts.status ?? 200,
     headers: {
       get: (h: string) => {
-        if (h.toLowerCase() === "content-type") return opts.contentType ?? "text/html";
-        if (h.toLowerCase() === "retry-after") return opts.retryAfter ?? null;
-        return null;
+        const k = h.toLowerCase();
+        if (k === "content-type") return opts.contentType ?? "text/html";
+        if (k === "retry-after") return opts.retryAfter ?? null;
+        return opts.headers?.[k] ?? null;
       },
     },
     arrayBuffer: async () => new TextEncoder().encode(body).buffer,
@@ -169,9 +170,78 @@ describe("fetchAndExtract", () => {
       "fetch",
       vi.fn(async () => res("", { ok: false, status: 403 })),
     );
-    const { text, note } = await fetchAndExtract("https://blocked.example");
+    // A URL of its own: a page cached by an earlier case would legitimately be
+    // served stale here (see the stale-if-error case below), which is not what
+    // this test is about.
+    const { text, note } = await fetchAndExtract("https://never-reachable.example");
     expect(text).toBe("");
     expect(note).toMatch(/Could not fetch/);
+  });
+
+  it("answers a repeat fetch from cache without touching the network", async () => {
+    const net = vi.fn(async () => res("<html><body><p>Cached content.</p></body></html>"));
+    vi.stubGlobal("fetch", net);
+    await fetchAndExtract("https://repeat.example");
+    expect(net).toHaveBeenCalledTimes(1);
+
+    // This is the whole point of the cache: the skill tells the agent to re-run
+    // `research` on every fold-in, and a fresh entry makes that re-run free.
+    const again = await fetchAndExtract("https://repeat.example");
+    expect(net).toHaveBeenCalledTimes(1);
+    expect(again.text).toMatch(/Cached content/);
+  });
+
+  it("serves the cached copy, labelled, when the origin later fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => res("<html><body><p>Original content.</p></body></html>")),
+    );
+    await fetchAndExtract("https://flaky.example");
+
+    // Expire the entry so the next call revalidates instead of short-circuiting.
+    const ttl = process.env.CONSTRUCT_CACHE_TTL_HOURS;
+    process.env.CONSTRUCT_CACHE_TTL_HOURS = "0";
+    try {
+      // The origin goes down. A hole in the dossier would be worse than a page
+      // from last week — but the substitution has to be visible in the notes.
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => res("", { ok: false, status: 500 })),
+      );
+      const { text, note } = await fetchAndExtract("https://flaky.example");
+      expect(text).toMatch(/Original content/);
+      expect(note).toMatch(/served the cached copy/);
+    } finally {
+      if (ttl === undefined) delete process.env.CONSTRUCT_CACHE_TTL_HOURS;
+      else process.env.CONSTRUCT_CACHE_TTL_HOURS = ttl;
+    }
+  });
+
+  it("revalidates a stale entry and reuses the body on a 304", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => res("<html><body><p>Unchanged page.</p></body></html>", { headers: { etag: 'W/"v1"' } })),
+    );
+    await fetchAndExtract("https://etag.example");
+
+    const ttl = process.env.CONSTRUCT_CACHE_TTL_HOURS;
+    process.env.CONSTRUCT_CACHE_TTL_HOURS = "0";
+    try {
+      let sentIfNoneMatch: string | undefined;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (_u: string, init: any) => {
+          sentIfNoneMatch = init?.headers?.["if-none-match"];
+          return res("", { ok: false, status: 304 });
+        }),
+      );
+      const { text } = await fetchAndExtract("https://etag.example");
+      expect(sentIfNoneMatch).toBe('W/"v1"');
+      expect(text).toMatch(/Unchanged page/); // body reused, not re-downloaded
+    } finally {
+      if (ttl === undefined) delete process.env.CONSTRUCT_CACHE_TTL_HOURS;
+      else process.env.CONSTRUCT_CACHE_TTL_HOURS = ttl;
+    }
   });
 });
 

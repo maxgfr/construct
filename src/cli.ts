@@ -8,6 +8,8 @@ import { slugify } from "./util.js";
 import { initBrief, saveBrief, loadBrief, validateBrief } from "./brief.js";
 import { initBrainstorm, loadBrainstorm, saveBrainstorm, mergeBrainstorm, brainstormCounts, writeBrainstormMd } from "./brainstorm.js";
 import { runResearch } from "./research/registry.js";
+import { FETCH_CONCURRENCY, MAX_TECH } from "./config.js";
+import { configureCache, clean as cacheClean, stats as cacheStats } from "./research/cache.js";
 import { marketAngle } from "./research/market.js";
 import { ossAngle } from "./research/oss.js";
 import { techAngle } from "./research/tech.js";
@@ -42,6 +44,7 @@ Usage:
   construct status   --out <run> [--json]
   construct orchestrate --out <run> [--phase research|claim-review|adr-judges|build] [--adr <id>] [--eco] [--list]
   construct semantic up|down|status
+  construct cache    status|clean [--all] [--json]
 
 Commands:
   init       Scaffold a run folder + brief.json (fill it via the interview).
@@ -79,6 +82,9 @@ Commands:
              phase's worklist does not exist yet — and says which command
              produces it. Re-run after any worklist change (idempotent).
   semantic   Manage the optional local Docker stack (Qdrant + Ollama + SearXNG).
+  cache      Inspect or prune the on-disk page cache that makes a 'research'
+             re-run (the dig-deeper fold-in) nearly free. 'clean' drops stale
+             entries; --all drops everything.
 
 Options:
   --idea <s>           One-line product idea                     (required for init)
@@ -116,13 +122,18 @@ Options:
   --strict             For 'verify': a built must-have FR with no referencing test FAILS
   --web-engine <e>     auto | searxng | ddg | claude             (default: auto)
   --per-source <n>     Max evidence items kept per source        (default: 6)
+  --concurrency <n>    Max retrievals in flight inside one angle  (default: 4)
+  --max-tech <n>       Candidate technologies the tech angle grounds (default: 3)
   --merge              Also emit a single-file SRD.md bundle
   --no-design          For 'render': skip the design-system subtree (complex only)
   --prd                For 'render': also emit one PRD file per FR (requirements/prd/)
   --no-prd             For 'render': deliberately delete an existing requirements/prd/
                        (without it, a render that omits --prd refuses to destroy the tree)
   --semantic           Rescore evidence with the local embedding model
-  --refresh            Force re-clone of mined OSS repos
+  --refresh            Ignore the page cache and re-clone mined OSS repos
+  --offline            Work only from the page cache; never hit the network
+                       (a miss is reported honestly, never treated as empty)
+  --all                For 'cache clean': drop fresh entries too
   --json               Machine-readable output
   -h, --help           Show this help
   -v, --version        Show version
@@ -150,6 +161,7 @@ const COMMANDS = new Set([
   "status",
   "orchestrate",
   "semantic",
+  "cache",
 ]);
 const VALUE_FLAGS = new Set([
   "idea",
@@ -171,6 +183,8 @@ const VALUE_FLAGS = new Set([
   "max-review",
   "phase",
   "adr",
+  "concurrency",
+  "max-tech",
 ]);
 const BOOL_FLAGS = new Set([
   "semantic",
@@ -186,6 +200,8 @@ const BOOL_FLAGS = new Set([
   "from-srd",
   "eco",
   "list",
+  "offline",
+  "all",
 ]);
 
 function fail(message: string): never {
@@ -306,6 +322,13 @@ function buildResearchContext(p: Parsed, runDir: string, angles: Angle[]): Resea
   const brief = loadBrief(runDir, warnBrief);
   const perSource = p.values["per-source"] ? Number(p.values["per-source"]) : 6;
   if (!Number.isFinite(perSource) || perSource <= 0) fail("invalid --per-source");
+  const concurrency = p.values.concurrency ? Number(p.values.concurrency) : FETCH_CONCURRENCY;
+  if (!Number.isFinite(concurrency) || concurrency <= 0) fail("invalid --concurrency");
+  const maxTech = p.values["max-tech"] ? Number(p.values["max-tech"]) : MAX_TECH;
+  if (!Number.isFinite(maxTech) || maxTech <= 0) fail("invalid --max-tech");
+  // The cache is process-wide (it sits under httpGet), so configure it once here
+  // rather than threading it through every angle.
+  configureCache({ refresh: p.bools.has("refresh"), offline: p.bools.has("offline") });
   const webEngine = oneOf<WebEngine>("web-engine", p.values["web-engine"] ?? "auto", ["auto", "searxng", "ddg", "claude"]);
   if (p.values.seeds) brief.ossSeeds = csv(p.values.seeds);
   return {
@@ -316,6 +339,8 @@ function buildResearchContext(p: Parsed, runDir: string, angles: Angle[]): Resea
     webEngine,
     semantic: p.bools.has("semantic"),
     perSource,
+    concurrency,
+    maxTech,
     refresh: p.bools.has("refresh"),
     docsUrls: p.values["docs-url"] ? csv(p.values["docs-url"]) : undefined,
     marketUrls: p.values.url ? csv(p.values.url) : undefined,
@@ -675,6 +700,39 @@ async function main(): Promise<void> {
       const r = semanticControl(action);
       process.stdout.write(r.message + "\n");
       if (r.code !== 0) process.exit(r.code);
+      return;
+    }
+
+    case "cache": {
+      const action = p.positional[0] ?? "status";
+      if (action === "clean") {
+        const all = p.bools.has("all");
+        const removed = cacheClean(all);
+        const out = { action: "clean", all, removed, dir: cacheStats().dir };
+        if (p.bools.has("json")) process.stdout.write(`${JSON.stringify(out, null, 2)}\n`);
+        else process.stdout.write(`Removed ${removed} ${all ? "" : "stale "}cache entr${removed === 1 ? "y" : "ies"} from ${out.dir}\n`);
+        return;
+      }
+      if (action !== "status") fail(`unknown cache action "${action}" — use status | clean`);
+      const st = cacheStats();
+      if (p.bools.has("json")) {
+        process.stdout.write(`${JSON.stringify(st, null, 2)}\n`);
+        return;
+      }
+      const mb = (st.bytes / (1024 * 1024)).toFixed(1);
+      process.stdout.write(
+        [
+          `HTTP cache: ${st.dir}`,
+          `  entries:  ${st.entries} (${st.fresh} fresh · ${st.stale} stale)`,
+          `  size:     ${mb} MB`,
+          `  ttl:      ${st.ttlHours} h (CONSTRUCT_CACHE_TTL_HOURS)`,
+          ...(st.entries ? [`  oldest:   ${st.oldest}`, `  newest:   ${st.newest}`] : []),
+          "",
+          "  A cached page makes a `research` re-run free — which is what the",
+          "  dig-deeper loop does on every fold-in. `--refresh` bypasses it,",
+          "  `--offline` requires it, `cache clean [--all]` prunes it.",
+        ].join("\n") + "\n",
+      );
       return;
     }
   }
