@@ -46,7 +46,43 @@ let them react, and recommend a status for each. The six angles, in order:
 
 Write each idea into `brainstorm.json` as
 `{ id, angle, title, notes?, status, target?, priority? }`. Assign ids
-sequentially (`B-001`, `B-002`, …).
+sequentially (`B-001`, `B-002`, …). Three real ones, across three angles:
+
+```json
+{
+  "ideas": [
+    {
+      "id": "B-001",
+      "angle": "reframe",
+      "title": "The problem is re-finding, not saving",
+      "notes": "Every competitor solves capture well. Nobody solves retrieval. If true, search is the product and the save flow is table stakes.",
+      "status": "kept",
+      "target": "goals"
+    },
+    {
+      "id": "B-002",
+      "angle": "differentiator",
+      "title": "Import from Pocket in one click",
+      "notes": "Pocket shutting down is the single biggest reason someone would try this. Nobody switches without their history.",
+      "status": "kept",
+      "target": "featureWishlist",
+      "priority": "must"
+    },
+    {
+      "id": "B-003",
+      "angle": "wildcard",
+      "title": "Shared team library",
+      "notes": "Would double the data model (permissions, ownership) for a segment we have not validated.",
+      "status": "parked"
+    }
+  ]
+}
+```
+
+B-001 reframes the whole product and lands in `goals`. B-002 is a differentiator
+that earns `must` priority. B-003 is deliberately parked — on `--merge` it
+becomes an `openQuestions` entry, which renders as a 🧠 callout that **blocks the
+gate** until someone decides. Park only what you intend to decide.
 
 ## Adjudicating — the statuses
 

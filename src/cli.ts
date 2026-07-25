@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
 import { VERSION, ALL_SOURCE_KINDS } from "./types.js";
-import type { Angle, ResearchContext, WebEngine, EvidenceItem, DossierMeta, Level, SourceResult, SourceKind } from "./types.js";
+import type { Angle, ResearchContext, WebEngine, EvidenceItem, DossierMeta, Level, SourceResult, SourceKind, BuildPlanDoc } from "./types.js";
 import { slugify } from "./util.js";
 import { initBrief, saveBrief, loadBrief, validateBrief } from "./brief.js";
 import { initBrainstorm, loadBrainstorm, saveBrainstorm, mergeBrainstorm, brainstormCounts, writeBrainstormMd } from "./brainstorm.js";
@@ -644,6 +644,8 @@ async function main(): Promise<void> {
           `  ${has("SRD.json")} SRD.json (render)`,
           `  ${has("requirements/FUNCTIONAL.md")} requirements/FUNCTIONAL.md`,
           planLine,
+          ``,
+          `  Next: ${nextCommand(out, plan)}`,
         ].join("\n") + "\n",
       );
       return;
@@ -736,6 +738,27 @@ async function main(): Promise<void> {
       return;
     }
   }
+}
+
+/**
+ * The single command to run next, from what the run folder actually holds.
+ *
+ * A skill document can only stay short if the tool itself carries the pipeline
+ * state. Without this, an agent resuming a run has to reconstruct where it got
+ * to by reading eight prose steps and eyeballing a checklist.
+ */
+function nextCommand(out: string, plan: BuildPlanDoc | null): string {
+  const has = (rel: string) => existsSync(join(out, rel));
+  if (!has("brief.json")) return `construct init --idea "<one-liner>" --out ${out}   (then fill brief.json via the interview)`;
+  if (!has("evidence/evidence.json")) return `construct research --out ${out} --angles market,oss,tech`;
+  if (!has("SRD.json")) return `construct render --out ${out} --level complex`;
+  if (plan?.tasks.length) {
+    const done = plan.tasks.filter((t) => t.status === "done").length;
+    if (done === plan.tasks.length) return `construct verify --out ${out} --run-tests --strict   (the build is complete — gate it)`;
+    if (done > 0) return `construct status --out ${out} --json   (read the build frontier, then build the next ready task)`;
+  }
+  if (!has("VERIFY.json")) return `construct check --out ${out}   (then \`construct review\` to adjudicate the citations)`;
+  return `construct check --out ${out} --semantic`;
 }
 
 function loadEvidence(runDir: string): EvidenceItem[] {

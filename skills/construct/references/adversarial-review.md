@@ -60,6 +60,30 @@ N. [blocker|advisory] <file>: "<exact text attacked>"
 - `[advisory]` — weakens the SRD but a competent builder recovers (vague
   could-have, thin-but-honest grounding, style).
 
+### A filled finding
+
+What the contract looks like when it is actually used. Note that the Demand is a
+concrete rewrite, not "make this clearer":
+
+```
+1. [blocker] architecture/decisions/0001-primary-technology-stack.md:
+   "Meilisearch is used because it is fast and developer-friendly [E3]."
+   Attack: [E3] is Meilisearch's own landing page. It cannot settle a
+   build-vs-buy question against PostgreSQL full-text search, which the ADR
+   never mentions. The decision is the most expensive one in the document —
+   it adds a second stateful service to a self-hosted deployment — and it
+   rests on marketing copy. This is citation-washing.
+   Demand: cite the typo-tolerance capability from the docs (or an issue
+   thread), state what PostgreSQL FTS would have cost to reach parity, and
+   name the operational price of the second service in Consequences.
+
+2. [advisory] requirements/FUNCTIONAL.md: "FR-003 … Then the tag is applied."
+   Attack: applied where, and visible to whom? A test could assert a row
+   exists without the UI ever showing it.
+   Demand: "Then the tag appears on the article in the list view within 1 s
+   and is offered as a suggestion on the next article tagged."
+```
+
 No praise, no summary of strengths, no rewriting the SRD yourself. If you
 find nothing after genuinely attempting all eight attacks, return exactly:
 `No findings — attacks 1–8 attempted.`

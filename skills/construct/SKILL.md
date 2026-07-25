@@ -21,93 +21,105 @@ rendered scaffold into a precise, well-grounded SRD.
 > evidence with `[E#]`. Grounding is **advisory** here — `construct check`
 > reports coverage but never fails on it — so the rigor is yours to apply.
 
+## The loop, in one line
+
+```
+[brainstorm] → interview → research → analyze → drill → render → enrich → red-team → check → present → [build]
+```
+
+`construct status --out <run>` prints what exists **and the exact next command**.
+Use it whenever you resume a run, or lose the thread.
+
+## When NOT to run construct
+
+Check the fit before question 1; a wrong fit wastes the whole loop.
+
+- **An existing codebase.** construct specs *greenfield* products. To document or
+  evolve a repo that already exists, use `reconstruct` instead.
+- **Several products in one ask.** One run = one product. Name the split,
+  recommend which to spec first, park the rest.
+- **No articulable idea.** `init` needs a one-liner. If the user cannot state the
+  problem in a sentence, run `construct brainstorm` and diverge until a real
+  shape emerges — don't start a run on "an AI thing".
+- **They just want a diagram, a name, or an estimate.** Answer directly; an SRD
+  suite is not the deliverable they asked for.
+
+## Route by situation
+
+| The user… | Start at | Read |
+|---|---|---|
+| has a rough idea, wants to explore | step 0, `brainstorm` | `references/brainstorm-playbook.md` |
+| has a clear idea | step 1, the interview | `references/interview-playbook.md` |
+| already has `brief.json` | step 2, `research` | `references/research-playbook.md` |
+| has a rendered SRD, wants it sharper | step 4 enrich, then step 5 | `references/srd-authoring.md` |
+| has a validated SRD, wants the app | step 8, `verify` as referee | `references/build-playbook.md` |
+| names >6 features or a modular layout | step 1 + module split | `references/srd-authoring.md` |
+| wants grounding *enforced*, not advised | `check --min-grounding N`, then `review` | `references/grounding-coverage.md` |
+| wants a throwaway spec, not a build | `render --level light` | `references/srd-authoring.md` |
+
+A first run chains 1 → 2 → 3 → 4 → 5 → 6 → 7. Resuming usually starts at
+`status`, then re-enters wherever it says.
+
+## The happy path, in eight commands
+
+```
+node scripts/construct.mjs init     --idea "<one-liner>" --out ./my-idea   # then interview → brief.json
+node scripts/construct.mjs research --out ./my-idea --angles market,oss,tech
+node scripts/construct.mjs analyze  --out ./my-idea                        # what is thin + the drill for each gap
+node scripts/construct.mjs research --out ./my-idea --angles market,oss,tech --url <proven,urls>
+node scripts/construct.mjs render   --out ./my-idea --level complex
+#   … enrich SRD.json, then:
+node scripts/construct.mjs render   --out ./my-idea --from-srd
+node scripts/construct.mjs check    --out ./my-idea
+node scripts/construct.mjs review   --out ./my-idea                        # adjudicate → check --semantic
+```
+
 ## The script
 
 One committed, dependency-free bundle: `node scripts/construct.mjs <command>`.
-No `npm install`, no API keys. Run `--help` for the full surface. Key commands:
+No `npm install`, no API keys. `--help` has the full surface; this is the map.
 
-- `init --idea "<one-liner>" --out <run>` — scaffold a run folder + `brief.json`.
-- `brainstorm --out <run> [--merge] [--json]` — optional DIVERGENT step before
-  the interview: scaffold a board of candidate ideas (`brainstorm.json` +
-  `BRAINSTORM.md`), then `--merge` folds every **kept** idea into `brief.json`
-  and every **parked** idea into `openQuestions` (a gate-blocking 🧠). Idempotent.
-  See `references/brainstorm-playbook.md`.
-- `research --out <run> [--angles market,oss,tech,semantic] [--q "<focus>"] [--semantic]`
-  — gather evidence across angles into `<run>/evidence/` (an `EVIDENCE.md` +
-  `evidence.json` dossier with `[E#]` ids). Default angles: `market,oss,tech`.
-- `analyze --out <run> [--json]` — the "what's thin?" report: names every
-  feature/competitor/tech/seed that will render UNGROUNDED as-is, and prints the
-  drill command that fixes each gap. Informational, never gates.
-- `web|oss|tech|so --out <run> [--q "<focus>"] [--url ...] [--seeds ...]
-  [--docs-url <u,...>] [--source <kind>]` — drill ONE angle. **Drills PRINT to
-  stdout and persist nothing** — including `--url` and `--docs-url`. Use them to
-  dig deeper on a thin thread; to actually ground a page you proved useful, pin
-  it into a research re-run (`research --url` / `research --docs-url`).
-  `--source <market|docs|oss|so|issue|pr>` files `web --url` pages under a
-  different evidence kind.
-- `render --out <run> [--level light|complex] [--merge] [--prd|--no-prd]` —
-  render the SRD tree + `SRD.json` from `brief.json` + the dossier. **`--level`
-  defaults to `light`** — pass `complex` whenever a build is even possible.
-  When the brief declares `modules`, also renders **one PRD per module**
-  (`prd/<module>/PRD.md` + index) and FUNCTIONAL.md becomes the cross-module
-  index. `--prd` additionally emits one standalone PRD per requirement under
-  `requirements/prd/`; a later render that omits `--prd` **refuses to run**
-  rather than destroy that tree — re-pass `--prd`, or `--no-prd` to delete it
+| Command | What it does |
+|---|---|
+| `init --idea "<s>" --out <run>` | scaffold the run folder + `brief.json` |
+| `brainstorm --out <run> [--merge]` | optional divergent board; `--merge` folds kept ideas into the brief, parked ones into `openQuestions` (a gate-blocking 🧠) |
+| `research --out <run> [--angles …] [--url …] [--docs-url …]` | gather evidence into `<run>/evidence/`. **This is the only command that grounds anything.** |
+| `analyze --out <run>` | what is thin — every claim that will render UNGROUNDED, with the drill that fixes it. Never gates. |
+| `web \| oss \| tech \| so --out <run>` | drill ONE angle. **Prints to stdout; persists nothing** — including `--url`/`--docs-url`. |
+| `render --out <run> [--level light\|complex]` | render the SRD tree + `SRD.json`. **`--level` defaults to `light`** — pass `complex` whenever a build is even possible. |
+| `render --out <run> --from-srd` | re-emit the tree from an **edited `SRD.json`**. This is how you persist enrichment. |
+| `check --out <run>` | the hard structural gate + the advisory grounding report |
+| `review --out <run> [--apply <f>]` | the claim↔evidence worklist, then the verdict ledger `check --semantic` gates on |
+| `verify --out <run> [--app <dir>] [--run-tests] [--strict]` | the build referee: plan well-formed, refs resolve, every requirement referenced by a test (`--app` defaults to `conventions.appDir`) |
+| `status --out <run> [--json]` | what exists + **the next command**; `--json` adds the build frontier |
+| `orchestrate --out <run> [--phase …] [--eco]` | emit this run's fan-out (see below) |
+| `semantic up\|down\|status` | the optional local Docker stack |
+| `cache status\|clean [--all]` | the page cache that makes a `research` re-run nearly free |
+
+Three behaviours worth knowing before they surprise you:
+
+- **`--prd` is sticky.** A later `render` that omits it **refuses to run** rather
+  than destroy `requirements/prd/` — re-pass `--prd`, or `--no-prd` to delete it
   deliberately.
-- `render --out <run> --from-srd [--merge] [--prd|--no-prd]` — re-emit the whole
-  markdown tree from an **edited `SRD.json`** without rebuilding it from the
-  brief. This is how you persist enrichment (step 4): edit the manifest the gate
-  reads, then re-emit, so the human-facing `.md` and the gated model never drift.
-- `check --out <run> [--min-grounding <0-100>] [--semantic [--allow-unverified]]
-  [--json]` — the HARD structural gate (exit ≠ 0 on an incomplete SRD) plus the
-  ADVISORY grounding-coverage report. `--min-grounding N` opts into a second gate
-  that fails below N% grounded claims. `--semantic` folds in `VERIFY.json` (see
-  `review`) and is **fail-closed**: a missing, unreadable or incompletely
-  adjudicated `VERIFY.json` FAILS the check, as does any refuted/unsupported
-  claim or a `VERIFY.json` adjudicated against a different render.
-  `--allow-unverified` degrades those to warnings — say so when you do.
-  (Distinct from `research --semantic`, which only re-ranks evidence by
-  embedding relevance.)
-- `review --out <run> [--apply <verdicts.json>] [--max-review N] [--json]` — the
-  claim-support harness. With no `--apply` it writes a claim↔evidence worklist
-  (`VERIFY.todo.json` + `VERIFY.md`): every grounded claim paired with each cited
-  `[E#]` snippet to adjudicate. `--apply <verdicts.json>` reduces your verdicts
-  (`supported|partial|refuted|unsupported`) into `VERIFY.json`, which
-  `check --semantic` gates on. Fan it out per `references/orchestration.md`.
-- `verify --out <run> [--app <dir>] [--run-tests] [--strict] [--json]` — the
-  build referee: BUILD-PLAN.json well-formed and acyclic, every task ref
-  resolves into SRD.json, done tasks' files exist, every requirement is
-  referenced by a test. `--run-tests` also executes the declared test
-  commands; `--strict` fails a built must-have with no referencing test.
-- `status --out <run> [--json]` — what exists in the run so far; `--json` adds
-  the build frontier (which BUILD-PLAN tasks are buildable now vs. blocked).
-- `orchestrate --out <run> [--phase research|claim-review|adr-judges|build]
-  [--adr <id>] [--eco] [--list]` — emit the run's multi-agent orchestration
-  from its CURRENT state into `<run>/orchestration/`: one launchable workflow
-  script per ready fan-out phase, the dispatch contracts (`agents/<role>.md`)
-  and a sequential `RUNBOOK.md` fallback. See *Orchestration — route by
-  harness* below.
-- `semantic up|down|status` — optional local Docker stack (Qdrant + Ollama +
-  SearXNG).
-- `cache status|clean [--all] [--json]` — inspect or prune the on-disk page
-  cache. Retrieved pages are cached (a week by default), so the `research`
-  re-run every fold-in requires costs almost nothing the second time. `clean`
-  drops stale entries, `--all` drops everything.
+- **`check --semantic` is fail-closed.** A missing, unreadable or incompletely
+  adjudicated `VERIFY.json` FAILS, as does one adjudicated against a different
+  render. `--allow-unverified` degrades that to a warning — say so when you use it.
+- **`check` hard-fails at `complex` on renderer scaffold.** That level certifies
+  build-readiness; un-authored acceptance criteria certify nothing.
+  (`references/requirements-rubric.md`.)
 
-**Conventions across the surface.** `--out <run>` (alias `--run`) names the run
-folder; `--q <focus>` (alias `--question`) focuses a query. `--refresh` ignores
-the page cache and re-clones mined OSS repos; `--offline` works only from the
-cache and reports a miss honestly instead of treating it as an empty page.
+**Conventions.** `--out <run>` (alias `--run`); `--q <focus>` (alias
+`--question`). `--refresh` ignores the page cache and re-clones OSS repos;
+`--offline` works from the cache alone and reports a miss honestly.
 `--web-engine auto|searxng|ddg|claude` pins discovery. `--concurrency <n>`
-(default 4) bounds how many pages one angle fetches at once, and `--max-tech
-<n>` (default 3) how many candidate technologies the `tech` angle grounds —
-raise it when the brief lists more and you want them all covered. Most commands
-accept `--json` — prefer it whenever you branch on the result rather than read
-it as prose.
+(default 4) bounds in-flight fetches per angle; `--max-tech <n>` (default 3) how
+many candidate technologies `tech` grounds; `--per-source <n>` (default 6) how
+much evidence each source keeps; `--source <kind>` reclassifies `web --url`
+pages. Most commands take `--json` — prefer it whenever you branch on the result.
 
-**Exit codes.** `0` ok · `1` a gate failed (act on it) · `2` usage error or a
+**Exit codes.** `0` ok · `1` a gate failed (act on it) · `2` usage error, or a
 phase whose worklist does not exist yet (the message names the command that
-produces it). `analyze` never gates — it always exits 0.
+produces it). `analyze` never gates.
 
 ## Workflow
 
@@ -122,7 +134,9 @@ loop to completion; only pause to ask the user a real decision.
    `references/brainstorm-playbook.md`.
 
 1. **Interview the user — one question at a time.** Establish the product before
-   researching. Follow `references/interview-playbook.md`: problem, target
+   researching. Follow `references/interview-playbook.md` (and
+   `references/brief-example.md` for a filled brief + the exchanges that
+   produced its hardest fields): problem, target
    users, core value, must/should/could features, constraints (budget, timeline,
    team, compliance), candidate technologies, and any competitor / OSS seeds.
    Recommend an answer with each question; don't dump a questionnaire. Write the
@@ -232,9 +246,13 @@ loop to completion; only pause to ask the user a real decision.
    Loop steps 3–6 until `check` passes structurally, the reviewer finds no new
    blockers, and the grounding is honest.
 
-7. **Present.** Give the user the SRD suite: the vision, the competitive
-   landscape, the grounded requirements and the key decisions (with their `[E#]`
-   evidence and links). Pin any unknowns explicitly rather than guessing.
+7. **Present.** Lead with the decisions, not the artifact: what the research
+   changed, the load-bearing ADRs with their cost and their `[E#]`, the scope
+   boundary, and what is still unknown — pinned explicitly rather than smoothed
+   over. Report the gates honestly: a green `check` means structurally complete,
+   not good, and coverage counts citations rather than checking they hold. Then
+   ask what they want next; don't start building unprompted. Follow
+   `references/presenting.md`.
 
 8. **Build (when the user wants the app, not just the SRD).** The render also
    emitted `BUILD-PLAN.json` — a machine-readable task DAG (T-000 skeleton +
@@ -261,35 +279,77 @@ loop to completion; only pause to ask the user a real decision.
    - If an FR proves wrong while building, amend the brief, re-render
      (progress merges by feature title), retag shifted FR ids, re-`check`.
 
+## When something goes wrong
+
+| Symptom | What to do |
+|---|---|
+| `check` fails on a 🧠 callout | Make the decision. Fold it into an ADR, a requirement or scope, remove it from `brief.openQuestions`, re-render. It is a gate because a deferred decision is a bug in a spec. |
+| `check` fails naming *the renderer's scaffold* | Those criteria/contracts were never authored. Rewrite them (`references/requirements-rubric.md`), or drop to `--level light` if this is a throwaway spec. |
+| `render` refuses: "requirements/prd exists" | A previous render used `--prd`. Re-pass `--prd` to regenerate it, or `--no-prd` to delete it deliberately. |
+| `check --semantic` exits 1 with no obvious cause | It is fail-closed. Run `review`, adjudicate every pair, `review --apply`, *then* `--semantic`. A re-render since the review also invalidates it. |
+| `orchestrate --phase <p>` exits 2 | That phase's worklist does not exist yet; the message names the command that produces it. |
+| Research returns nothing | Sharpen vague `candidateTech`/`competitors` and re-run. Then use your own WebSearch and pin the pages: `research --url <u,...>`. **Stop after two empty attempts** — record an assumption or an `openQuestion` and move on. A thin, honest SRD beats a fabricated citation. |
+| Tests reference FR ids the SRD no longer has | A re-render renumbered them. Retag the tests; `verify` lists the stale ids. |
+| A run is unexpectedly slow | `construct cache status`. A cold cache costs a full fetch per page; `--offline` works from the cache alone. Per-angle cost is in `evidence/meta.json` and at the foot of `EVIDENCE.md`. |
+
+## Common mistakes
+
+- **Treating a drill as grounding.** `web`/`oss`/`tech`/`so` PRINT. Only
+  `research --url` / `research --docs-url` persist evidence you can cite.
+- **Re-running `research` with fewer angles.** It rebuilds the dossier from
+  exactly what you give it — always pass every angle, or earlier evidence is lost.
+- **Rendering at the default `light` when a build is possible.** Switching later
+  renumbers FR ids and invalidates test tags.
+- **Editing a rendered `.md` and stopping there.** The next render overwrites it.
+  Edit `SRD.json`, then `render --from-srd`.
+- **Letting a subagent write the run folder.** One writer — you. Subagents return
+  text.
+- **Presenting before `check` passes.** A coverage percentage is not a gate; an
+  unresolved 🧠 is.
+
+## How to know you're done
+
+The SRD is done when all of these hold — check them explicitly, don't assume:
+
+1. `construct check` exits 0.
+2. Every `must` requirement has a failure-path criterion naming specific
+   behaviour, not "an error is shown".
+3. Every load-bearing decision (stack, datastore, build-vs-buy, the
+   differentiators) cites evidence that actually says what the claim implies —
+   you spot-checked at least three.
+4. The data model and interfaces were *verified*, not left as the renderer
+   inferred them.
+5. A red-team round surfaced no new blocker.
+6. Whatever is still unknown is written down as an assumption or an
+   `openQuestion` — not quietly guessed.
+
+**The self-test:** could a developer who has never spoken to you build the
+must-haves from this SRD alone, getting the contracts right rather than the gist?
+If any answer needs a conversation, the SRD is not done.
+
 ## Orchestration — route by harness
 
 Four phases fan out over per-unit, file-backed state: **research** (one researcher per
-`analyze` gap), **claim-review** (one skeptic per `VERIFY.todo.json` claim↔evidence pair),
-**adr-judges** (the fixed 3-lens panel over ONE contested ADR) and **build** (one
-worktree-isolated builder per ready BUILD-PLAN task). The engine manages the fan-out —
-`orchestrate` emits the orchestration from the CURRENT run state, with absolute paths and
-the real worklist units baked in:
+`analyze` gap), **claim-review** (one skeptic per `VERIFY.todo.json` pair), **adr-judges**
+(a fixed 3-lens panel over ONE contested ADR) and **build** (one worktree-isolated builder
+per ready task). `orchestrate` emits them from the run's CURRENT state, with absolute paths
+and the real worklist units baked in:
 
 ```
 node scripts/construct.mjs orchestrate --out <run> [--phase research|claim-review|adr-judges|build] [--adr <id>] [--eco] [--list]
 ```
 
-| Your harness | How to run each fan-out phase |
+| Your harness | How to run each phase |
 |---|---|
-| Has the Workflow tool | `orchestrate --out <RUN> --phase <p>`, then `Workflow({ scriptPath: "<RUN>/orchestration/<p>.workflow.mjs" })`. Subagents RETURN fragments; fold them in yourself — the pinned `research` re-run, `review --apply`, the ADR majority reduce, the BUILD-PLAN fold — then gate as usual. |
-| Subagents but no Workflow tool | Same `orchestrate`; dispatch one subagent per batch following `<RUN>/orchestration/agents/<role>.md` (the workflow script shows batches + prompts). One writer: you fold results in. |
-| Eco mode, or no subagents | `orchestrate --out <RUN> --eco` → follow `<RUN>/orchestration/RUNBOOK.md` sequentially, playing each role yourself. Correctness-identical; only wall-clock differs. |
+| Has the Workflow tool | `orchestrate --phase <p>`, then `Workflow({ scriptPath: "<RUN>/orchestration/<p>.workflow.mjs" })` |
+| Subagents, no Workflow tool | Same `orchestrate`; dispatch one subagent per batch per `<RUN>/orchestration/agents/<role>.md` |
+| Eco mode, or no subagents | `orchestrate --eco` → follow `<RUN>/orchestration/RUNBOOK.md` sequentially |
 
-Fan-out is an optimization, never a requirement — the gates (`check`, `review --apply`,
-`verify`) are harness-independent and every phase has a sequential fallback with identical
-artifacts. Subagents never write the run folder: the emitted contracts end with the
-one-writer rule, and the fold always stays with you, the orchestrator (builders write code
-only in their own isolated git worktrees — never the run folder). The judge panel is
-opt-in — `--phase adr-judges --adr <id>` panels ONE genuinely contested ADR — and the
-adversarial SRD review (Pattern 2) deliberately stays a single fresh-eyes reviewer, never
-a fan-out. Re-run `orchestrate` whenever a worklist changes (emission is deterministic and
-idempotent); `--phase <p>` before its worklist exists fails and names the command that
-produces it. The underlying patterns live in `references/orchestration.md`.
+**Two rules survive every tier.** Subagents never write the run folder — they return
+fragments and YOU fold them in (builders write code only in their own git worktree). And
+fan-out is an optimization, never a requirement: every phase has a sequential fallback with
+identical artifacts, so the gates are harness-independent. Patterns, output contracts and
+budget guidance: `references/orchestration.md`.
 
 ## What it produces (the SRD tree, under `--out`)
 
@@ -330,22 +390,16 @@ accessibility contract — `--no-design` opts out). Add `--merge` for a single-f
 
 ## Optional semantic mode (fully local, no API key)
 
-The market/OSS/tech angles need nothing but network access. For a relevance pass
-over the gathered evidence you can enable a local embedding model:
-
-```
-node scripts/construct.mjs semantic up        # docker: Qdrant + Ollama + SearXNG
-node scripts/construct.mjs research --out <run> --angles market,oss,tech,semantic --semantic
-```
-
-Everything runs in local Docker containers — no key, no data leaves the machine.
-If the stack isn't up, `--semantic` logs a notice and keeps the lexical ranking.
-See `references/semantic-setup.md`.
+`construct semantic up` brings up a local Docker stack (Qdrant + Ollama + SearXNG); then
+`research --angles market,oss,tech,semantic --semantic` re-ranks the gathered evidence by
+embedding relevance. Nothing leaves the machine, and if the stack is down `--semantic` logs
+a notice and keeps the lexical ranking. See `references/semantic-setup.md`.
 
 ## References
 
 - `references/brainstorm-playbook.md` — the optional divergent step: generating candidate ideas across six angles and merging the kept ones into the brief.
 - `references/interview-playbook.md` — how to elicit the brief, one question at a time.
+- `references/brief-example.md` — a filled `brief.json`, the exchanges that produced its hardest fields, and what makes it work.
 - `references/research-playbook.md` — picking angles and digging deeper to "good enough".
 - `references/orchestration.md` — the three-tier dynamic-workflow model and the subagent patterns: research fan-out, red team, judge panel, claim-support review fan-out, build fan-out (and the one-writer rule). The fan-out patterns are emitted ready-to-launch by `construct orchestrate`.
 - `references/adversarial-review.md` — the red-team checklist and its findings contract.
@@ -358,6 +412,7 @@ See `references/semantic-setup.md`.
 - `references/grounding-coverage.md` — what the advisory coverage report means and how to raise it.
 - `references/build-playbook.md` — the build loop: task TDD, FR-tag convention, milestone gates, the milestone review.
 - `references/verify.md` — what each `verify` check proves and what still needs eyes.
+- `references/presenting.md` — step 7: what to say when you hand the SRD over, and how to report the gates honestly.
 - `references/provider-apis.md` — how OSS issues/PRs are fetched per host, keyless.
 - `references/web-discovery.md` — the layered keyless web search.
 - `references/semantic-setup.md` — the optional local Docker stack.

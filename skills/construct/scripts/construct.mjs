@@ -17851,7 +17851,9 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
           `  ${has("evidence/evidence.json")} evidence/evidence.json (research)`,
           `  ${has("SRD.json")} SRD.json (render)`,
           `  ${has("requirements/FUNCTIONAL.md")} requirements/FUNCTIONAL.md`,
-          planLine
+          planLine,
+          ``,
+          `  Next: ${nextCommand(out2, plan)}`
         ].join("\n") + "\n"
       );
       return;
@@ -17945,6 +17947,19 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
       return;
     }
   }
+}
+function nextCommand(out2, plan) {
+  const has = (rel) => existsSync15(join29(out2, rel));
+  if (!has("brief.json")) return `construct init --idea "<one-liner>" --out ${out2}   (then fill brief.json via the interview)`;
+  if (!has("evidence/evidence.json")) return `construct research --out ${out2} --angles market,oss,tech`;
+  if (!has("SRD.json")) return `construct render --out ${out2} --level complex`;
+  if (plan?.tasks.length) {
+    const done = plan.tasks.filter((t) => t.status === "done").length;
+    if (done === plan.tasks.length) return `construct verify --out ${out2} --run-tests --strict   (the build is complete \u2014 gate it)`;
+    if (done > 0) return `construct status --out ${out2} --json   (read the build frontier, then build the next ready task)`;
+  }
+  if (!has("VERIFY.json")) return `construct check --out ${out2}   (then \`construct review\` to adjudicate the citations)`;
+  return `construct check --out ${out2} --semantic`;
 }
 function loadEvidence4(runDir) {
   const path = join29(runDir, "evidence", "evidence.json");

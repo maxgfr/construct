@@ -29,9 +29,30 @@ their seeded defaults.
 
 1. **Design tokens.** The scaffold ships brand-neutral defaults (a system font
    stack, an 8-pt spacing scale, neutral/semantic colours). **Replace the
-   values with the product's real brand tokens** — the `check` warning clears
-   once the seeded-defaults banner is gone. Keep `design-tokens.json` in sync
-   (re-render, or edit both); a build step can import it directly.
+   values with the product's real brand tokens**, then set
+   `design.tokensAuthored: true` in `SRD.json` — that drops the seeded-defaults
+   banner and clears the `check` warning. Keep `design-tokens.json` in sync
+   (re-render with `--from-srd`, or edit both); a build step can import it
+   directly.
+
+   Before → after, for a product whose tone is "calm, expert, never noisy":
+
+   ```diff
+   - color.bg       #ffffff   Primary surface
+   - color.fg       #111827   Primary text
+   - color.primary  #2563eb   Primary action / brand accent
+   + color.bg       #FBF9F4   Warm paper — long-form reading, not a dashboard
+   + color.fg       #1B2A41   Ink; 12.6:1 on the paper surface (AAA body text)
+   + color.primary  #C1654A   Muted terracotta; used only for the save action
+   - type.font-sans system-ui, sans-serif
+   + type.font-sans 'Inter', system-ui, sans-serif
+   + type.size-base 1.0625rem  Reading-first: one step above UI default
+   ```
+
+   The point is not that the values changed — it is that each one now carries a
+   reason a reviewer can argue with, and the contrast figure is stated rather
+   than assumed. A token set with no rationale is a palette, not a design system.
+   `assets/example-srd/design/` in the repo shows an authored set in full.
 2. **Components.** Seeded from the FR text (a base set plus search/list/detail/
    form surfaces where the requirements signal them). Add the components the
    product actually needs, prune ones it doesn't, and verify each `Realises:` FR
