@@ -1159,8 +1159,8 @@ function cacheOptions() {
   return { ...options };
 }
 function cacheDir() {
-  const override = process.env.CONSTRUCT_CACHE_DIR;
-  if (override && override.trim()) return override.trim();
+  const override = process.env.CONSTRUCT_CACHE_DIR?.trim();
+  if (override) return override;
   return join3(homedir(), ".cache", "construct", "http");
 }
 function ttlMs() {
