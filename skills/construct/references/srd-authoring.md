@@ -18,9 +18,10 @@ is to raise it from "structurally complete" to "actually good."
 ## Where to spend effort
 
 1. **Acceptance criteria.** Replace the generic Given/When/Then with concrete,
-   *testable* behaviour, including failure paths. `check` warns while any still
-   carry the renderer's template phrasing. Follow
-   `references/acceptance-criteria.md` — worked bad→good rewrites and the
+   *testable* behaviour, including failure paths. A criterion still carrying the
+   renderer's template phrasing **warns at `light` and hard-fails at `complex`**
+   — the level that certifies build-readiness cannot ship un-authored criteria.
+   Follow `references/acceptance-criteria.md` — worked bad→good rewrites and the
    four-point checklist (observable outcome, bounded numbers, concrete actor,
    no restated requirement).
 2. **Data model** (`architecture/DATA-MODEL.md`). The scaffold is *seeded by

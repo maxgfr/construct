@@ -39,19 +39,35 @@ No `npm install`, no API keys. Run `--help` for the full surface. Key commands:
   feature/competitor/tech/seed that will render UNGROUNDED as-is, and prints the
   drill command that fixes each gap. Informational, never gates.
 - `web|oss|tech|so --out <run> [--q "<focus>"] [--url ...] [--seeds ...]
-  [--docs-url <u,...>]` — drill ONE angle to stdout (no dossier). Use these to
-  dig deeper on a thin thread; `--docs-url` grounds known docs pages directly.
-- `render --out <run> [--level light|complex] [--merge] [--prd]` — render the
-  SRD tree + `SRD.json` from `brief.json` + the dossier. When the brief declares
-  `modules`, also renders **one PRD per module** (`prd/<module>/PRD.md` + index)
-  and FUNCTIONAL.md becomes the cross-module index. `--prd` additionally emits
-  one standalone PRD per requirement under `requirements/prd/`.
-- `check --out <run> [--min-grounding <0-100>] [--semantic] [--json]` — the HARD
-  structural gate (exit ≠ 0 on an incomplete SRD) plus the ADVISORY grounding-
-  coverage report. `--min-grounding N` opts into a second gate that fails below
-  N% grounded claims; `--semantic` folds in `VERIFY.json` (see `review`) and
-  fails on any refuted/unsupported claim. (Distinct from `research --semantic`,
-  which only re-ranks evidence by embedding relevance.)
+  [--docs-url <u,...>] [--source <kind>]` — drill ONE angle. **Drills PRINT to
+  stdout and persist nothing** — including `--url` and `--docs-url`. Use them to
+  dig deeper on a thin thread; to actually ground a page you proved useful, pin
+  it into a research re-run (`research --url` / `research --docs-url`).
+  `--source <market|docs|oss|so|issue|pr>` files `web --url` pages under a
+  different evidence kind.
+- `render --out <run> [--level light|complex] [--merge] [--prd|--no-prd]` —
+  render the SRD tree + `SRD.json` from `brief.json` + the dossier. **`--level`
+  defaults to `light`** — pass `complex` whenever a build is even possible.
+  When the brief declares `modules`, also renders **one PRD per module**
+  (`prd/<module>/PRD.md` + index) and FUNCTIONAL.md becomes the cross-module
+  index. `--prd` additionally emits one standalone PRD per requirement under
+  `requirements/prd/`; a later render that omits `--prd` **refuses to run**
+  rather than destroy that tree — re-pass `--prd`, or `--no-prd` to delete it
+  deliberately.
+- `render --out <run> --from-srd [--merge] [--prd|--no-prd]` — re-emit the whole
+  markdown tree from an **edited `SRD.json`** without rebuilding it from the
+  brief. This is how you persist enrichment (step 4): edit the manifest the gate
+  reads, then re-emit, so the human-facing `.md` and the gated model never drift.
+- `check --out <run> [--min-grounding <0-100>] [--semantic [--allow-unverified]]
+  [--json]` — the HARD structural gate (exit ≠ 0 on an incomplete SRD) plus the
+  ADVISORY grounding-coverage report. `--min-grounding N` opts into a second gate
+  that fails below N% grounded claims. `--semantic` folds in `VERIFY.json` (see
+  `review`) and is **fail-closed**: a missing, unreadable or incompletely
+  adjudicated `VERIFY.json` FAILS the check, as does any refuted/unsupported
+  claim or a `VERIFY.json` adjudicated against a different render.
+  `--allow-unverified` degrades those to warnings — say so when you do.
+  (Distinct from `research --semantic`, which only re-ranks evidence by
+  embedding relevance.)
 - `review --out <run> [--apply <verdicts.json>] [--max-review N] [--json]` — the
   claim-support harness. With no `--apply` it writes a claim↔evidence worklist
   (`VERIFY.todo.json` + `VERIFY.md`): every grounded claim paired with each cited
@@ -73,6 +89,16 @@ No `npm install`, no API keys. Run `--help` for the full surface. Key commands:
   harness* below.
 - `semantic up|down|status` — optional local Docker stack (Qdrant + Ollama +
   SearXNG).
+
+**Conventions across the surface.** `--out <run>` (alias `--run`) names the run
+folder; `--q <focus>` (alias `--question`) focuses a query. `--refresh` forces a
+re-clone of mined OSS repos. `--web-engine auto|searxng|ddg|claude` pins
+discovery. Most commands accept `--json` — prefer it whenever you branch on the
+result rather than read it as prose.
+
+**Exit codes.** `0` ok · `1` a gate failed (act on it) · `2` usage error or a
+phase whose worklist does not exist yet (the message names the command that
+produces it). `analyze` never gates — it always exits 0.
 
 ## Workflow
 
@@ -124,9 +150,11 @@ loop to completion; only pause to ask the user a real decision.
    in with a single research re-run that PINS the proven URLs:
    `construct research --out <run> --angles market,oss,tech --url <u,...>
    [--docs-url <d,...>]` → re-run `analyze`. **A research run rebuilds the
-   dossier from exactly the angles/URLs it is given** — always pass every angle
-   (and raise `--per-source` if pins would exceed the budget), or evidence from
-   earlier runs is lost. (No subagents? Work the gaps yourself, one drill at a
+   dossier from exactly the angles/URLs it is given** — always pass every angle,
+   or evidence from earlier runs is lost. Pinned URLs are never dropped by the
+   budget, and any budget cut is named in the dossier notes. `[E#]` ids are
+   stable across re-runs, so citations already written into the SRD keep pointing
+   at the same source. (No subagents? Work the gaps yourself, one drill at a
    time.) Tell the user what you found and **let them steer** — prioritise
    must-have features and load-bearing decisions, stop when they say it's
    enough. See `references/orchestration.md` and
@@ -142,10 +170,15 @@ loop to completion; only pause to ask the user a real decision.
    pre-seeded by inference from the brief — **verify them, don't trust them**.
    Then **enrich it**: resolve every `🧠 Decide:` callout, sharpen the templated
    acceptance criteria and NFR metrics into testable, bounded statements
-   (follow `references/acceptance-criteria.md` — `check` warns while any remain
-   templated), correct/extend the data model and interfaces, and add `[E#]`
-   citations from the dossier to the requirements and decisions they rest on.
-   See `references/srd-authoring.md` and `references/citation-format.md`.
+   (follow `references/acceptance-criteria.md` — at `complex` a surviving
+   renderer-templated criterion is a **hard error**, not a warning: that level
+   certifies build-readiness), correct/extend the data model and interfaces, and
+   add `[E#]` citations from the dossier to the requirements and decisions they
+   rest on. **Persist enrichment by editing `SRD.json` and re-emitting with
+   `render --out <run> --from-srd`** — that keeps the markdown and the gated
+   manifest in sync; hand-editing a rendered `.md` alone is overwritten by the
+   next render. See `references/srd-authoring.md` and
+   `references/citation-format.md`.
    At `complex`, also enrich the **design system** (`design/`): replace the
    seeded design tokens with the product's real brand values, verify the
    component and screen/flow inventory, and sharpen the accessibility criteria
@@ -158,8 +191,11 @@ loop to completion; only pause to ask the user a real decision.
    strictly following that checklist as a hostile reader). It must try to
    *break* the SRD — ambiguity, untestable criteria, missing failure paths,
    citation-washing, contradictions — and return tagged findings. Fix every
-   `[blocker]`, use judgement on `[advisory]`, then re-run `check`. Loop while
-   new blockers appear (cap: 3 rounds, then surface what remains to the user).
+   `[blocker]`, use judgement on `[advisory]`, then re-run `check`. **Loop until
+   dry** — stop when a round surfaces no NEW blocker (one clean round is enough;
+   don't spend three by default). Backstop: if you are still finding blockers
+   after 3 rounds, stop and take what remains to the user — an SRD that won't go
+   dry in 3 rounds has a structural problem worth a human.
    For a genuinely contested, hard-to-reverse ADR at `complex` level, also run
    the 3-judge panel from `references/orchestration.md` (emit it:
    `orchestrate --out <run> --phase adr-judges --adr <id>`).
@@ -174,13 +210,16 @@ loop to completion; only pause to ask the user a real decision.
      bearing decisions); see `references/grounding-coverage.md`. By default it
      never fails the build, so use judgement. When the user wants grounding
      *enforced*, add the opt-in gate: `check --out <run> --min-grounding 70`.
-   - *Claim-support (advisory → opt-in gate):* coverage counts citations; it does
-     not check they hold. `construct review --out <run>` builds a claim↔evidence
-     worklist; adjudicate each pair (fan out per `references/orchestration.md`
-     Pattern 4 — emitted by `orchestrate --out <run> --phase claim-review`),
-     assemble `verdicts.json`, `review --apply verdicts.json`, then
-     `check --out <run> --semantic` to gate refuted/unsupported claims. Worth one
-     pass over the load-bearing FRs/ADRs before presenting.
+   - *Claim-support (opt-in gate, then fail-closed):* coverage counts citations;
+     it does not check they hold. `construct review --out <run>` builds a
+     claim↔evidence worklist; adjudicate each pair (fan out per
+     `references/orchestration.md` Pattern 4 — emitted by
+     `orchestrate --out <run> --phase claim-review`), assemble `verdicts.json`,
+     `review --apply verdicts.json`, then `check --out <run> --semantic`.
+     **Run `--semantic` only after `review --apply`:** it asserts the support
+     gate actually engaged, so a missing/incomplete `VERIFY.json` — or one
+     adjudicated against an earlier render — fails the check rather than passing
+     it quietly. Worth one pass over the load-bearing FRs/ADRs before presenting.
    Loop steps 3–6 until `check` passes structurally, the reviewer finds no new
    blockers, and the grounding is honest.
 
@@ -261,8 +300,18 @@ competitive/   LANDSCAPE.md (competitors + OSS prior art)
 BUILD-PLAN.md · BUILD-PLAN.json (task DAG for the build phase; tasks carry their
                module in modules mode)
 TRACEABILITY.md (FR ↔ module ↔ NFR ↔ ADR ↔ entity ↔ interface ↔ component ↔ screen)
-evidence/      EVIDENCE.md · evidence.json · meta.json   ·   brief.json · SRD.json
+evidence/      EVIDENCE.md · evidence.json · meta.json · ids.json (the [E#]
+               ledger — do not hand-edit; it is what keeps citations stable)
+VERIFY.md · VERIFY.todo.json · VERIFY.json   (the claim-support worklist and its
+               adjudicated ledger — written by `review` / `review --apply`)
+orchestration/ <phase>.workflow.mjs · agents/<role>.md · RUNBOOK.md
+               (written by `orchestrate`; `out/` is where subagents may return)
+brief.json · SRD.json
 ```
+
+`evidence/`, `VERIFY.md` and `orchestration/` are retrieved or generated text —
+`check` deliberately does not scan them for 🧠/TODO, so an evidence snippet can
+quote anything without tripping the gate.
 
 `light` keeps it lean; `complex` adds the full NFR set, a second ADR, failure-
 path acceptance criteria, the full traceability matrix and a **design-system

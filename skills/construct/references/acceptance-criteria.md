@@ -1,10 +1,14 @@
 # Acceptance criteria & NFR metrics — from templated to testable
 
 `construct render` emits *structurally complete* Given/When/Then criteria and
-NFR metrics. `construct check` warns while any still carry the renderer's
-template phrasing. This guide is how to sharpen them. The bar for every
-criterion: **a developer could write an automated test from it without asking a
-single question.**
+NFR metrics. This guide is how to sharpen them. The bar for every criterion:
+**a developer could write an automated test from it without asking a single
+question.**
+
+`construct check` enforces that bar by level: at `--level light` a surviving
+renderer-templated criterion is a **warning**; at `--level complex` it is a
+**hard error**, because that level is what certifies build-readiness. Templated
+NFR metrics warn at both levels.
 
 ## The checklist
 
@@ -72,7 +76,7 @@ agreed and tracked") with the target itself. Patterns:
 | usability | task completion | a new user saves their first article in < 2 min without help |
 | observability | diagnosis without repro | every request carries a trace id; error-rate + latency alerts on SLO breach |
 | cost | unit economics + ceiling | infra < $10/month at 1,000 users on the stated budget |
-| accessibility | conformance level | WCAG 2.1 AA on the save/read/search flows |
+| accessibility | conformance level | WCAG 2.2 AA on the save/read/search flows |
 | privacy | data rights | export + delete available; retention ≤ 90 days by default |
 
 Two rules of judgement:

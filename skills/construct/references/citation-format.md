@@ -1,9 +1,19 @@
 # Citation format — grounding the SRD with `[E#]`
 
-Every grounded claim in the SRD cites the evidence it rests on by id. Grounding
-is **advisory** in `construct` — `check` reports coverage but never fails on it —
-so the discipline is yours. A cited decision is one a reader can verify; an
-uncited one is one they must trust.
+Every grounded claim in the SRD cites the evidence it rests on by id. By default
+grounding is **advisory** — `check` reports coverage without failing on it — so
+the discipline is yours. A cited decision is one a reader can verify; an uncited
+one is one they must trust.
+
+Two opt-in gates turn that discipline into enforcement:
+`check --min-grounding N` fails below N% grounded claims, and
+`check --semantic` (after `review --apply`) fails on any cited claim its evidence
+does not actually support.
+
+**Ids are stable.** An `[E#]` names a piece of evidence by where it came from,
+recorded in `evidence/ids.json`, so re-running `research` to pin new URLs leaves
+every existing citation pointing at the same source. Ids from a dossier built
+before 3.0 may renumber once on the first re-run — re-check citations then.
 
 ## The grammar
 

@@ -64,3 +64,64 @@ describe("SKILL.md is installable by the `skills` CLI", () => {
     expect(VERSION).toBe(pkg.version);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Flag-coverage gate — the fix for how the docs drifted in the first place.
+//
+// Three SKILL.md claims contradicted the engine, and seven flags existed in
+// cli.ts while being documented nowhere in the shipped bundle. None of it was
+// carelessness: a fix landed in the CLI help and the references and simply
+// missed SKILL.md, and nothing noticed. Correcting the prose without
+// mechanising the invariant would only reset the clock.
+//
+// So: every flag the engine accepts must be documented in the bundle, and every
+// flag the bundle mentions must exist in the engine.
+// ---------------------------------------------------------------------------
+describe("the shipped bundle documents the engine it ships", () => {
+  const skillMd = readFileSync(join(SKILL_DIR, "SKILL.md"), "utf8");
+  const refs = readdirSync(join(SKILL_DIR, "references"))
+    .filter((f) => f.endsWith(".md"))
+    .map((f) => readFileSync(join(SKILL_DIR, "references", f), "utf8"));
+  const bundle = [skillMd, ...refs].join("\n");
+
+  // Parse the flag sets straight out of the CLI so the gate tracks the engine
+  // rather than a copy of it.
+  const cli = readFileSync(join(ROOT, "src", "cli.ts"), "utf8");
+  function flagSet(name: string): string[] {
+    const m = new RegExp(`const ${name} = new Set\\(\\[([\\s\\S]*?)\\]\\)`).exec(cli);
+    if (!m) throw new Error(`could not find ${name} in src/cli.ts`);
+    return [...m[1]!.matchAll(/"([a-z0-9-]+)"/g)].map((x) => x[1]!);
+  }
+  const engineFlags = [...flagSet("VALUE_FLAGS"), ...flagSet("BOOL_FLAGS")];
+
+  // Flags belonging to OTHER tools that the references legitimately quote
+  // (docker compose in semantic-setup.md, and construct's own --help).
+  const FOREIGN_FLAGS = new Set(["profile", "help", "version"]);
+
+  it("finds a non-trivial flag surface to check", () => {
+    expect(engineFlags.length).toBeGreaterThan(20);
+  });
+
+  it("documents every flag the engine accepts", () => {
+    // Whole-token match: a bare `includes("--run")` would be satisfied by
+    // `--run-tests` and quietly pass an undocumented alias.
+    const documented = (f: string) => new RegExp(`--${f}(?![a-z0-9-])`).test(bundle);
+    const undocumented = engineFlags.filter((f) => !documented(f));
+    expect(undocumented, `flags accepted by src/cli.ts but documented nowhere in the skill bundle: ${undocumented.join(", ")}`).toEqual([]);
+  });
+
+  it("mentions no flag the engine does not accept", () => {
+    const mentioned = [...new Set([...bundle.matchAll(/--([a-z][a-z0-9-]*)/g)].map((m) => m[1]!))];
+    const known = new Set([...engineFlags, ...FOREIGN_FLAGS]);
+    const phantom = mentioned.filter((f) => !known.has(f));
+    expect(phantom, `the skill bundle documents flags src/cli.ts does not accept: ${phantom.join(", ")}`).toEqual([]);
+  });
+
+  it("documents every command the engine dispatches", () => {
+    const m = /const COMMANDS = new Set\(\[([\s\S]*?)\]\)/.exec(cli);
+    const commands = m ? [...m[1]!.matchAll(/"([a-z-]+)"/g)].map((x) => x[1]!) : [];
+    expect(commands.length).toBeGreaterThan(5);
+    const undocumented = commands.filter((c) => !skillMd.includes(c));
+    expect(undocumented, `commands dispatched by the engine but absent from SKILL.md: ${undocumented.join(", ")}`).toEqual([]);
+  });
+});

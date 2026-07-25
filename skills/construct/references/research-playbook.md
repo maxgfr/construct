@@ -83,10 +83,14 @@ Everything lives on disk under `--out`; nothing is in memory. Start with
 `evidence/`, `SRD.json`, `BUILD-PLAN.json`). Then:
 
 - `analyze`, `check`, and all drills are read-only — always safe.
-- `research` rebuilds the dossier atomically and **re-assigns `[E#]` ids** —
-  if an SRD was already rendered, re-check its citations afterwards.
+- `research` rebuilds the dossier atomically. `[E#]` ids are **stable across
+  re-runs**: they are recorded by provenance in `evidence/ids.json`, so pinning
+  a new URL leaves every already-cited item on its id. An item that drops out of
+  the dossier leaves a dangling citation (`check` reports it) — never a silently
+  re-pointed one. A dossier built before 3.0 has no ledger and may renumber once.
 - `render` re-renders and renumbers FR/NFR ids, but BUILD-PLAN task progress
-  merges by feature title, so build state survives.
+  merges by feature title, so build state survives. A re-render also invalidates
+  any `VERIFY.json`: re-run `review` before `check --semantic`.
 
 ## Heuristics
 

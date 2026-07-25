@@ -182,8 +182,14 @@ invalid token reads as unadjudicated, not as a failure).
 `check` coverage problem, not a support problem — don't conflate). A dropped or
 garbled branch leaves its pair *unadjudicated* — `review --apply` cross-checks
 the worklist, so a pair you omit from `verdicts.json` is still reported as
-unadjudicated (not silently passed); `check --semantic` warns but does not fail.
-Re-dispatch dropped pairs if the claim is load-bearing. The `verdicts.json` must
+unadjudicated (not silently passed), and **`check --semantic` FAILS on it**: the
+gate is fail-closed, because a partly-judged ledger cannot certify "every cited
+claim is supported". `--allow-unverified` degrades that (and a missing
+`VERIFY.json`) to a warning — use it deliberately and say so in what you report.
+Re-dispatch dropped pairs if the claim is load-bearing. A re-render also
+invalidates the ledger: `VERIFY.json` records the `generatedAt` it judged, and
+`check --semantic` refuses verdicts adjudicated against a different render.
+The `verdicts.json` must
 be a JSON array or `{ "pairs": [...] }` — any other shape is rejected outright
 (it would otherwise overwrite `VERIFY.json` with a vacuous pass). A re-render or
 re-`research` re-assigns `[E#]`/claim ids, so **regenerate the worklist before

@@ -34,12 +34,25 @@ Fetching and text extraction of the chosen URLs is always done by the script.
 ## Grounding specific pages
 
 You can always ground exact pages without discovery — useful after your own
-WebSearch:
+WebSearch. **Two different commands, and only one of them grounds:**
+
 ```
+# INSPECT — fetches, extracts, prints to stdout. Persists NOTHING.
 node scripts/construct.mjs web --out <run> --q "<focus>" --url https://a.com,https://b.com
+
+# GROUND — pins the pages into the dossier with real [E#] ids you can cite.
+node scripts/construct.mjs research --out <run> --angles market,oss,tech --url https://a.com,https://b.com
 ```
-Each page is fetched, stripped to readable text, and excerpted around the focus
-keywords into `market` evidence you can cite with `[E#]`.
+
+The drill is for reading a page before deciding it is worth grounding; the
+`research` re-run is what makes it citable. Pinned pages are never dropped by
+the per-source budget — if the budget has to cut, it cuts discovery and names
+the cut in the dossier notes.
+
+`web --url` also accepts `--source <market|docs|oss|so|issue|pr>` to file the
+printed excerpts under a different evidence kind (a vendor's docs page read
+through the web drill, say). It changes the classification, not the fact that
+the drill only prints.
 
 ## StackOverflow
 
