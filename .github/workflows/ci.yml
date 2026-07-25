@@ -94,12 +94,20 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 18
+      # This job exists to prove the zero-dep bundle RUNS on the Node floor — not
+      # to assert an SRD is gate-clean. It renders at --level light for the same
+      # reason `pnpm demo` does: a raw `complex` scaffold is deliberately NOT
+      # gate-clean (its acceptance criteria are still the renderer's). Both
+      # directions of that gate are proved in build-test, against the authored
+      # example and against a bare scaffold.
       - name: The committed bundle renders + checks an SRD on Node 18 (no install)
         run: |
           mkdir -p "$RUNNER_TEMP/run18/evidence"
           cp tests/fixtures/sample-brief.json "$RUNNER_TEMP/run18/brief.json"
           cp tests/fixtures/sample-evidence.json "$RUNNER_TEMP/run18/evidence/evidence.json"
-          node scripts/construct.mjs render --out "$RUNNER_TEMP/run18" --level complex --merge
+          node scripts/construct.mjs render --out "$RUNNER_TEMP/run18" --level light --merge
           node scripts/construct.mjs check --out "$RUNNER_TEMP/run18"
           test -f "$RUNNER_TEMP/run18/SRD.json"
           test -f "$RUNNER_TEMP/run18/TRACEABILITY.md"
+      - name: The example SRD also passes on the Node 18 floor
+        run: node scripts/construct.mjs check --out assets/example-srd --min-grounding 66
