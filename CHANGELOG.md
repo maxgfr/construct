@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [3.2.0](https://github.com/maxgfr/construct/compare/v3.1.0...v3.2.0) (2026-07-28)
+
+
+### Features
+
+* **firecrawl:** add self-hosted Firecrawl extraction and search ([6112e8b](https://github.com/maxgfr/construct/commit/6112e8b3f715c3bbd7cc5e84ee3b09d28d3fdbd9))
+
 # [3.1.0](https://github.com/maxgfr/construct/compare/v3.0.0...v3.1.0) (2026-07-26)
 
 
