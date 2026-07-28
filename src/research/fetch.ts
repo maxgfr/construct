@@ -3,6 +3,7 @@ import { keywords as extractKeywords } from "../util.js";
 import { HTTP_GET_TIMEOUT_MS, HTTP_JSON_TIMEOUT_MS, RETRY_AFTER_CAP_MS, RETRY_BASE_DELAY_MS, RETRY_JITTER_MS } from "../config.js";
 import { recordFetch } from "./metrics.js";
 import * as cache from "./cache.js";
+import { probeFirecrawl, scrapeViaFirecrawl } from "./firecrawl.js";
 
 type RawItem = Omit<EvidenceItem, "id">;
 
@@ -96,13 +97,15 @@ async function httpGetOnce(
   }
 }
 
-// JSON request/response helper for the local vector backend (Qdrant / Ollama).
-// Returns parsed JSON or an error; never throws. Local-only, keyless.
+// JSON request/response helper for the local backends (Qdrant / Ollama /
+// Firecrawl). Returns parsed JSON or an error; never throws. Local-only and
+// keyless by default — `headers` exists so a caller can point the same client at
+// a hosted instance that wants an Authorization header.
 export async function httpJson(
   method: string,
   url: string,
   body?: unknown,
-  opts: { timeoutMs?: number } = {},
+  opts: { timeoutMs?: number; headers?: Record<string, string> } = {},
 ): Promise<{ ok: boolean; status: number; data: any; error?: string }> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? HTTP_JSON_TIMEOUT_MS);
@@ -110,7 +113,7 @@ export async function httpJson(
     const res = await fetch(url, {
       method,
       signal: ctrl.signal,
-      headers: { "content-type": "application/json", accept: "application/json", "user-agent": UA },
+      headers: { "content-type": "application/json", accept: "application/json", "user-agent": UA, ...(opts.headers ?? {}) },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     const text = await res.text();
@@ -224,15 +227,28 @@ function metaDescriptionOf(html: string): string | undefined {
 // the external-docs and web sources. Also returns the page's meta description
 // (when present) as a low-signal fallback for pinned pages whose body doesn't
 // match the question.
+//
+// Two extractors can produce that text: the built-in stripper below, and (when
+// the optional local Firecrawl stack is up) Firecrawl's main-content markdown.
+// The choice is made HERE, before any network call, for two reasons: Firecrawl
+// does its own fetching, so routing a page through `httpGet` first would
+// download every page twice; and the cache must know which extractor wrote a
+// body before it can serve it.
 export async function fetchAndExtract(url: string): Promise<{ text: string; note?: string; metaDescription?: string }> {
   const { refresh, offline } = cache.cacheOptions();
+  // Offline never probes: the layer needs the network, and a cache-only run must
+  // serve what it has rather than reject it over extractor identity.
+  const wanted: cache.Extractor = !offline && (await probeFirecrawl()) ? "firecrawl" : "native";
   const cached = refresh ? null : cache.read(url);
+  // A body produced by the OTHER extractor is a miss: it is different text, and
+  // serving it would shadow the extractor this run actually asked for.
+  const usable = cached && cache.extractorOf(cached.entry) === wanted ? cached : null;
 
   // A fresh entry answers without touching the network at all — this is what
   // makes the fold-in re-run the skill prescribes nearly free.
-  if (cached && cache.isFresh(cached.entry)) {
-    recordFetch(Buffer.byteLength(cached.body), true);
-    return extract(cached.body, cached.entry.contentType);
+  if (usable && cache.isFresh(usable.entry)) {
+    recordFetch(Buffer.byteLength(usable.body), true);
+    return extractStored(usable.body, usable.entry);
   }
 
   if (offline) {
@@ -240,18 +256,43 @@ export async function fetchAndExtract(url: string): Promise<{ text: string; note
     // genuine miss is reported, never silently treated as an empty page.
     if (cached) {
       recordFetch(Buffer.byteLength(cached.body), true);
-      return extract(cached.body, cached.entry.contentType);
+      return extractStored(cached.body, cached.entry);
     }
     return { text: "", note: `Offline: ${url} is not in the cache (drop --offline, or warm it with a normal run).` };
   }
 
+  // Firecrawl path: one /scrape call, main-content markdown, no httpGet at all.
+  let note: string | undefined;
+  if (wanted === "firecrawl") {
+    const scraped = await scrapeViaFirecrawl(url);
+    // Firecrawl happily returns the markdown of a 404 or 500 page. The built-in
+    // path treats an error status as "no page", and so must this one — grounding
+    // a requirement in a "Page not found" body is worse than an honest hole. Let
+    // the native path re-fetch it and report the status the way it always has.
+    const status = scraped?.statusCode ?? 200;
+    if (scraped && status >= 400) {
+      note = `Firecrawl reported status ${status} for ${url}; fell back to the built-in extractor.`;
+    } else if (scraped) {
+      recordFetch(Buffer.byteLength(scraped.markdown));
+      // `text/markdown` is deliberate, not incidental: it is what tells every
+      // reader of this entry (including `extract`'s isHtml test) that the body is
+      // already clean prose and must not be run through the HTML stripper.
+      cache.write(url, { status, contentType: "text/markdown", extractor: "firecrawl" }, scraped.markdown);
+      return { text: scraped.markdown };
+    } else {
+      // Reachable but no markdown for this page (blocked, timed out, empty): fall
+      // through to the built-in path rather than leaving a hole, and say so.
+      note = `Firecrawl could not extract ${url}; used the built-in extractor instead.`;
+    }
+  }
+
   // Stale entry: revalidate. A 304 costs headers instead of a body.
-  const conditional = cached ? cache.revalidationHeaders(cached.entry) : {};
+  const conditional = usable ? cache.revalidationHeaders(usable.entry) : {};
   let res = await httpGet(url, { accept: "text/html,text/plain,*/*", headers: conditional });
-  if (cached && res.status === 304) {
+  if (usable && res.status === 304) {
     cache.touch(url);
-    recordFetch(Buffer.byteLength(cached.body), true);
-    return extract(cached.body, cached.entry.contentType);
+    recordFetch(Buffer.byteLength(usable.body), true);
+    return { ...extractStored(usable.body, usable.entry), ...(note ? { note } : {}) };
   }
   // Some sites block the polite bot UA — retry once as a browser before giving up.
   if (!res.ok && (res.status === 403 || res.status === 429)) {
@@ -261,16 +302,30 @@ export async function fetchAndExtract(url: string): Promise<{ text: string; note
     });
   }
   if (!res.ok) {
-    // A stale copy is better than a hole when the origin is briefly down.
+    // A stale copy is better than a hole when the origin is briefly down —
+    // including one the other extractor wrote, which is still this page's text.
     if (cached) {
       recordFetch(Buffer.byteLength(cached.body), true);
-      const out = extract(cached.body, cached.entry.contentType);
+      const out = extractStored(cached.body, cached.entry);
       return { ...out, note: `${url} returned ${res.status}; served the cached copy from ${new Date(cached.entry.fetchedAt).toISOString()}.` };
     }
     return { text: "", note: `Could not fetch ${url} (status ${res.status}${res.error ? ", " + res.error : ""}).` };
   }
-  cache.write(url, { status: res.status, contentType: res.contentType, etag: res.etag, lastModified: res.lastModified }, res.body);
-  return extract(res.body, res.contentType);
+  cache.write(url, { status: res.status, contentType: res.contentType, extractor: "native", etag: res.etag, lastModified: res.lastModified }, res.body);
+  return { ...extract(res.body, res.contentType), ...(note ? { note } : {}) };
+}
+
+// Turn a STORED body into text, honouring the extractor that wrote it.
+//
+// Firecrawl bodies skip `extract` entirely. Not just because the HTML stripper
+// has nothing to do on markdown: `stripConsentBoilerplate` drops any line under
+// 120 chars that mentions "cookies", which on a page documenting HTTP cookies
+// eats the actual content. That heuristic is calibrated for banner chrome the
+// regex stripper leaves behind — Firecrawl's main-content extraction has already
+// removed the banner, so the guard would only be able to do damage.
+function extractStored(body: string, entry: cache.CacheEntry): { text: string; metaDescription?: string } {
+  if (cache.extractorOf(entry) === "firecrawl") return { text: body };
+  return extract(body, entry.contentType);
 }
 
 // Turn a fetched body into readable text + the page's meta description. Shared

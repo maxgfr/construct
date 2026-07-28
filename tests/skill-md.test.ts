@@ -96,7 +96,7 @@ describe("the shipped bundle documents the engine it ships", () => {
 
   // Flags belonging to OTHER tools that the references legitimately quote
   // (docker compose in semantic-setup.md, and construct's own --help).
-  const FOREIGN_FLAGS = new Set(["profile", "help", "version"]);
+  const FOREIGN_FLAGS = new Set(["profile", "help", "version", "wait"]);
 
   it("finds a non-trivial flag surface to check", () => {
     expect(engineFlags.length).toBeGreaterThan(20);

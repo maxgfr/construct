@@ -74,16 +74,17 @@ else readFileSync(rootEngine).equals(readFileSync(pkgEngine))
   ? ok(`embedded engine skills/${name}/${engine} is byte-identical to ${engine}`)
   : bad(`skills/${name}/${engine} differs from ${engine} — run \`node scripts/copy-bundle.mjs\` and commit`);
 
-// 5. The optional semantic Docker stack ships inside the skill, byte-identical
-// to the repo-root source (else `construct semantic up|down|status` and the
-// --semantic embedding rescore cannot run from the installed layout).
-for (const rel of ["docker-compose.yml", "docker/searxng/settings.yml"]) {
+// 5. The optional Docker stacks ship inside the skill, byte-identical to the
+// repo-root source (else `construct semantic|firecrawl up|down|status`, the
+// --semantic embedding rescore and the Firecrawl extraction layer cannot run
+// from the installed layout — the compose references firecrawl.env by path).
+for (const rel of ["docker-compose.yml", "docker/searxng/settings.yml", "docker/firecrawl/firecrawl.env", "docker/firecrawl/README.md"]) {
   const rootFile = join(root, rel);
   const pkgFile = join(skillDir, rel);
   if (!existsSync(rootFile)) bad(`missing ${rel} at repo root`);
   else if (!existsSync(pkgFile)) bad(`missing skills/${name}/${rel} — run \`node scripts/copy-bundle.mjs\``);
   else readFileSync(rootFile).equals(readFileSync(pkgFile))
-    ? ok(`semantic stack skills/${name}/${rel} is byte-identical to ${rel}`)
+    ? ok(`docker stack skills/${name}/${rel} is byte-identical to ${rel}`)
     : bad(`skills/${name}/${rel} differs from ${rel} — run \`node scripts/copy-bundle.mjs\` and commit`);
 }
 

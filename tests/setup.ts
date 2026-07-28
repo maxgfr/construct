@@ -12,4 +12,10 @@ import { afterAll } from "vitest";
 const dir = mkdtempSync(join(tmpdir(), "construct-test-cache-"));
 process.env.CONSTRUCT_CACHE_DIR = dir;
 
+// The Firecrawl extraction layer probes http://localhost:3002 by default. A
+// developer who happens to have the `extract` profile running would otherwise
+// get a different extractor — and different fetch call counts — than CI. Off by
+// default; the cases that exercise it opt in explicitly.
+process.env.CONSTRUCT_FIRECRAWL = "off";
+
 afterAll(() => rmSync(dir, { recursive: true, force: true }));

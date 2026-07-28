@@ -94,6 +94,7 @@ No `npm install`, no API keys. `--help` has the full surface; this is the map.
 | `status --out <run> [--json]` | what exists + **the next command**; `--json` adds the build frontier |
 | `orchestrate --out <run> [--phase …] [--eco]` | emit this run's fan-out (see below) |
 | `semantic up\|down\|status` | the optional local Docker stack |
+| `firecrawl up\|down\|status` | the optional local Firecrawl stack — keyless main-content extraction. While it runs, every page is cleaned through it instead of the built-in HTML stripper; while it does not, nothing changes. |
 | `cache status\|clean [--all]` | the page cache that makes a `research` re-run nearly free |
 
 Three behaviours worth knowing before they surprise you:
@@ -111,7 +112,9 @@ Three behaviours worth knowing before they surprise you:
 **Conventions.** `--out <run>` (alias `--run`); `--q <focus>` (alias
 `--question`). `--refresh` ignores the page cache and re-clones OSS repos;
 `--offline` works from the cache alone and reports a miss honestly.
-`--web-engine auto|searxng|ddg|claude` pins discovery. `--concurrency <n>`
+`--web-engine auto|searxng|ddg|claude|firecrawl` pins discovery (`firecrawl` is
+explicit-only — `auto` never probes it); `--firecrawl <url|off>` points the
+extraction layer elsewhere, or forces the built-in extractor. `--concurrency <n>`
 (default 4) bounds in-flight fetches per angle; `--max-tech <n>` (default 3) how
 many candidate technologies `tech` grounds; `--per-source <n>` (default 6) how
 much evidence each source keeps; `--source <kind>` reclassifies `web --url`
@@ -388,12 +391,21 @@ subtree** (`design/`: principles, tokens, components, screens/flows, an
 accessibility contract — `--no-design` opts out). Add `--merge` for a single-file
 `SRD.md` (always the full FR blocks, even in modules mode).
 
-## Optional semantic mode (fully local, no API key)
+## Optional local stacks (fully local, no API key)
 
 `construct semantic up` brings up a local Docker stack (Qdrant + Ollama + SearXNG); then
 `research --angles market,oss,tech,semantic --semantic` re-ranks the gathered evidence by
 embedding relevance. Nothing leaves the machine, and if the stack is down `--semantic` logs
-a notice and keeps the lexical ranking. See `references/semantic-setup.md`.
+a notice and keeps the lexical ranking.
+
+`construct firecrawl up` brings up the second, heavier stack (~3 GB, its own
+`extract` profile — never started by `semantic up`). While it runs, every page
+the research pipeline fetches is cleaned through Firecrawl's main-content
+markdown instead of the built-in HTML stripper, which is what makes a
+JS-rendered page yield any evidence at all. Also keyless. Every failure path
+falls back to the built-in extractor and says so in the dossier notes, so the
+worst case of a stopped stack is the behaviour you had before.
+See `references/semantic-setup.md`.
 
 ## References
 

@@ -11,6 +11,7 @@ import {
   COMPOSE_DOWN_TIMEOUT_MS,
   COMPOSE_PS_TIMEOUT_MS,
   COMPOSE_UP_TIMEOUT_MS,
+  COMPOSE_UP_HEAVY_TIMEOUT_MS,
   OLLAMA_PULL_TIMEOUT_MS,
   EMBED_CONCURRENCY,
 } from "../config.js";
@@ -126,7 +127,7 @@ export async function semanticRescore(results: SourceResult[], query: string): P
 // bundle sits at skills/construct/scripts/construct.mjs and the compose ships as
 // skills/construct/docker-compose.yml (`../` from the bundle). In the repo the
 // compiled/source bundle resolves the root copy (`../../`). Returns null when no
-// copy exists, so semanticControl can emit a targeted error instead of shelling
+// copy exists, so stackControl can emit a targeted error instead of shelling
 // `docker compose -f <missing path>` and dumping an opaque failure.
 export function composeFile(): string | null {
   const here = dirname(fileURLToPath(import.meta.url));
@@ -136,42 +137,84 @@ export function composeFile(): string | null {
   return null;
 }
 
-// Control the optional local Docker stack (Qdrant + Ollama embeddings + SearXNG).
-// SearXNG powers the market angle's web discovery; Ollama powers semantic
-// rescoring; Qdrant is provisioned for future large-corpus indexing.
-export function semanticControl(action: string, composeFilePath: string | null = composeFile()): { message: string; code: number } {
+// The two optional Docker stacks the same compose file describes, each behind its
+// own profile so neither pays for the other. `semantic` is the cheap one (Qdrant
+// + Ollama + SearXNG, ~1 GB); `extract` is Firecrawl (~3 GB of images, 5
+// containers) and is deliberately NOT part of `all`.
+export type StackName = "semantic" | "firecrawl";
+
+interface StackSpec {
+  profile: string;
+  /** Compose ports/roles line printed after a successful `up`. */
+  summary: string;
+  /** The command that consumes the stack, printed as the `use:` hint. */
+  use: string;
+  upTimeoutMs: number;
+}
+
+const STACKS: Record<StackName, StackSpec> = {
+  semantic: {
+    profile: "all",
+    summary: "stack is up (Qdrant :6333 · Ollama :11434 · SearXNG :8888).",
+    use: "  use:    construct research --out <run> --angles market,oss,tech,semantic --semantic",
+    upTimeoutMs: COMPOSE_UP_TIMEOUT_MS,
+  },
+  firecrawl: {
+    profile: "extract",
+    summary: "stack is up (Firecrawl :3002 — keyless, no API key).",
+    use: "  use:    construct research --out <run>   (pages are cleaned through Firecrawl automatically)",
+    upTimeoutMs: COMPOSE_UP_HEAVY_TIMEOUT_MS,
+  },
+};
+
+// Control one of the optional local Docker stacks. `semantic` starts the
+// embedding + metasearch profile (Ollama powers semantic rescoring, SearXNG the
+// market angle's discovery, Qdrant is provisioned for future large-corpus
+// indexing); `firecrawl` starts the content-extraction profile.
+//
+// `composeFilePath` is injectable so the control flow is testable without Docker.
+export function stackControl(stack: StackName, action: string, composeFilePath: string | null = composeFile()): { message: string; code: number } {
+  const spec = STACKS[stack];
+  const ref = `construct ${stack}`;
   if (!["up", "down", "status"].includes(action)) {
-    return { message: `construct semantic: unknown action "${action}" (use: up | down | status)`, code: 1 };
+    return { message: `${ref}: unknown action "${action}" (use: up | down | status)`, code: 1 };
   }
   if (!have("docker")) {
-    return { message: "construct semantic: docker not found. Install Docker, then retry. See references/semantic-setup.md.", code: 1 };
+    return { message: `${ref}: docker not found. Install Docker, then retry. See references/semantic-setup.md.`, code: 1 };
   }
   if (!composeFilePath) {
     return {
-      message:
-        "construct semantic: docker-compose.yml not found next to the bundle — reinstall the skill (`npx skills add maxgfr/construct`), or run from the repo. See references/semantic-setup.md.",
+      message: `${ref}: docker-compose.yml not found next to the bundle — reinstall the skill (\`npx skills add maxgfr/construct\`), or run from the repo. See references/semantic-setup.md.`,
       code: 1,
     };
   }
   const file = composeFilePath;
 
   if (action === "down") {
-    const r = sh("docker", ["compose", "-f", file, "--profile", "all", "down"], { timeoutMs: COMPOSE_DOWN_TIMEOUT_MS });
-    return { message: r.ok ? "construct semantic: stack stopped." : `construct semantic: down failed.\n${r.stderr}`, code: r.ok ? 0 : 1 };
+    const r = sh("docker", ["compose", "-f", file, "--profile", spec.profile, "down"], { timeoutMs: COMPOSE_DOWN_TIMEOUT_MS });
+    return { message: r.ok ? `${ref}: stack stopped.` : `${ref}: down failed.\n${r.stderr}`, code: r.ok ? 0 : 1 };
   }
 
   if (action === "status") {
-    const r = sh("docker", ["compose", "-f", file, "ps"], { timeoutMs: COMPOSE_PS_TIMEOUT_MS });
-    return { message: r.ok ? r.stdout || "construct semantic: no services running." : `construct semantic: status failed.\n${r.stderr}`, code: 0 };
+    const r = sh("docker", ["compose", "-f", file, "--profile", spec.profile, "ps"], { timeoutMs: COMPOSE_PS_TIMEOUT_MS });
+    return { message: r.ok ? r.stdout || `${ref}: no services running.` : `${ref}: status failed.\n${r.stderr}`, code: 0 };
   }
 
-  const up = sh("docker", ["compose", "-f", file, "--profile", "all", "up", "-d"], { timeoutMs: COMPOSE_UP_TIMEOUT_MS });
-  if (!up.ok) return { message: `construct semantic: up failed.\n${up.stderr}`, code: 1 };
-  const pull = sh("docker", ["compose", "-f", file, "exec", "-T", "ollama", "ollama", "pull", EMBED_MODEL], { timeoutMs: OLLAMA_PULL_TIMEOUT_MS });
-  const lines = [
-    "construct semantic: stack is up (Qdrant :6333 · Ollama :11434 · SearXNG :8888).",
-    pull.ok ? `  model:  ${EMBED_MODEL} ready` : `  model:  pull '${EMBED_MODEL}' yourself: docker compose -f ${file} exec ollama ollama pull ${EMBED_MODEL}`,
-    "  use:    construct research --out <run> --angles market,oss,tech,semantic --semantic",
-  ];
+  // `--wait` blocks until every container reports healthy. Without it `up`
+  // returned the instant the containers were CREATED, and the very next thing
+  // the caller does — pull a model, probe :8888, scrape a page — hit a service
+  // that was not listening yet. That failure is remembered for the whole process
+  // (the reachability latches), so a slow start turned into "the stack does not
+  // work" for the rest of the run.
+  const up = sh("docker", ["compose", "-f", file, "--profile", spec.profile, "up", "-d", "--wait"], { timeoutMs: spec.upTimeoutMs });
+  if (!up.ok) return { message: `${ref}: up failed.\n${up.stderr}`, code: 1 };
+  const lines = [`${ref}: ${spec.summary}`];
+  if (stack === "semantic") {
+    const pull = sh("docker", ["compose", "-f", file, "exec", "-T", "ollama", "ollama", "pull", EMBED_MODEL], { timeoutMs: OLLAMA_PULL_TIMEOUT_MS });
+    lines.push(
+      pull.ok ? `  model:  ${EMBED_MODEL} ready` : `  model:  pull '${EMBED_MODEL}' yourself: docker compose -f ${file} exec ollama ollama pull ${EMBED_MODEL}`,
+    );
+  }
+  lines.push(spec.use);
   return { message: lines.join("\n"), code: 0 };
 }

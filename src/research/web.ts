@@ -1,6 +1,7 @@
 import type { RawItem, SourceKind, WebEngine } from "../types.js";
 import { SEARXNG_TIMEOUT_MS, DDG_TIMEOUT_MS, FETCH_CONCURRENCY } from "../config.js";
 import { httpGet, fetchAndExtract, excerptsFromText } from "./fetch.js";
+import { firecrawlBase, resetFirecrawlProbe, searchViaFirecrawl } from "./firecrawl.js";
 import { pool } from "./pool.js";
 
 const SEARXNG_BASE = process.env.CONSTRUCT_SEARXNG || "http://localhost:8888";
@@ -59,14 +60,37 @@ async function viaDuckDuckGo(query: string, n: number): Promise<string[] | null>
 // again for every query bought nothing and cost a round-trip each time (five per
 // run, once per discovery call). Remember the verdict for the process.
 let searxngDown = false;
+// Same one-way latch for Firecrawl's /search. It is only ever consulted when the
+// caller pinned `--web-engine firecrawl`, but a pinned engine is still queried
+// once per angle — and an absent container answers the same way every time.
+let firecrawlDown = false;
 
-/** Forget the memoized reachability verdict (tests drive several scenarios). */
+/** Forget the memoized reachability verdicts (tests drive several scenarios). */
 export function resetDiscoveryProbes(): void {
   searxngDown = false;
+  firecrawlDown = false;
+  resetFirecrawlProbe();
 }
 
 export async function discover(query: string, engine: WebEngine, n: number): Promise<{ urls: string[]; via: string; notes: string[] }> {
   const notes: string[] = [];
+  // EXPLICIT ONLY — deliberately absent from the `auto` cascade. Firecrawl's
+  // /search is keyless (it delegates to SearXNG internally), but it rides on the
+  // heavy `extract` profile; probing it in `auto` would make the default path pay
+  // for a container almost nobody has running.
+  if (engine === "firecrawl") {
+    const f = firecrawlDown ? null : await searchViaFirecrawl(query, n);
+    if (f === null) firecrawlDown = true;
+    if (f?.length) return { urls: f, via: "firecrawl", notes };
+    const base = firecrawlBase();
+    notes.push(
+      f !== null
+        ? "Firecrawl search returned no results."
+        : base
+          ? `Firecrawl unreachable at ${base}. Run \`construct firecrawl up\`.`
+          : "Firecrawl is disabled (--firecrawl off / CONSTRUCT_FIRECRAWL=off); nothing to query.",
+    );
+  }
   if (engine === "searxng" || engine === "auto") {
     // null = unreachable/parse failure; [] = reachable but zero results. Once
     // it is unreachable, stay off it — but keep reporting it when the user

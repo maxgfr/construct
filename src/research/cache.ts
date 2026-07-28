@@ -18,13 +18,27 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { CACHE_TTL_HOURS } from "../config.js";
 
+// Which extractor produced the stored body. This is part of the cache KEY in
+// spirit (not in the filename): the same URL yields very different text through
+// the built-in regex stripper and through Firecrawl's main-content markdown, so
+// an entry written by one must never be served to the other — otherwise a stale
+// native body shadows Firecrawl for the whole TTL (a week, by default).
+// A sidecar written before this field existed is `native` by construction.
+export type Extractor = "native" | "firecrawl";
+
 export interface CacheEntry {
   url: string;
   status: number;
   contentType: string;
+  extractor?: Extractor;
   etag?: string;
   lastModified?: string;
   fetchedAt: number; // epoch ms
+}
+
+/** The extractor an entry was written by; absent (pre-3.2 sidecar) = native. */
+export function extractorOf(entry: CacheEntry): Extractor {
+  return entry.extractor === "firecrawl" ? "firecrawl" : "native";
 }
 
 export interface CacheOptions {
@@ -102,7 +116,10 @@ export function write(url: string, entry: Omit<CacheEntry, "url" | "fetchedAt">,
 export function touch(url: string, now: number = Date.now()): void {
   const cur = read(url);
   if (!cur) return;
-  write(url, { status: cur.entry.status, contentType: cur.entry.contentType, etag: cur.entry.etag, lastModified: cur.entry.lastModified }, cur.body, now);
+  // Carry every stored field over rather than listing them: a field that goes
+  // missing here (as `extractor` would) silently changes what the entry means.
+  const { url: _url, fetchedAt: _fetchedAt, ...rest } = cur.entry;
+  write(url, rest, cur.body, now);
 }
 
 /** Conditional-request headers for a stale entry, so a 304 costs no body. */

@@ -15,7 +15,8 @@ by Conventional Commits.
 
 1. **Interview** the user about the product (one question at a time) → `brief.json`.
 2. **Research** the idea across keyless angles → an evidence dossier with `[E#]` ids:
-   - **market** — competitors & positioning (SearXNG → DuckDuckGo → your WebSearch),
+   - **market** — competitors & positioning (SearXNG → DuckDuckGo → your WebSearch;
+     pages cleaned through a local Firecrawl when its stack is up),
    - **oss** — comparable open-source projects + their issues/PRs (GitHub/GitLab),
    - **tech** — candidate-technology docs + StackOverflow pitfalls,
    - **semantic** *(optional)* — a local-embedding relevance pass (Qdrant + Ollama).
@@ -97,13 +98,21 @@ each as `supported | partial | refuted | unsupported`, and `check --semantic`
 turns that into a third opt-in gate that fails on a refuted or unsupported
 claim.
 
-## Optional local stack
+## Optional local stacks
 
 ```
-node scripts/construct.mjs semantic up   # Qdrant + Ollama + SearXNG, fully local, no key
+node scripts/construct.mjs semantic up    # Qdrant + Ollama + SearXNG, fully local, no key
+node scripts/construct.mjs firecrawl up   # Firecrawl, fully local, no key (~3 GB, own profile)
 ```
 
-See [`references/semantic-setup.md`](skills/construct/references/semantic-setup.md).
+The first adds embedding-based re-ranking (`--semantic`) and keyless web
+discovery. The second swaps the built-in regex HTML stripper for **browser-based
+main-content extraction** on every page fetch — the only way a JS-rendered page
+yields evidence at all. Both are optional and degrade quietly: when a stack is
+down, research runs exactly as it did before and says so in the dossier notes.
+
+See [`references/semantic-setup.md`](skills/construct/references/semantic-setup.md)
+and [`docker/firecrawl/README.md`](docker/firecrawl/README.md).
 
 ## License
 

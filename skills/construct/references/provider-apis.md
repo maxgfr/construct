@@ -41,6 +41,17 @@ the `tech` angle (and the `so` drill). Anonymous access is rate-limited (page
 ≤ 25, ~1 req/min); an optional `STACK_PAT` env var raises the limit but is never
 required.
 
+## Firecrawl (self-hosted, `http://localhost:3002`)
+
+The optional extraction layer is an API too, and it is keyless for the same
+reason the rest of this page is: it runs on your machine.
+`USE_DB_AUTHENTICATION=false` (in `docker/firecrawl/firecrawl.env`) disables
+auth, so **no `Authorization` header is sent at all**. `POST /v2/scrape` cleans
+one page (the client falls back to `/v1` on a 404, once per process); `POST
+/v2/search` is keyless too — it delegates to the `searxng` container and then to
+DuckDuckGo internally. `CONSTRUCT_FIRECRAWL_KEY` adds a bearer token, needed only
+if you point the same client at Firecrawl Cloud. See `semantic-setup.md`.
+
 ## Seeding repos directly
 
 Skip discovery by listing repos in `brief.ossSeeds`, or pass `--seeds`:

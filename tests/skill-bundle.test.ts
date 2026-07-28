@@ -4,13 +4,20 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // The skill installs standalone (`npx skills add` copies skills/construct/), so
-// the semantic Docker stack files must ship INSIDE the skill dir — not just at
-// the repo root, where they are unreachable once installed.
+// the Docker stack files must ship INSIDE the skill dir — not just at the repo
+// root, where they are unreachable once installed. `firecrawl.env` is load-
+// bearing the same way the compose is: it is an `env_file:` reference, so
+// `--profile extract up` fails outright without it.
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const skillDir = join(root, "skills", "construct");
 
-describe("skill bundle — semantic Docker stack ships with the skill", () => {
-  const files = ["docker-compose.yml", join("docker", "searxng", "settings.yml")];
+describe("skill bundle — the Docker stacks ship with the skill", () => {
+  const files = [
+    "docker-compose.yml",
+    join("docker", "searxng", "settings.yml"),
+    join("docker", "firecrawl", "firecrawl.env"),
+    join("docker", "firecrawl", "README.md"),
+  ];
 
   for (const rel of files) {
     it(`ships ${rel} inside the skill, byte-identical to the repo root`, () => {

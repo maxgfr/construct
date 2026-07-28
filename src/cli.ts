@@ -23,7 +23,8 @@ import { verifyRun, formatVerifyReport } from "./verify.js";
 import { runReview, applyVerdicts, formatReviewReport } from "./review.js";
 import { loadPlan, readyFrontier } from "./plan.js";
 import { listPhases, orchestrateRun } from "./orchestrate.js";
-import { semanticControl } from "./research/semantic.js";
+import { stackControl } from "./research/semantic.js";
+import { configureFirecrawl } from "./research/firecrawl.js";
 
 const HELP = `construct v${VERSION}
 Turn a product idea into a grounded, buildable SRD suite. Interview → research
@@ -44,6 +45,7 @@ Usage:
   construct status   --out <run> [--json]
   construct orchestrate --out <run> [--phase research|claim-review|adr-judges|build] [--adr <id>] [--eco] [--list]
   construct semantic up|down|status
+  construct firecrawl up|down|status
   construct cache    status|clean [--all] [--json]
 
 Commands:
@@ -82,6 +84,10 @@ Commands:
              phase's worklist does not exist yet — and says which command
              produces it. Re-run after any worklist change (idempotent).
   semantic   Manage the optional local Docker stack (Qdrant + Ollama + SearXNG).
+  firecrawl  Manage the optional local Firecrawl stack (compose profile
+             'extract'): keyless main-content extraction. While it is up, every
+             page fetch is cleaned through it instead of the built-in HTML
+             stripper; when it is down (or --firecrawl off) nothing changes.
   cache      Inspect or prune the on-disk page cache that makes a 'research'
              re-run (the dig-deeper fold-in) nearly free. 'clean' drops stale
              entries; --all drops everything.
@@ -120,7 +126,11 @@ Options:
   --list               For 'orchestrate': print the phases + readiness as JSON
   --run-tests          For 'verify': also execute testCommand + per-task verify commands
   --strict             For 'verify': a built must-have FR with no referencing test FAILS
-  --web-engine <e>     auto | searxng | ddg | claude             (default: auto)
+  --web-engine <e>     auto | searxng | ddg | claude | firecrawl (default: auto;
+                       'firecrawl' is explicit-only — 'auto' never probes it)
+  --firecrawl <url>    Firecrawl base URL, or 'off' to force the built-in
+                       extractor        (default: $CONSTRUCT_FIRECRAWL or
+                       http://localhost:3002)
   --per-source <n>     Max evidence items kept per source        (default: 6)
   --concurrency <n>    Max retrievals in flight inside one angle  (default: 4)
   --max-tech <n>       Candidate technologies the tech angle grounds (default: 3)
@@ -161,6 +171,7 @@ const COMMANDS = new Set([
   "status",
   "orchestrate",
   "semantic",
+  "firecrawl",
   "cache",
 ]);
 const VALUE_FLAGS = new Set([
@@ -175,6 +186,7 @@ const VALUE_FLAGS = new Set([
   "docs-url",
   "level",
   "web-engine",
+  "firecrawl",
   "per-source",
   "source",
   "min-grounding",
@@ -329,7 +341,10 @@ function buildResearchContext(p: Parsed, runDir: string, angles: Angle[]): Resea
   // The cache is process-wide (it sits under httpGet), so configure it once here
   // rather than threading it through every angle.
   configureCache({ refresh: p.bools.has("refresh"), offline: p.bools.has("offline") });
-  const webEngine = oneOf<WebEngine>("web-engine", p.values["web-engine"] ?? "auto", ["auto", "searxng", "ddg", "claude"]);
+  // Same reasoning as the cache: the extraction layer sits under fetchAndExtract,
+  // far below every angle, so it is configured once here instead of threaded.
+  if (p.values.firecrawl) configureFirecrawl({ base: p.values.firecrawl });
+  const webEngine = oneOf<WebEngine>("web-engine", p.values["web-engine"] ?? "auto", ["auto", "searxng", "ddg", "claude", "firecrawl"]);
   if (p.values.seeds) brief.ossSeeds = csv(p.values.seeds);
   return {
     brief,
@@ -697,9 +712,10 @@ async function main(): Promise<void> {
       return;
     }
 
-    case "semantic": {
+    case "semantic":
+    case "firecrawl": {
       const action = p.positional[0] ?? "status";
-      const r = semanticControl(action);
+      const r = stackControl(p.command, action);
       process.stdout.write(r.message + "\n");
       if (r.code !== 0) process.exit(r.code);
       return;

@@ -66,6 +66,12 @@ The engine degrades honestly — empty angles land as notes in `EVIDENCE.md`
 ("SearXNG unreachable", "No comparable OSS projects found"), never as fake
 items. Recovery path, in order:
 
+0. If the page was fetched but the excerpt is nav chrome, a cookie banner or
+   empty, the page is probably JS-rendered: the built-in extractor only sees the
+   HTML the server sent. `construct firecrawl up` swaps in browser-based
+   main-content extraction for every subsequent fetch (keyless, local — see
+   `references/web-discovery.md`). Re-run `research`; the page cache knows the
+   extractor changed and re-fetches instead of replaying the thin text.
 1. Re-check the brief: vague `candidateTech`/`competitors` produce vague
    queries. Sharpen them, re-run `research`.
 2. Search yourself (your own WebSearch), then ground the best pages by pinning

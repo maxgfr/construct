@@ -11,7 +11,7 @@ vi.mock("../src/util.js", async (importOriginal) => {
   return { ...actual, have, sh };
 });
 
-import { semanticControl, semanticRescore } from "../src/research/semantic.js";
+import { stackControl, semanticRescore } from "../src/research/semantic.js";
 
 const okSh = (over: Partial<ShResult> = {}): ShResult => ({ ok: true, status: 0, stdout: "", stderr: "", missing: false, ...over });
 const failSh = (stderr: string): ShResult => ({ ok: false, status: 1, stdout: "", stderr, missing: false });
@@ -25,9 +25,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("semanticControl", () => {
+describe("stackControl", () => {
   it("rejects an unknown action without touching docker", () => {
-    const r = semanticControl("bogus");
+    const r = stackControl("semantic", "bogus");
     expect(r.code).toBe(1);
     expect(r.message).toMatch(/unknown action "bogus"/);
     expect(have).not.toHaveBeenCalled();
@@ -36,7 +36,7 @@ describe("semanticControl", () => {
 
   it("reports a clean error (no shelling out) when docker is not installed", () => {
     have.mockReturnValue(false);
-    const r = semanticControl("up");
+    const r = stackControl("semantic", "up");
     expect(r.code).toBe(1);
     expect(r.message).toMatch(/docker not found/);
     expect(sh).not.toHaveBeenCalled();
@@ -44,7 +44,7 @@ describe("semanticControl", () => {
 
   it("reports a targeted error (not a raw docker failure) when the compose file is not found", () => {
     have.mockReturnValue(true);
-    const r = semanticControl("up", null); // inject a missing compose path
+    const r = stackControl("semantic", "up", null); // inject a missing compose path
     expect(r.code).toBe(1);
     expect(r.message).toMatch(/docker-compose\.yml not found/i);
     expect(r.message).toMatch(/reinstall|npx skills add|semantic-setup/i);
@@ -54,7 +54,7 @@ describe("semanticControl", () => {
   it("status prints `docker compose ps` output and is always exit 0", () => {
     have.mockReturnValue(true);
     sh.mockReturnValue(okSh({ stdout: "NAME     STATUS\nollama   Up 2m" }));
-    const r = semanticControl("status");
+    const r = stackControl("semantic", "status");
     expect(r.code).toBe(0);
     expect(r.message).toContain("ollama");
     expect(sh).toHaveBeenCalledWith("docker", expect.arrayContaining(["compose", "ps"]), expect.anything());
@@ -63,7 +63,7 @@ describe("semanticControl", () => {
   it("status with empty output falls back to a friendly line, still exit 0", () => {
     have.mockReturnValue(true);
     sh.mockReturnValue(okSh({ stdout: "" }));
-    const r = semanticControl("status");
+    const r = stackControl("semantic", "status");
     expect(r.code).toBe(0);
     expect(r.message).toMatch(/no services running/);
   });
@@ -71,7 +71,7 @@ describe("semanticControl", () => {
   it("status failure surfaces stderr but does not gate (exit 0)", () => {
     have.mockReturnValue(true);
     sh.mockReturnValue(failSh("daemon not running"));
-    const r = semanticControl("status");
+    const r = stackControl("semantic", "status");
     expect(r.code).toBe(0);
     expect(r.message).toMatch(/status failed/);
     expect(r.message).toContain("daemon not running");
@@ -80,7 +80,7 @@ describe("semanticControl", () => {
   it("down stops the full-profile stack", () => {
     have.mockReturnValue(true);
     sh.mockReturnValue(okSh());
-    const r = semanticControl("down");
+    const r = stackControl("semantic", "down");
     expect(r.code).toBe(0);
     expect(r.message).toMatch(/stack stopped/);
     expect(sh).toHaveBeenCalledWith("docker", expect.arrayContaining(["--profile", "all", "down"]), expect.anything());
@@ -89,7 +89,7 @@ describe("semanticControl", () => {
   it("down failure returns exit 1 with stderr", () => {
     have.mockReturnValue(true);
     sh.mockReturnValue(failSh("permission denied"));
-    const r = semanticControl("down");
+    const r = stackControl("semantic", "down");
     expect(r.code).toBe(1);
     expect(r.message).toMatch(/down failed/);
     expect(r.message).toContain("permission denied");
@@ -98,7 +98,7 @@ describe("semanticControl", () => {
   it("up brings the stack up and reports the model ready when the pull succeeds", () => {
     have.mockReturnValue(true);
     sh.mockReturnValueOnce(okSh()).mockReturnValueOnce(okSh()); // up, then pull
-    const r = semanticControl("up");
+    const r = stackControl("semantic", "up");
     expect(r.code).toBe(0);
     expect(r.message).toMatch(/stack is up/);
     expect(r.message).toMatch(/model:\s+\S+ ready/);
@@ -108,7 +108,7 @@ describe("semanticControl", () => {
   it("up succeeds but a failed pull yields a manual-pull hint (still exit 0)", () => {
     have.mockReturnValue(true);
     sh.mockReturnValueOnce(okSh()).mockReturnValueOnce(failSh("no such model"));
-    const r = semanticControl("up");
+    const r = stackControl("semantic", "up");
     expect(r.code).toBe(0);
     expect(r.message).toMatch(/pull '.*' yourself/);
   });
@@ -116,10 +116,57 @@ describe("semanticControl", () => {
   it("up failure returns exit 1 and never attempts the model pull", () => {
     have.mockReturnValue(true);
     sh.mockReturnValueOnce(failSh("cannot connect to the docker daemon"));
-    const r = semanticControl("up");
+    const r = stackControl("semantic", "up");
     expect(r.code).toBe(1);
     expect(r.message).toMatch(/up failed/);
     expect(sh).toHaveBeenCalledTimes(1); // no pull after a failed up
+  });
+
+  // `up -d` returns as soon as the containers are CREATED. The very next thing
+  // this code does is talk to them (pull a model, probe :8888, scrape a page) —
+  // and a failed probe is latched for the whole process. So a slow start used to
+  // present as "the stack does not work" for the rest of the run.
+  it("waits for the containers to be healthy before returning (--wait)", () => {
+    have.mockReturnValue(true);
+    sh.mockReturnValue(okSh());
+    stackControl("semantic", "up");
+    expect(sh).toHaveBeenCalledWith("docker", expect.arrayContaining(["up", "-d", "--wait"]), expect.anything());
+  });
+});
+
+describe("stackControl — the firecrawl stack (profile `extract`)", () => {
+  it("up starts the `extract` profile with --wait and names the port", () => {
+    have.mockReturnValue(true);
+    sh.mockReturnValue(okSh());
+    const r = stackControl("firecrawl", "up");
+    expect(r.code).toBe(0);
+    expect(sh).toHaveBeenCalledWith("docker", expect.arrayContaining(["--profile", "extract", "up", "-d", "--wait"]), expect.anything());
+    expect(r.message).toMatch(/construct firecrawl: stack is up \(Firecrawl :3002/);
+    // Firecrawl has no embedding model to pull — one docker call, not two.
+    expect(sh).toHaveBeenCalledTimes(1);
+  });
+
+  it("never starts the semantic profile (`all` would drag in ~3 GB of Firecrawl)", () => {
+    have.mockReturnValue(true);
+    sh.mockReturnValue(okSh());
+    stackControl("firecrawl", "down");
+    const args = sh.mock.calls[0]![1] as string[];
+    expect(args).toContain("extract");
+    expect(args).not.toContain("all");
+  });
+
+  it("reports errors under its own command name, not `semantic`", () => {
+    have.mockReturnValue(false);
+    const r = stackControl("firecrawl", "up");
+    expect(r.code).toBe(1);
+    expect(r.message).toMatch(/^construct firecrawl: docker not found/);
+  });
+
+  it("rejects an unknown action without touching docker", () => {
+    const r = stackControl("firecrawl", "restart");
+    expect(r.code).toBe(1);
+    expect(r.message).toMatch(/construct firecrawl: unknown action "restart"/);
+    expect(sh).not.toHaveBeenCalled();
   });
 });
 

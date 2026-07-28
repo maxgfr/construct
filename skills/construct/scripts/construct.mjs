@@ -49,7 +49,12 @@ var EMBED_TIMEOUT_MS = 6e4;
 var COMPOSE_DOWN_TIMEOUT_MS = 12e4;
 var COMPOSE_PS_TIMEOUT_MS = 3e4;
 var COMPOSE_UP_TIMEOUT_MS = 3e5;
+var COMPOSE_UP_HEAVY_TIMEOUT_MS = 9e5;
 var OLLAMA_PULL_TIMEOUT_MS = 6e5;
+var FIRECRAWL_PROBE_TIMEOUT_MS = 2e3;
+var FIRECRAWL_PAGE_TIMEOUT_MS = 3e4;
+var FIRECRAWL_SCRAPE_TIMEOUT_MS = 45e3;
+var FIRECRAWL_SEARCH_TIMEOUT_MS = 3e4;
 
 // src/util.ts
 function sh(cmd, args2, opts = {}) {
@@ -1151,6 +1156,9 @@ import { createHash } from "crypto";
 import { existsSync as existsSync3, mkdirSync as mkdirSync3, readFileSync as readFileSync3, readdirSync, rmSync, statSync, writeFileSync as writeFileSync3 } from "fs";
 import { homedir } from "os";
 import { join as join3 } from "path";
+function extractorOf(entry) {
+  return entry.extractor === "firecrawl" ? "firecrawl" : "native";
+}
 var options = { refresh: false, offline: false };
 function configureCache(opts) {
   options = { ...options, ...opts };
@@ -1202,7 +1210,8 @@ function write(url, entry, body2, now = Date.now()) {
 function touch(url, now = Date.now()) {
   const cur = read(url);
   if (!cur) return;
-  write(url, { status: cur.entry.status, contentType: cur.entry.contentType, etag: cur.entry.etag, lastModified: cur.entry.lastModified }, cur.body, now);
+  const { url: _url, fetchedAt: _fetchedAt, ...rest } = cur.entry;
+  write(url, rest, cur.body, now);
 }
 function revalidationHeaders(entry) {
   const h = {};
@@ -1263,6 +1272,99 @@ function clean(all, now = Date.now()) {
   return removed;
 }
 
+// src/research/firecrawl.ts
+var FIRECRAWL_OFF = "off";
+var DEFAULT_BASE = "http://localhost:3002";
+var baseOverride;
+function configureFirecrawl(opts) {
+  baseOverride = opts.base?.trim() || void 0;
+}
+function firecrawlBase() {
+  const raw = (baseOverride ?? process.env.CONSTRUCT_FIRECRAWL ?? DEFAULT_BASE).trim();
+  if (!raw || raw.toLowerCase() === FIRECRAWL_OFF) return null;
+  return raw.replace(/\/$/, "");
+}
+function authHeaders() {
+  const key = process.env.CONSTRUCT_FIRECRAWL_KEY?.trim();
+  return key ? { authorization: `Bearer ${key}` } : {};
+}
+var up = null;
+var prefix = null;
+async function probeFirecrawl() {
+  if (up !== null) return up;
+  const base = firecrawlBase();
+  if (!base) {
+    up = false;
+    return up;
+  }
+  const r = await httpGet(`${base}/`, { timeoutMs: FIRECRAWL_PROBE_TIMEOUT_MS, retries: 0, accept: "application/json" });
+  up = r.status !== 0;
+  return up;
+}
+function mapScrapeResponse(json) {
+  if (!json || typeof json !== "object") return null;
+  const body2 = json;
+  if (body2.success === false) return null;
+  const data = body2.data;
+  if (!data || typeof data !== "object") return null;
+  const d = data;
+  const markdown = typeof d.markdown === "string" ? d.markdown : "";
+  if (!markdown.trim()) return null;
+  const meta = d.metadata && typeof d.metadata === "object" ? d.metadata : {};
+  const title = typeof meta.title === "string" && meta.title.trim() ? meta.title.trim() : void 0;
+  const sourceURL = typeof meta.sourceURL === "string" ? meta.sourceURL : typeof meta.url === "string" ? meta.url : void 0;
+  const statusCode = typeof meta.statusCode === "number" ? meta.statusCode : void 0;
+  return { markdown, ...title ? { title } : {}, ...sourceURL ? { sourceURL } : {}, ...statusCode !== void 0 ? { statusCode } : {} };
+}
+async function post(path, body2, timeoutMs) {
+  const base = firecrawlBase();
+  if (!base) return null;
+  const headers = authHeaders();
+  const candidates = prefix ? [prefix] : ["/v2", "/v1"];
+  let last = null;
+  for (const p of candidates) {
+    const r = await httpJson("POST", `${base}${p}${path}`, body2, { timeoutMs, headers });
+    last = { ok: r.ok, status: r.status, data: r.data };
+    if (r.status === 404 && p === "/v2" && candidates.length > 1) continue;
+    prefix = p;
+    return last;
+  }
+  return last;
+}
+async function scrapeViaFirecrawl(url, opts = {}) {
+  if (!await probeFirecrawl()) return null;
+  const r = await post(
+    "/scrape",
+    {
+      url,
+      formats: ["markdown"],
+      onlyMainContent: true,
+      blockAds: true,
+      removeBase64Images: true,
+      maxAge: opts.maxAgeMs ?? CACHE_TTL_HOURS * 36e5,
+      timeout: opts.timeoutMs ?? FIRECRAWL_PAGE_TIMEOUT_MS
+    },
+    FIRECRAWL_SCRAPE_TIMEOUT_MS
+  );
+  if (!r) return null;
+  if (r.status === 0) up = false;
+  if (!r.ok) return null;
+  return mapScrapeResponse(r.data);
+}
+async function searchViaFirecrawl(query2, n) {
+  if (!await probeFirecrawl()) return null;
+  const r = await post("/search", { query: query2, limit: n, sources: ["web"] }, FIRECRAWL_SEARCH_TIMEOUT_MS);
+  if (!r) return null;
+  if (r.status === 0) up = false;
+  if (!r.ok || !r.data || typeof r.data !== "object") return null;
+  const data = r.data.data;
+  if (!data || typeof data !== "object") return null;
+  const web = data.web;
+  if (!Array.isArray(web)) return null;
+  const urls = web.map((x) => x && typeof x === "object" ? x.url : void 0).filter((u) => typeof u === "string" && !!u);
+  return urls.slice(0, n);
+}
+
 // src/research/fetch.ts
 var UA = "construct/0.x (+https://github.com/maxgfr/construct)";
 var BROWSER_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
@@ -1317,7 +1419,7 @@ async function httpJson(method, url, body2, opts = {}) {
     const res = await fetch(url, {
       method,
       signal: ctrl.signal,
-      headers: { "content-type": "application/json", accept: "application/json", "user-agent": UA },
+      headers: { "content-type": "application/json", accept: "application/json", "user-agent": UA, ...opts.headers ?? {} },
       body: body2 === void 0 ? void 0 : JSON.stringify(body2)
     });
     const text = await res.text();
@@ -1398,24 +1500,40 @@ function metaDescriptionOf(html) {
 }
 async function fetchAndExtract(url) {
   const { refresh, offline } = cacheOptions();
+  const wanted = !offline && await probeFirecrawl() ? "firecrawl" : "native";
   const cached = refresh ? null : read(url);
-  if (cached && isFresh(cached.entry)) {
-    recordFetch(Buffer.byteLength(cached.body), true);
-    return extract(cached.body, cached.entry.contentType);
+  const usable = cached && extractorOf(cached.entry) === wanted ? cached : null;
+  if (usable && isFresh(usable.entry)) {
+    recordFetch(Buffer.byteLength(usable.body), true);
+    return extractStored(usable.body, usable.entry);
   }
   if (offline) {
     if (cached) {
       recordFetch(Buffer.byteLength(cached.body), true);
-      return extract(cached.body, cached.entry.contentType);
+      return extractStored(cached.body, cached.entry);
     }
     return { text: "", note: `Offline: ${url} is not in the cache (drop --offline, or warm it with a normal run).` };
   }
-  const conditional = cached ? revalidationHeaders(cached.entry) : {};
+  let note;
+  if (wanted === "firecrawl") {
+    const scraped = await scrapeViaFirecrawl(url);
+    const status = scraped?.statusCode ?? 200;
+    if (scraped && status >= 400) {
+      note = `Firecrawl reported status ${status} for ${url}; fell back to the built-in extractor.`;
+    } else if (scraped) {
+      recordFetch(Buffer.byteLength(scraped.markdown));
+      write(url, { status, contentType: "text/markdown", extractor: "firecrawl" }, scraped.markdown);
+      return { text: scraped.markdown };
+    } else {
+      note = `Firecrawl could not extract ${url}; used the built-in extractor instead.`;
+    }
+  }
+  const conditional = usable ? revalidationHeaders(usable.entry) : {};
   let res = await httpGet(url, { accept: "text/html,text/plain,*/*", headers: conditional });
-  if (cached && res.status === 304) {
+  if (usable && res.status === 304) {
     touch(url);
-    recordFetch(Buffer.byteLength(cached.body), true);
-    return extract(cached.body, cached.entry.contentType);
+    recordFetch(Buffer.byteLength(usable.body), true);
+    return { ...extractStored(usable.body, usable.entry), ...note ? { note } : {} };
   }
   if (!res.ok && (res.status === 403 || res.status === 429)) {
     res = await httpGet(url, {
@@ -1426,13 +1544,17 @@ async function fetchAndExtract(url) {
   if (!res.ok) {
     if (cached) {
       recordFetch(Buffer.byteLength(cached.body), true);
-      const out2 = extract(cached.body, cached.entry.contentType);
+      const out2 = extractStored(cached.body, cached.entry);
       return { ...out2, note: `${url} returned ${res.status}; served the cached copy from ${new Date(cached.entry.fetchedAt).toISOString()}.` };
     }
     return { text: "", note: `Could not fetch ${url} (status ${res.status}${res.error ? ", " + res.error : ""}).` };
   }
-  write(url, { status: res.status, contentType: res.contentType, etag: res.etag, lastModified: res.lastModified }, res.body);
-  return extract(res.body, res.contentType);
+  write(url, { status: res.status, contentType: res.contentType, extractor: "native", etag: res.etag, lastModified: res.lastModified }, res.body);
+  return { ...extract(res.body, res.contentType), ...note ? { note } : {} };
+}
+function extractStored(body2, entry) {
+  if (extractorOf(entry) === "firecrawl") return { text: body2 };
+  return extract(body2, entry.contentType);
 }
 function extract(body2, contentType) {
   const res = { body: body2, contentType };
@@ -1546,8 +1668,18 @@ async function viaDuckDuckGo(query2, n) {
   return urls.length ? urls : null;
 }
 var searxngDown = false;
+var firecrawlDown = false;
 async function discover(query2, engine, n) {
   const notes = [];
+  if (engine === "firecrawl") {
+    const f = firecrawlDown ? null : await searchViaFirecrawl(query2, n);
+    if (f === null) firecrawlDown = true;
+    if (f?.length) return { urls: f, via: "firecrawl", notes };
+    const base = firecrawlBase();
+    notes.push(
+      f !== null ? "Firecrawl search returned no results." : base ? `Firecrawl unreachable at ${base}. Run \`construct firecrawl up\`.` : "Firecrawl is disabled (--firecrawl off / CONSTRUCT_FIRECRAWL=off); nothing to query."
+    );
+  }
   if (engine === "searxng" || engine === "auto") {
     const s = searxngDown ? null : await viaSearxng(query2, n);
     if (s === null) searxngDown = true;
@@ -2059,7 +2191,7 @@ function patternToRegExpSource(pattern) {
 }
 function parseGitignore(content, baseRel) {
   const rules = [];
-  const prefix = baseRel ? escapeRegExp(baseRel) + "/" : "";
+  const prefix2 = baseRel ? escapeRegExp(baseRel) + "/" : "";
   for (const rawLine of content.split(/\r?\n/)) {
     let line2 = rawLine.replace(/(?<!\\) +$/, "");
     if (!line2 || line2.startsWith("#")) continue;
@@ -2077,7 +2209,7 @@ function parseGitignore(content, baseRel) {
     const anchored = line2.includes("/");
     if (line2.startsWith("/")) line2 = line2.slice(1);
     const body2 = patternToRegExpSource(line2);
-    const source = anchored ? `^${prefix}${body2}$` : `^${prefix}(?:[^/]+/)*${body2}$`;
+    const source = anchored ? `^${prefix2}${body2}$` : `^${prefix2}(?:[^/]+/)*${body2}$`;
     try {
       rules.push({ re: new RegExp(source), negated, dirOnly });
     } catch {
@@ -8122,7 +8254,7 @@ function expandUseGroups(path, out2 = []) {
     if (cleaned) out2.push(cleaned);
     return out2;
   }
-  const prefix = path.slice(0, brace);
+  const prefix2 = path.slice(0, brace);
   let depth = 0;
   let end = -1;
   for (let i2 = brace; i2 < path.length; i2++) {
@@ -8148,8 +8280,8 @@ function expandUseGroups(path, out2 = []) {
   for (const part of parts2) {
     const t = part.trim();
     if (!t) continue;
-    if (t === "self") expandUseGroups(prefix.replace(/::\s*$/, ""), out2);
-    else expandUseGroups(prefix + t, out2);
+    if (t === "self") expandUseGroups(prefix2.replace(/::\s*$/, ""), out2);
+    else expandUseGroups(prefix2 + t, out2);
   }
   return out2;
 }
@@ -8885,10 +9017,10 @@ function buildResolveContext(scan2) {
     const baseDir = rel.includes("/") ? posix.dirname(rel) : "";
     for (const block of [composer.autoload?.["psr-4"], composer["autoload-dev"]?.["psr-4"]]) {
       if (!block) continue;
-      for (const [prefix, dirs] of Object.entries(block)) {
+      for (const [prefix2, dirs] of Object.entries(block)) {
         for (const d of Array.isArray(dirs) ? dirs : [dirs]) {
           if (typeof d !== "string") continue;
-          phpPsr4.push({ prefix: prefix.replace(/\\+$/, ""), dir: norm2(posix.join(baseDir, d)).replace(/^\.$/, "") });
+          phpPsr4.push({ prefix: prefix2.replace(/\\+$/, ""), dir: norm2(posix.join(baseDir, d)).replace(/^\.$/, "") });
         }
       }
     }
@@ -8999,9 +9131,9 @@ function resolveJs(fromRel, spec, ctx) {
       if (entry.star) {
         const starAt = entry.key.indexOf("*");
         const pre = entry.key.slice(0, starAt);
-        const post = entry.key.slice(starAt + 1);
-        if (!subKey.startsWith(pre) || !subKey.endsWith(post) || subKey.length < pre.length + post.length) continue;
-        fill = subKey.slice(pre.length, subKey.length - post.length);
+        const post2 = entry.key.slice(starAt + 1);
+        if (!subKey.startsWith(pre) || !subKey.endsWith(post2) || subKey.length < pre.length + post2.length) continue;
+        fill = subKey.slice(pre.length, subKey.length - post2.length);
       } else if (entry.key !== subKey) continue;
       for (const t of entry.targets) {
         const hit = probeEntry(fill === void 0 ? t : t.replace(/\*/g, fill));
@@ -9179,9 +9311,9 @@ function resolvePhp(fromRel, spec, ctx) {
     return hit ? { kind: "resolved", target: hit } : { kind: "dangling", reason: "missing-module" };
   }
   const ns = spec.replace(/^\\+/, "");
-  for (const { prefix, dir } of ctx.phpPsr4) {
-    if (prefix && ns !== prefix && !ns.startsWith(prefix + "\\")) continue;
-    const rest = prefix ? ns.slice(prefix.length).replace(/^\\+/, "") : ns;
+  for (const { prefix: prefix2, dir } of ctx.phpPsr4) {
+    if (prefix2 && ns !== prefix2 && !ns.startsWith(prefix2 + "\\")) continue;
+    const rest = prefix2 ? ns.slice(prefix2.length).replace(/^\\+/, "") : ns;
     const hit = firstExisting(ctx, [posix.join(dir, rest.replace(/\\/g, "/")) + ".php"]);
     if (hit) return { kind: "resolved", target: hit };
   }
@@ -10293,7 +10425,7 @@ function deleteMemory(repo, name2) {
 function listMemories(repo) {
   const root = join12(repo, ...MEMORY_DIR);
   const out2 = [];
-  const walk22 = (dir, prefix) => {
+  const walk22 = (dir, prefix2) => {
     let entries;
     try {
       entries = readdirSync22(dir, { withFileTypes: true });
@@ -10301,8 +10433,8 @@ function listMemories(repo) {
       return;
     }
     for (const e of entries) {
-      if (e.isDirectory()) walk22(join12(dir, e.name), prefix ? `${prefix}/${e.name}` : e.name);
-      else if (e.name.endsWith(".md")) out2.push(prefix ? `${prefix}/${e.name.slice(0, -3)}` : e.name.slice(0, -3));
+      if (e.isDirectory()) walk22(join12(dir, e.name), prefix2 ? `${prefix2}/${e.name}` : e.name);
+      else if (e.name.endsWith(".md")) out2.push(prefix2 ? `${prefix2}/${e.name.slice(0, -3)}` : e.name.slice(0, -3));
     }
   };
   walk22(root, "");
@@ -13464,7 +13596,7 @@ function workerCount(requested) {
   }
   return Math.max(0, Math.min(cores - 1, 8));
 }
-async function runExtractWorker(input, post) {
+async function runExtractWorker(input, post2) {
   await ensureGrammars(input.grammarKeys);
   const ready = input.grammarKeys.filter((k) => grammarReady(k));
   const records = [];
@@ -13484,7 +13616,7 @@ async function runExtractWorker(input, post) {
     });
     records.push({ rel: job.rel, size, mtimeMs, record });
   }
-  post({ ready, records });
+  post2({ ready, records });
 }
 async function extractInParallel(jobs, grammarKeys, count, opts = {}) {
   if (count < 2 || jobs.length === 0) return void 0;
@@ -13734,14 +13866,14 @@ function* readTar(buf) {
     }
     if (allZero) break;
     const name2 = cstr(block, 0, 100);
-    const prefix = cstr(block, 345, 155);
+    const prefix2 = cstr(block, 345, 155);
     const sizeStr = cstr(block, 124, 12).trim();
     const size = sizeStr ? parseInt(sizeStr, 8) : 0;
     const type = String.fromCharCode(block[156] ?? 0);
     off += 512;
     const data = buf.subarray(off, off + size);
     off += Math.ceil(size / 512) * 512;
-    yield { name: prefix ? `${prefix}/${name2}` : name2, type, data };
+    yield { name: prefix2 ? `${prefix2}/${name2}` : name2, type, data };
   }
 }
 function safeRelPath(name2) {
@@ -15810,39 +15942,57 @@ function composeFile() {
   }
   return null;
 }
-function semanticControl(action, composeFilePath = composeFile()) {
+var STACKS = {
+  semantic: {
+    profile: "all",
+    summary: "stack is up (Qdrant :6333 \xB7 Ollama :11434 \xB7 SearXNG :8888).",
+    use: "  use:    construct research --out <run> --angles market,oss,tech,semantic --semantic",
+    upTimeoutMs: COMPOSE_UP_TIMEOUT_MS
+  },
+  firecrawl: {
+    profile: "extract",
+    summary: "stack is up (Firecrawl :3002 \u2014 keyless, no API key).",
+    use: "  use:    construct research --out <run>   (pages are cleaned through Firecrawl automatically)",
+    upTimeoutMs: COMPOSE_UP_HEAVY_TIMEOUT_MS
+  }
+};
+function stackControl(stack, action, composeFilePath = composeFile()) {
+  const spec = STACKS[stack];
+  const ref = `construct ${stack}`;
   if (!["up", "down", "status"].includes(action)) {
-    return { message: `construct semantic: unknown action "${action}" (use: up | down | status)`, code: 1 };
+    return { message: `${ref}: unknown action "${action}" (use: up | down | status)`, code: 1 };
   }
   if (!have("docker")) {
-    return { message: "construct semantic: docker not found. Install Docker, then retry. See references/semantic-setup.md.", code: 1 };
+    return { message: `${ref}: docker not found. Install Docker, then retry. See references/semantic-setup.md.`, code: 1 };
   }
   if (!composeFilePath) {
     return {
-      message: "construct semantic: docker-compose.yml not found next to the bundle \u2014 reinstall the skill (`npx skills add maxgfr/construct`), or run from the repo. See references/semantic-setup.md.",
+      message: `${ref}: docker-compose.yml not found next to the bundle \u2014 reinstall the skill (\`npx skills add maxgfr/construct\`), or run from the repo. See references/semantic-setup.md.`,
       code: 1
     };
   }
   const file = composeFilePath;
   if (action === "down") {
-    const r = sh("docker", ["compose", "-f", file, "--profile", "all", "down"], { timeoutMs: COMPOSE_DOWN_TIMEOUT_MS });
-    return { message: r.ok ? "construct semantic: stack stopped." : `construct semantic: down failed.
+    const r = sh("docker", ["compose", "-f", file, "--profile", spec.profile, "down"], { timeoutMs: COMPOSE_DOWN_TIMEOUT_MS });
+    return { message: r.ok ? `${ref}: stack stopped.` : `${ref}: down failed.
 ${r.stderr}`, code: r.ok ? 0 : 1 };
   }
   if (action === "status") {
-    const r = sh("docker", ["compose", "-f", file, "ps"], { timeoutMs: COMPOSE_PS_TIMEOUT_MS });
-    return { message: r.ok ? r.stdout || "construct semantic: no services running." : `construct semantic: status failed.
+    const r = sh("docker", ["compose", "-f", file, "--profile", spec.profile, "ps"], { timeoutMs: COMPOSE_PS_TIMEOUT_MS });
+    return { message: r.ok ? r.stdout || `${ref}: no services running.` : `${ref}: status failed.
 ${r.stderr}`, code: 0 };
   }
-  const up = sh("docker", ["compose", "-f", file, "--profile", "all", "up", "-d"], { timeoutMs: COMPOSE_UP_TIMEOUT_MS });
-  if (!up.ok) return { message: `construct semantic: up failed.
-${up.stderr}`, code: 1 };
-  const pull = sh("docker", ["compose", "-f", file, "exec", "-T", "ollama", "ollama", "pull", EMBED_MODEL], { timeoutMs: OLLAMA_PULL_TIMEOUT_MS });
-  const lines = [
-    "construct semantic: stack is up (Qdrant :6333 \xB7 Ollama :11434 \xB7 SearXNG :8888).",
-    pull.ok ? `  model:  ${EMBED_MODEL} ready` : `  model:  pull '${EMBED_MODEL}' yourself: docker compose -f ${file} exec ollama ollama pull ${EMBED_MODEL}`,
-    "  use:    construct research --out <run> --angles market,oss,tech,semantic --semantic"
-  ];
+  const up2 = sh("docker", ["compose", "-f", file, "--profile", spec.profile, "up", "-d", "--wait"], { timeoutMs: spec.upTimeoutMs });
+  if (!up2.ok) return { message: `${ref}: up failed.
+${up2.stderr}`, code: 1 };
+  const lines = [`${ref}: ${spec.summary}`];
+  if (stack === "semantic") {
+    const pull = sh("docker", ["compose", "-f", file, "exec", "-T", "ollama", "ollama", "pull", EMBED_MODEL], { timeoutMs: OLLAMA_PULL_TIMEOUT_MS });
+    lines.push(
+      pull.ok ? `  model:  ${EMBED_MODEL} ready` : `  model:  pull '${EMBED_MODEL}' yourself: docker compose -f ${file} exec ollama ollama pull ${EMBED_MODEL}`
+    );
+  }
+  lines.push(spec.use);
   return { message: lines.join("\n"), code: 0 };
 }
 
@@ -18701,6 +18851,7 @@ Usage:
   construct status   --out <run> [--json]
   construct orchestrate --out <run> [--phase research|claim-review|adr-judges|build] [--adr <id>] [--eco] [--list]
   construct semantic up|down|status
+  construct firecrawl up|down|status
   construct cache    status|clean [--all] [--json]
 
 Commands:
@@ -18739,6 +18890,10 @@ Commands:
              phase's worklist does not exist yet \u2014 and says which command
              produces it. Re-run after any worklist change (idempotent).
   semantic   Manage the optional local Docker stack (Qdrant + Ollama + SearXNG).
+  firecrawl  Manage the optional local Firecrawl stack (compose profile
+             'extract'): keyless main-content extraction. While it is up, every
+             page fetch is cleaned through it instead of the built-in HTML
+             stripper; when it is down (or --firecrawl off) nothing changes.
   cache      Inspect or prune the on-disk page cache that makes a 'research'
              re-run (the dig-deeper fold-in) nearly free. 'clean' drops stale
              entries; --all drops everything.
@@ -18777,7 +18932,11 @@ Options:
   --list               For 'orchestrate': print the phases + readiness as JSON
   --run-tests          For 'verify': also execute testCommand + per-task verify commands
   --strict             For 'verify': a built must-have FR with no referencing test FAILS
-  --web-engine <e>     auto | searxng | ddg | claude             (default: auto)
+  --web-engine <e>     auto | searxng | ddg | claude | firecrawl (default: auto;
+                       'firecrawl' is explicit-only \u2014 'auto' never probes it)
+  --firecrawl <url>    Firecrawl base URL, or 'off' to force the built-in
+                       extractor        (default: $CONSTRUCT_FIRECRAWL or
+                       http://localhost:3002)
   --per-source <n>     Max evidence items kept per source        (default: 6)
   --concurrency <n>    Max retrievals in flight inside one angle  (default: 4)
   --max-tech <n>       Candidate technologies the tech angle grounds (default: 3)
@@ -18817,6 +18976,7 @@ var COMMANDS = /* @__PURE__ */ new Set([
   "status",
   "orchestrate",
   "semantic",
+  "firecrawl",
   "cache"
 ]);
 var VALUE_FLAGS2 = /* @__PURE__ */ new Set([
@@ -18831,6 +18991,7 @@ var VALUE_FLAGS2 = /* @__PURE__ */ new Set([
   "docs-url",
   "level",
   "web-engine",
+  "firecrawl",
   "per-source",
   "source",
   "min-grounding",
@@ -18959,7 +19120,8 @@ function buildResearchContext(p, runDir, angles) {
   const maxTech = p.values["max-tech"] ? Number(p.values["max-tech"]) : MAX_TECH;
   if (!Number.isFinite(maxTech) || maxTech <= 0) fail("invalid --max-tech");
   configureCache({ refresh: p.bools.has("refresh"), offline: p.bools.has("offline") });
-  const webEngine = oneOf("web-engine", p.values["web-engine"] ?? "auto", ["auto", "searxng", "ddg", "claude"]);
+  if (p.values.firecrawl) configureFirecrawl({ base: p.values.firecrawl });
+  const webEngine = oneOf("web-engine", p.values["web-engine"] ?? "auto", ["auto", "searxng", "ddg", "claude", "firecrawl"]);
   if (p.values.seeds) brief.ossSeeds = csv(p.values.seeds);
   return {
     brief,
@@ -19301,9 +19463,10 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
       }
       return;
     }
-    case "semantic": {
+    case "semantic":
+    case "firecrawl": {
       const action = p.positional[0] ?? "status";
-      const r = semanticControl(action);
+      const r = stackControl(p.command, action);
       process.stdout.write(r.message + "\n");
       if (r.code !== 0) process.exit(r.code);
       return;

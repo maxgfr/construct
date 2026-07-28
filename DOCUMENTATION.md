@@ -56,6 +56,24 @@ subprocesses through `util.ts::sh` — the two mock seams that make the rest
 offline-testable. Every angle degrades honestly to an empty result with a note
 rather than aborting the run.
 
+**Extraction (`fetch.ts` + `firecrawl.ts`).** `fetchAndExtract` picks one of two
+extractors *before* any network call. The default is the built-in regex
+stripper (`htmlToText` + `stripConsentBoilerplate`). When the optional Firecrawl
+stack answers on `:3002` (probed once per process, memoised like `web.ts`'s
+SearXNG latch), the page is fetched **by Firecrawl instead** — a single keyless
+`POST /scrape` with `maxAge`, never `httpGet`, so no page is downloaded twice.
+Firecrawl bodies bypass `extract` entirely: they are already main-content
+markdown, and the consent stripper would eat legitimate content from a page that
+documents cookies. Every failure — layer off, container down, page unrenderable,
+empty markdown — falls back to the built-in path, with a note naming the URL
+when Firecrawl was reachable and simply could not do it. `cache.ts` sidecars
+carry an `extractor` field for exactly this reason: a body written by the other
+extractor is treated as a **miss** (except under `--offline`, where anything
+present beats a hole), so a stale native page cannot shadow Firecrawl for the
+week-long TTL. `--web-engine firecrawl` additionally routes *discovery* through
+Firecrawl's keyless `/search`; `auto` never probes it, because the `extract`
+Docker profile is heavy and opt-in.
+
 ### `analyze`  (`src/analyze.ts`)
 The post-research gap signal. Pure read of `brief.json` + the dossier that
 reuses the render's own `matchEvidence`, so every reported gap is a claim that

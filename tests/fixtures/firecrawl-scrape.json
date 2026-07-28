@@ -1,0 +1,15 @@
+{
+  "success": true,
+  "data": {
+    "markdown": "# Upgrade to Express v5\n\nExpress 5 requires Node.js 18 or higher.\n\n## Changes to path route matching\n\nThe wildcard `*` must now have a name, matching the parameter syntax `/*splat`.\n\n## Cookies\n\nSet the cookies option to opt into signed cookies.\n",
+    "metadata": {
+      "title": "Upgrade to Express v5",
+      "description": "Migrating from Express 4 to Express 5.",
+      "language": "en",
+      "sourceURL": "https://expressjs.com/en/guide/migrating-5.html",
+      "url": "https://expressjs.com/en/guide/migrating-5.html",
+      "statusCode": 200,
+      "contentType": "text/html"
+    }
+  }
+}

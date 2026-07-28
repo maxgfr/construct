@@ -52,4 +52,20 @@ export const EMBED_TIMEOUT_MS = 60_000;
 export const COMPOSE_DOWN_TIMEOUT_MS = 120_000;
 export const COMPOSE_PS_TIMEOUT_MS = 30_000;
 export const COMPOSE_UP_TIMEOUT_MS = 300_000;
+// The Firecrawl profile pulls ~3 GB of images on its first `up`, and `--wait`
+// blocks until every container is healthy — the semantic stack's 5 minutes is
+// not enough for a cold start.
+export const COMPOSE_UP_HEAVY_TIMEOUT_MS = 900_000;
 export const OLLAMA_PULL_TIMEOUT_MS = 600_000; // first model pull downloads ~hundreds of MB
+
+// --- optional local Firecrawl stack (Docker: profile `extract`) --------------
+// Reachability probe: a container that is not there refuses the connection
+// immediately, so this only has to cover a busy-but-alive API.
+export const FIRECRAWL_PROBE_TIMEOUT_MS = 2_000;
+// What we allow Firecrawl itself to spend on one page (sent as `timeout` in the
+// scrape payload) — it drives a real browser, so it is not a fast operation.
+export const FIRECRAWL_PAGE_TIMEOUT_MS = 30_000;
+// Our own HTTP deadline, deliberately longer than the page budget so Firecrawl
+// gets the chance to answer with its own honest error instead of being aborted.
+export const FIRECRAWL_SCRAPE_TIMEOUT_MS = 45_000;
+export const FIRECRAWL_SEARCH_TIMEOUT_MS = 30_000;

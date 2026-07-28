@@ -83,7 +83,9 @@ export interface SourceResult {
 }
 
 // Which web-discovery engine to use; "auto" tries searxng → ddg → claude.
-export type WebEngine = "auto" | "searxng" | "ddg" | "claude";
+// "firecrawl" is EXPLICIT-ONLY: it needs the heavy `extract` Docker profile, so
+// `auto` must never probe for it (see research/web.ts::discover).
+export type WebEngine = "auto" | "searxng" | "ddg" | "claude" | "firecrawl";
 
 // Context handed to every research angle for a run.
 export interface ResearchContext {
