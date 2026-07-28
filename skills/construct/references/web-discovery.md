@@ -70,11 +70,21 @@ excerpts. Two extractors exist, and the choice is automatic.
    script/style/nav/footer, turns block tags into newlines, decodes entities,
    then removes cookie/consent banner lines. Zero-dependency and fast, but it has
    **no main-content detection** — sidebars and related-links rails survive — and
-   a JS-rendered page yields nothing, because its prose was never in the HTML.
+   a *client*-rendered page yields nothing, because its prose was never in the
+   HTML. (Server-rendered docs sites, which is most of them, it handles fine.)
 2. **Firecrawl (when the `extract` stack is up).** Fetches with a real browser
    and returns main-content markdown. Keyless, self-hosted, started by
    `construct firecrawl up` (see `semantic-setup.md`). No flag turns it on: it is
    used whenever `http://localhost:3002` answers.
+
+**What Firecrawl actually buys, measured** — 14 varied documentation pages,
+self-hosted, against the built-in extractor: median **235 ms → 693 ms** per page
+(**≈3× slower**) for **~30 % fewer** navigation-chrome markers overall. The
+average hides the shape: 3 of 13 pages improved clearly, 9 were unchanged, 1 got
+slightly worse. Where it wins it wins big — nav preambles of 10, 13 and 29 lines
+collapsing to 0 — and it wins outright on the pages the built-in extractor cannot
+read at all: client-rendered SPAs, consent walls, anti-bot interstitials. Bring
+the stack up when a source is fighting you; it is not free speed on every fetch.
 
 The fallback is total and quiet. A stack that isn't running costs one refused
 connection per process, and pages extract exactly as they did before. A stack
