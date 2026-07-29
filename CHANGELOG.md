@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [3.3.0](https://github.com/maxgfr/construct/compare/v3.2.0...v3.3.0) (2026-07-29)
+
+
+### Features
+
+* **mcp:** serve construct over the Model Context Protocol ([b9cdebe](https://github.com/maxgfr/construct/commit/b9cdebed68c4b3d82ef8e068a6fbe580f5fb5688))
+
 # [3.2.0](https://github.com/maxgfr/construct/compare/v3.1.0...v3.2.0) (2026-07-28)
 
 
