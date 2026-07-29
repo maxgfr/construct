@@ -98,6 +98,16 @@ describe("the shipped bundle documents the engine it ships", () => {
   // (docker compose in semantic-setup.md, and construct's own --help).
   const FOREIGN_FLAGS = new Set(["profile", "help", "version", "wait"]);
 
+  // The `mcp` surface is exempt on the same reasoning that motivates these
+  // guards. They exist because a command or flag the agent cannot see is one it
+  // cannot use — but the agent driving SKILL.md uses the CLI, and
+  // `construct mcp` serves OTHER hosts (Cursor, Zed, Claude Desktop) that never
+  // read SKILL.md. Documenting it there would push this agent toward a path it
+  // has no use for. It is documented in README.md instead, which is where
+  // someone wiring up an MCP client actually looks.
+  const MCP_ONLY_FLAGS = new Set(["transport", "port", "bind", "allow-origin", "max-response-bytes", "allow-remote", "allow-write"]);
+  const MCP_ONLY_COMMANDS = new Set(["mcp"]);
+
   it("finds a non-trivial flag surface to check", () => {
     expect(engineFlags.length).toBeGreaterThan(20);
   });
@@ -106,7 +116,7 @@ describe("the shipped bundle documents the engine it ships", () => {
     // Whole-token match: a bare `includes("--run")` would be satisfied by
     // `--run-tests` and quietly pass an undocumented alias.
     const documented = (f: string) => new RegExp(`--${f}(?![a-z0-9-])`).test(bundle);
-    const undocumented = engineFlags.filter((f) => !documented(f));
+    const undocumented = engineFlags.filter((f) => !MCP_ONLY_FLAGS.has(f) && !documented(f));
     expect(undocumented, `flags accepted by src/cli.ts but documented nowhere in the skill bundle: ${undocumented.join(", ")}`).toEqual([]);
   });
 
@@ -121,7 +131,16 @@ describe("the shipped bundle documents the engine it ships", () => {
     const m = /const COMMANDS = new Set\(\[([\s\S]*?)\]\)/.exec(cli);
     const commands = m ? [...m[1]!.matchAll(/"([a-z-]+)"/g)].map((x) => x[1]!) : [];
     expect(commands.length).toBeGreaterThan(5);
-    const undocumented = commands.filter((c) => !skillMd.includes(c));
+    const undocumented = commands.filter((c) => !MCP_ONLY_COMMANDS.has(c) && !skillMd.includes(c));
     expect(undocumented, `commands dispatched by the engine but absent from SKILL.md: ${undocumented.join(", ")}`).toEqual([]);
+  });
+
+  it("keeps the MCP surface out of the skill bundle, not merely absent from it", () => {
+    // The exemptions above are a decision, not an oversight. If someone later
+    // documents `--transport` in SKILL.md, that decision has been reversed and
+    // should be reversed deliberately — so this fails and makes them say so.
+    for (const f of MCP_ONLY_FLAGS) {
+      expect(bundle.includes(`--${f}`), `--${f} is an MCP-server flag; the skill drives the CLI and should not mention it`).toBe(false);
+    }
   });
 });

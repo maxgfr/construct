@@ -25,6 +25,8 @@ import { loadPlan, readyFrontier } from "./plan.js";
 import { listPhases, orchestrateRun } from "./orchestrate.js";
 import { stackControl } from "./research/semantic.js";
 import { configureFirecrawl } from "./research/firecrawl.js";
+import { runStdioServer } from "./mcp/stdio.js";
+import { startHttpServer } from "./mcp/http.js";
 
 const HELP = `construct v${VERSION}
 Turn a product idea into a grounded, buildable SRD suite. Interview → research
@@ -173,6 +175,7 @@ const COMMANDS = new Set([
   "semantic",
   "firecrawl",
   "cache",
+  "mcp",
 ]);
 const VALUE_FLAGS = new Set([
   "idea",
@@ -197,6 +200,13 @@ const VALUE_FLAGS = new Set([
   "adr",
   "concurrency",
   "max-tech",
+  // `mcp` only. The flag sets are global, so these are accepted (and ignored)
+  // on every command — the same as --phase and --list already are.
+  "transport",
+  "port",
+  "bind",
+  "allow-origin",
+  "max-response-bytes",
 ]);
 const BOOL_FLAGS = new Set([
   "semantic",
@@ -214,6 +224,9 @@ const BOOL_FLAGS = new Set([
   "list",
   "offline",
   "all",
+  // `mcp` only.
+  "allow-remote",
+  "allow-write",
 ]);
 
 function fail(message: string): never {
@@ -718,6 +731,53 @@ async function main(): Promise<void> {
       const r = stackControl(p.command, action);
       process.stdout.write(r.message + "\n");
       if (r.code !== 0) process.exit(r.code);
+      return;
+    }
+
+    case "mcp": {
+      const transport = oneOf("transport", p.values.transport ?? "stdio", ["stdio", "http"]);
+      const maxResponseBytes = p.values["max-response-bytes"] ? Number(p.values["max-response-bytes"]) : undefined;
+      if (maxResponseBytes !== undefined && (!Number.isFinite(maxResponseBytes) || maxResponseBytes <= 0)) fail("invalid --max-response-bytes");
+      const options = {
+        // A default run makes `run` optional on every tool, for a server
+        // dedicated to one SRD.
+        defaultRun: p.values.out ?? p.values.run,
+        allowWrite: p.bools.has("allow-write"),
+        maxResponseBytes,
+      };
+
+      if (transport === "stdio") {
+        // Nothing is written to stdout here: from this point stdout carries
+        // JSON-RPC frames only, and runStdioServer guards that.
+        await runStdioServer(options);
+        return;
+      }
+
+      const port = p.values.port ? Number(p.values.port) : 7342;
+      if (!Number.isInteger(port) || port < 0 || port > 65535) fail("invalid --port");
+      const allowOrigin = p.values["allow-origin"]
+        ? p.values["allow-origin"]
+            .split(",")
+            .map((x) => x.trim())
+            .filter(Boolean)
+        : undefined;
+      let running: Awaited<ReturnType<typeof startHttpServer>>;
+      try {
+        running = await startHttpServer({ ...options, port, bind: p.values.bind, allowOrigin, allowRemote: p.bools.has("allow-remote") });
+      } catch (e) {
+        fail((e as Error).message);
+      }
+      // stderr, not stdout: an HTTP server's stdout is not a protocol stream,
+      // but keeping the two transports identical here means no one has to
+      // remember which is which.
+      process.stderr.write(`construct: MCP server listening on ${running.url}\n`);
+      process.stderr.write(`  client: claude mcp add --transport http construct ${running.url}\n`);
+      for (const sig of ["SIGINT", "SIGTERM"] as const) {
+        process.once(sig, () => {
+          void running.close().then(() => process.exit(0));
+        });
+      }
+      await new Promise<void>((res) => running.server.once("close", res));
       return;
     }
 

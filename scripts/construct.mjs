@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { resolve as resolve5, join as join34 } from "path";
-import { existsSync as existsSync17, readFileSync as readFileSync18 } from "fs";
-import { pathToFileURL as pathToFileURL3, fileURLToPath as fileURLToPath4 } from "url";
-import { realpathSync as realpathSync2 } from "fs";
+import { resolve as resolve7, join as join36 } from "path";
+import { existsSync as existsSync19, readFileSync as readFileSync20 } from "fs";
+import { pathToFileURL as pathToFileURL3, fileURLToPath as fileURLToPath5 } from "url";
+import { realpathSync as realpathSync4 } from "fs";
 
 // src/types.ts
 var VERSION = "3.2.0";
@@ -76,7 +76,7 @@ function sh(cmd, args2, opts = {}) {
   };
 }
 function shAsync(cmd, args2, opts = {}) {
-  return new Promise((resolve6) => {
+  return new Promise((resolve8) => {
     execFile(
       cmd,
       args2,
@@ -91,7 +91,7 @@ function shAsync(cmd, args2, opts = {}) {
         const err3 = error;
         const missing = !!err3 && err3.code === "ENOENT";
         const status = !err3 ? 0 : typeof err3.code === "number" ? err3.code : null;
-        resolve6({ ok: !err3, status, stdout: stdout ?? "", stderr: stderr || (err3 ? String(err3.message) : ""), missing });
+        resolve8({ ok: !err3, status, stdout: stdout ?? "", stderr: stderr || (err3 ? String(err3.message) : ""), missing });
       }
     );
   });
@@ -2522,9 +2522,9 @@ function diffFiles(dir, spec) {
     }
   }
   const byPath = new Map(out2.map((f) => [f.path, f]));
-  const num2 = sh2("git", [...gitArgs(dir), "diff", "-z", "-M", "--numstat", ...rangeArgs(spec)]);
-  if (num2.ok) {
-    const toks = num2.stdout.split("\0");
+  const num22 = sh2("git", [...gitArgs(dir), "diff", "-z", "-M", "--numstat", ...rangeArgs(spec)]);
+  if (num22.ok) {
+    const toks = num22.stdout.split("\0");
     let i2 = 0;
     while (i2 < toks.length) {
       const head = toks[i2++];
@@ -3956,16 +3956,16 @@ async function Module2(moduleArg = {}) {
     if (endPtr - idx > 16 && heapOrArray.buffer && UTF8Decoder) {
       return UTF8Decoder.decode(heapOrArray.subarray(idx, endPtr));
     }
-    var str2 = "";
+    var str22 = "";
     while (idx < endPtr) {
       var u0 = heapOrArray[idx++];
       if (!(u0 & 128)) {
-        str2 += String.fromCharCode(u0);
+        str22 += String.fromCharCode(u0);
         continue;
       }
       var u1 = heapOrArray[idx++] & 63;
       if ((u0 & 224) == 192) {
-        str2 += String.fromCharCode((u0 & 31) << 6 | u1);
+        str22 += String.fromCharCode((u0 & 31) << 6 | u1);
         continue;
       }
       var u2 = heapOrArray[idx++] & 63;
@@ -3975,13 +3975,13 @@ async function Module2(moduleArg = {}) {
         u0 = (u0 & 7) << 18 | u1 << 12 | u2 << 6 | heapOrArray[idx++] & 63;
       }
       if (u0 < 65536) {
-        str2 += String.fromCharCode(u0);
+        str22 += String.fromCharCode(u0);
       } else {
         var ch = u0 - 65536;
-        str2 += String.fromCharCode(55296 | ch >> 10, 56320 | ch & 1023);
+        str22 += String.fromCharCode(55296 | ch >> 10, 56320 | ch & 1023);
       }
     }
-    return str2;
+    return str22;
   }, "UTF8ArrayToString");
   var getDylinkMetadata = /* @__PURE__ */ __name((binary2) => {
     var offset = 0;
@@ -4747,7 +4747,7 @@ async function Module2(moduleArg = {}) {
   _fd_close.sig = "ii";
   var INT53_MAX = 9007199254740992;
   var INT53_MIN = -9007199254740992;
-  var bigintToI53Checked = /* @__PURE__ */ __name((num2) => num2 < INT53_MIN || num2 > INT53_MAX ? NaN : Number(num2), "bigintToI53Checked");
+  var bigintToI53Checked = /* @__PURE__ */ __name((num22) => num22 < INT53_MIN || num22 > INT53_MAX ? NaN : Number(num22), "bigintToI53Checked");
   function _fd_seek(fd, offset, whence, newOffset) {
     offset = bigintToI53Checked(offset);
     return 70;
@@ -4765,7 +4765,7 @@ async function Module2(moduleArg = {}) {
     }
   }, "printChar");
   var _fd_write = /* @__PURE__ */ __name((fd, iov, iovcnt, pnum) => {
-    var num2 = 0;
+    var num22 = 0;
     for (var i2 = 0; i2 < iovcnt; i2++) {
       var ptr = LE_HEAP_LOAD_U32((iov >> 2) * 4);
       var len = LE_HEAP_LOAD_U32((iov + 4 >> 2) * 4);
@@ -4773,9 +4773,9 @@ async function Module2(moduleArg = {}) {
       for (var j = 0; j < len; j++) {
         printChar(fd, HEAPU8[ptr + j]);
       }
-      num2 += len;
+      num22 += len;
     }
-    LE_HEAP_STORE_U32((pnum >> 2) * 4, num2);
+    LE_HEAP_STORE_U32((pnum >> 2) * 4, num22);
     return 0;
   }, "_fd_write");
   _fd_write.sig = "iippp";
@@ -4840,10 +4840,10 @@ async function Module2(moduleArg = {}) {
     }
     quit_(1, e);
   }, "handleException");
-  var lengthBytesUTF8 = /* @__PURE__ */ __name((str2) => {
+  var lengthBytesUTF8 = /* @__PURE__ */ __name((str22) => {
     var len = 0;
-    for (var i2 = 0; i2 < str2.length; ++i2) {
-      var c2 = str2.charCodeAt(i2);
+    for (var i2 = 0; i2 < str22.length; ++i2) {
+      var c2 = str22.charCodeAt(i2);
       if (c2 <= 127) {
         len++;
       } else if (c2 <= 2047) {
@@ -4857,12 +4857,12 @@ async function Module2(moduleArg = {}) {
     }
     return len;
   }, "lengthBytesUTF8");
-  var stringToUTF8Array = /* @__PURE__ */ __name((str2, heap, outIdx, maxBytesToWrite) => {
+  var stringToUTF8Array = /* @__PURE__ */ __name((str22, heap, outIdx, maxBytesToWrite) => {
     if (!(maxBytesToWrite > 0)) return 0;
     var startIdx = outIdx;
     var endIdx = outIdx + maxBytesToWrite - 1;
-    for (var i2 = 0; i2 < str2.length; ++i2) {
-      var u = str2.codePointAt(i2);
+    for (var i2 = 0; i2 < str22.length; ++i2) {
+      var u = str22.codePointAt(i2);
       if (u <= 127) {
         if (outIdx >= endIdx) break;
         heap[outIdx++] = u;
@@ -4887,30 +4887,30 @@ async function Module2(moduleArg = {}) {
     heap[outIdx] = 0;
     return outIdx - startIdx;
   }, "stringToUTF8Array");
-  var stringToUTF8 = /* @__PURE__ */ __name((str2, outPtr, maxBytesToWrite) => stringToUTF8Array(str2, HEAPU8, outPtr, maxBytesToWrite), "stringToUTF8");
+  var stringToUTF8 = /* @__PURE__ */ __name((str22, outPtr, maxBytesToWrite) => stringToUTF8Array(str22, HEAPU8, outPtr, maxBytesToWrite), "stringToUTF8");
   var stackAlloc = /* @__PURE__ */ __name((sz) => __emscripten_stack_alloc(sz), "stackAlloc");
-  var stringToUTF8OnStack = /* @__PURE__ */ __name((str2) => {
-    var size = lengthBytesUTF8(str2) + 1;
+  var stringToUTF8OnStack = /* @__PURE__ */ __name((str22) => {
+    var size = lengthBytesUTF8(str22) + 1;
     var ret = stackAlloc(size);
-    stringToUTF8(str2, ret, size);
+    stringToUTF8(str22, ret, size);
     return ret;
   }, "stringToUTF8OnStack");
   var AsciiToString = /* @__PURE__ */ __name((ptr) => {
-    var str2 = "";
+    var str22 = "";
     while (1) {
       var ch = HEAPU8[ptr++];
-      if (!ch) return str2;
-      str2 += String.fromCharCode(ch);
+      if (!ch) return str22;
+      str22 += String.fromCharCode(ch);
     }
   }, "AsciiToString");
-  var stringToUTF16 = /* @__PURE__ */ __name((str2, outPtr, maxBytesToWrite) => {
+  var stringToUTF16 = /* @__PURE__ */ __name((str22, outPtr, maxBytesToWrite) => {
     maxBytesToWrite ??= 2147483647;
     if (maxBytesToWrite < 2) return 0;
     maxBytesToWrite -= 2;
     var startPtr = outPtr;
-    var numCharsToWrite = maxBytesToWrite < str2.length * 2 ? maxBytesToWrite / 2 : str2.length;
+    var numCharsToWrite = maxBytesToWrite < str22.length * 2 ? maxBytesToWrite / 2 : str22.length;
     for (var i2 = 0; i2 < numCharsToWrite; ++i2) {
-      var codeUnit = str2.charCodeAt(i2);
+      var codeUnit = str22.charCodeAt(i2);
       LE_HEAP_STORE_I16((outPtr >> 1) * 2, codeUnit);
       outPtr += 2;
     }
@@ -5252,8 +5252,8 @@ function parseAnyPredicate(steps, index, operator, textPredicates) {
         if (c2.name === captureName1) nodes1.push(c2.node);
         if (c2.name === captureName2) nodes2.push(c2.node);
       }
-      const compare = /* @__PURE__ */ __name((n1, n2, positive) => {
-        return positive ? n1.text === n2.text : n1.text !== n2.text;
+      const compare = /* @__PURE__ */ __name((n1, n2, positive2) => {
+        return positive2 ? n1.text === n2.text : n1.text !== n2.text;
       }, "compare");
       return matchAll ? nodes1.every((n1) => nodes2.some((n2) => compare(n1, n2, isPositive))) : nodes1.some((n1) => nodes2.some((n2) => compare(n1, n2, isPositive)));
     });
@@ -5297,8 +5297,8 @@ function parseMatchPredicate(steps, index, operator, textPredicates) {
     for (const c2 of captures) {
       if (c2.name === captureName) nodes.push(c2.node.text);
     }
-    const test = /* @__PURE__ */ __name((text, positive) => {
-      return positive ? regex.test(text) : !regex.test(text);
+    const test = /* @__PURE__ */ __name((text, positive2) => {
+      return positive2 ? regex.test(text) : !regex.test(text);
     }, "test");
     if (nodes.length === 0) return !isPositive;
     return matchAll ? nodes.every((text) => test(text, isPositive)) : nodes.some((text) => test(text, isPositive));
@@ -7710,8 +7710,8 @@ function collectAll(root, spec, defNames, maxCalls, wantImports) {
     if (wantRefs) {
       const how = spec.imports[type];
       if (how === "string") {
-        const str2 = findFirst(node, (n) => /string/.test(n.type));
-        if (str2) addRef(str2.text.replace(/^['"]|['"]$/g, ""));
+        const str22 = findFirst(node, (n) => /string/.test(n.type));
+        if (str22) addRef(str22.text.replace(/^['"]|['"]$/g, ""));
       } else if (how === "path") {
         const name2 = node.childForFieldName("name") ?? node.childForFieldName("module_name");
         addRef((name2 ?? node).text.replace(/^(import|from)\s+/, "").split(/\s+/)[0]);
@@ -11817,14 +11817,14 @@ function buildEmbeddingIndex(scan2, model) {
   return { embedVersion: EMBED_VERSION, modelId: model.modelId, dim: model.dim, records };
 }
 function serializeEmbeddings(index) {
-  const header = JSON.stringify({
+  const header2 = JSON.stringify({
     embedVersion: index.embedVersion,
     modelId: index.modelId,
     dim: index.dim,
     count: index.records.length,
     records: index.records.map((r) => ({ file: r.file, symbol: r.symbol ?? "", line: r.line ?? 0 }))
   });
-  const headerBuf = Buffer.from(header, "utf8");
+  const headerBuf = Buffer.from(header2, "utf8");
   const body2 = Buffer.alloc(index.records.length * index.dim);
   let off = 0;
   for (const r of index.records) {
@@ -11843,10 +11843,10 @@ function deserializeEmbeddings(bytes) {
     throw new Error("embeddings.bin: bad magic (not a codeindex embeddings artifact)");
   }
   const headerLen = buf.readUInt32LE(4);
-  const header = JSON.parse(buf.toString("utf8", 8, 8 + headerLen));
+  const header2 = JSON.parse(buf.toString("utf8", 8, 8 + headerLen));
   const bodyOff = 8 + headerLen;
-  const { dim } = header;
-  const records = header.records.map((m, i2) => {
+  const { dim } = header2;
+  const records = header2.records.map((m, i2) => {
     const vec = new Int8Array(dim);
     for (let d = 0; d < dim; d++) vec[d] = buf.readInt8(bodyOff + i2 * dim + d);
     const rec = { file: m.file, vec };
@@ -11854,7 +11854,7 @@ function deserializeEmbeddings(bytes) {
     if (m.line) rec.line = m.line;
     return rec;
   });
-  return { embedVersion: header.embedVersion, modelId: header.modelId, dim, records };
+  return { embedVersion: header2.embedVersion, modelId: header2.modelId, dim, records };
 }
 var MAGIC;
 var init_embed = __esm({
@@ -12240,9 +12240,9 @@ function renderRepoMap(scan2, graph, opts = {}) {
   const maxSymbols = opts.maxSymbolsPerFile ?? 8;
   const ranked = [...graph.files].filter((f) => f.fileKind === "code").sort((a, b) => (b.pagerank ?? 0) - (a.pagerank ?? 0) || b.symbols - a.symbols || byStr(a.rel, b.rel));
   const records = new Map(scan2.files.map((f) => [f.rel, f]));
-  const header = `# repo map \u2014 ${graph.fileCount} files
+  const header2 = `# repo map \u2014 ${graph.fileCount} files
 `;
-  let out2 = header;
+  let out2 = header2;
   let files = 0;
   for (const node of ranked) {
     const rec = records.get(node.rel);
@@ -14860,7 +14860,7 @@ function parseFlags(args2) {
       if (v === void 0) throw new Error(`missing value for ${a}`);
       return v;
     };
-    const num2 = () => {
+    const num22 = () => {
       const raw = next();
       const n = Number(raw);
       if (!Number.isFinite(n) || n <= 0) throw new Error(`${a} expects a positive number, got "${raw}"`);
@@ -14876,12 +14876,12 @@ function parseFlags(args2) {
     else if (a === "--scope") flags2.scope = next();
     else if (a === "--no-gitignore") flags2.gitignore = false;
     else if (a === "--ignore-dir") flags2.ignoreDirs.push(next());
-    else if (a === "--max-files") flags2.maxFiles = num2();
-    else if (a === "--max-bytes") flags2.maxBytes = num2();
-    else if (a === "--max-calls") flags2.maxCalls = num2();
+    else if (a === "--max-files") flags2.maxFiles = num22();
+    else if (a === "--max-bytes") flags2.maxBytes = num22();
+    else if (a === "--max-calls") flags2.maxCalls = num22();
     else if (a === "--ignore-case") flags2.ignoreCase = true;
-    else if (a === "--max-hits") flags2.maxHits = num2();
-    else if (a === "--budget-tokens") flags2.budgetTokens = num2();
+    else if (a === "--max-hits") flags2.maxHits = num22();
+    else if (a === "--budget-tokens") flags2.budgetTokens = num22();
     else if (a === "--no-ast") flags2.noAst = true;
     else if (a === "--index") flags2.indexDir = next();
     else if (a === "--no-index-cache") flags2.noIndexCache = true;
@@ -14892,14 +14892,14 @@ function parseFlags(args2) {
       flags2.workers = n;
     } else if (a === "--since") flags2.since = next();
     else if (a === "--config") flags2.config = resolve22(next());
-    else if (a === "--limit") flags2.limit = num2();
+    else if (a === "--limit") flags2.limit = num22();
     else if (a === "--no-fuzzy") flags2.fuzzy = false;
     else if (a === "--semantic") flags2.semantic = true;
     else if (a === "--recall") flags2.recall = true;
     else if (a === "--run") flags2.run = true;
     else if (a === "--base") flags2.base = next();
     else if (a === "--staged") flags2.staged = true;
-    else if (a === "--depth") flags2.depth = num2();
+    else if (a === "--depth") flags2.depth = num22();
     else if (a === "--kind") flags2.kind = next();
     else if (a === "--json") flags2.json = true;
     else if (!a.startsWith("--") && flags2.positional === void 0) flags2.positional = a;
@@ -15577,19 +15577,19 @@ var gitlab = {
       if (!Array.isArray(arr)) return { items: [], notes: [`GitLab ${kind} search returned no array.`] };
       const marker = kind === "issue" ? "#" : "!";
       const items = arr.filter((it) => it && typeof it === "object").map((it) => {
-        const num2 = it.iid ?? it.id;
+        const num3 = it.iid ?? it.id;
         const body2 = String(it.description ?? "").replace(/\r/g, "").trim().slice(0, 1200);
         return {
           source: kind,
-          title: `${marker}${num2} ${it.title} [${it.state}]`,
-          ref: `${kind}#${num2}`,
+          title: `${marker}${num3} ${it.title} [${it.state}]`,
+          ref: `${kind}#${num3}`,
           location: it.web_url,
           score: 0,
           snippet: `state: ${it.state} \xB7 updated: ${it.updated_at ?? "?"}
 
 ${body2 || "(no description)"}`,
           url: it.web_url,
-          meta: { iid: num2, state: it.state }
+          meta: { iid: num3, state: it.state }
         };
       });
       return { items, notes: [] };
@@ -16541,12 +16541,12 @@ function buildSRD(brief, evidence, opts) {
     const priority = priorityOf(f.priority);
     const text = `${f.title} ${f.notes ?? ""}`;
     const touchesIntegration = INTEGRATION_RE.test(text);
-    const outcome = concreteOutcome(f.title, f.notes);
+    const outcome2 = concreteOutcome(f.title, f.notes);
     const acceptance = [
       {
         given: `${productName} is available to a user`,
         when: `they ${lowerFirst(f.title)}`,
-        then: outcome
+        then: outcome2
       },
       ...level === "complex" ? [failurePath(f.title, touchesIntegration)] : []
     ];
@@ -18831,6 +18831,1140 @@ function orchestrateRun(runDir, engineAbs, opts = {}) {
   return { exitCode: 0, written, notices, errors: [], phases };
 }
 
+// src/mcp/stdio.ts
+import { createInterface as createInterface2 } from "readline";
+
+// src/mcp/handlers.ts
+import { existsSync as existsSync17, readFileSync as readFileSync18, realpathSync as realpathSync2, statSync as statSync7 } from "fs";
+import { isAbsolute as isAbsolute3, join as join34, resolve as resolve5, sep as sep4 } from "path";
+
+// src/run-lock.ts
+var chains = /* @__PURE__ */ new Map();
+function withRunLock(dir, fn) {
+  const prev = chains.get(dir) ?? Promise.resolve();
+  const next = prev.then(fn, fn);
+  const tail = next.then(noop, noop);
+  chains.set(dir, tail);
+  tail.then(() => {
+    if (chains.get(dir) === tail) chains.delete(dir);
+  }, noop);
+  return next;
+}
+function noop() {
+}
+
+// src/mcp/handlers.ts
+var ToolError = class extends Error {
+};
+var MAX_READ_LINES = 2e3;
+var MAX_READ_BYTES = 8 * 1024 * 1024;
+var DEFAULT_ANGLES = ["market", "oss", "tech"];
+var ALL_ANGLES = ["market", "oss", "tech", "semantic"];
+var WRITE_TOOL_NAMES = /* @__PURE__ */ new Set(["construct_init"]);
+function str2(v) {
+  return typeof v === "string" && v.trim() !== "" ? v : void 0;
+}
+function num2(v) {
+  const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
+  return Number.isFinite(n) ? n : void 0;
+}
+function bool(v) {
+  return v === true || v === "true";
+}
+function strArray2(v) {
+  const a = Array.isArray(v) && v.every((x) => typeof x === "string") ? v : void 0;
+  return a && a.length ? a : void 0;
+}
+function positive(v, key) {
+  const n = num2(v);
+  if (n === void 0) return void 0;
+  if (n <= 0) throw new ToolError(`\`${key}\` must be greater than 0.`);
+  return n;
+}
+function requiredStr(args2, key, hint) {
+  const v = str2(args2[key]);
+  if (!v) throw new ToolError(`\`${key}\` is required \u2014 ${hint}`);
+  return v;
+}
+function requiredRun(args2, defaults) {
+  const run2 = str2(args2.run) ?? defaults.defaultRun;
+  if (!run2) throw new ToolError("`run` is required: the run folder holding the brief, evidence and SRD.");
+  if (!isAbsolute3(run2)) throw new ToolError("`run` must be an absolute path.");
+  const abs = resolve5(run2);
+  if (!existsSync17(join34(abs, "brief.json"))) {
+    throw new ToolError(`no run at ${abs} \u2014 scaffold one first with construct_init (it creates the folder and its brief).`);
+  }
+  return abs;
+}
+function anglesOf(args2) {
+  const raw = strArray2(args2.angles);
+  if (!raw) return DEFAULT_ANGLES;
+  for (const a of raw) {
+    if (!ALL_ANGLES.includes(a)) throw new ToolError(`unknown angle "${a}" \u2014 one of: ${ALL_ANGLES.join(", ")}`);
+  }
+  return raw;
+}
+function researchContext(runDir, angles, args2, query2) {
+  const brief = loadBrief(runDir);
+  return {
+    brief,
+    runDir,
+    angles,
+    query: query2 ?? brief.idea,
+    webEngine: "auto",
+    semantic: angles.includes("semantic"),
+    perSource: positive(args2.per_source, "per_source") ?? 6,
+    concurrency: 4,
+    maxTech: 4,
+    refresh: bool(args2.refresh),
+    docsUrls: strArray2(args2.urls),
+    marketUrls: strArray2(args2.urls)
+  };
+}
+async function callTool2(name2, args2, defaults = {}) {
+  if (WRITE_TOOL_NAMES.has(name2) && !defaults.allowWrite) {
+    throw new ToolError(`${name2} writes a run folder to disk and is disabled \u2014 start the server with --allow-write to enable it.`);
+  }
+  if (name2 === "construct_cache") return outcome(name2, stats());
+  if (name2 === "construct_init") return outcome(name2, handleInit(args2));
+  if (name2 === "construct_research_angle") return outcome(name2, await handleResearchAngle(args2));
+  const run2 = requiredRun(args2, defaults);
+  return await withRunLock(run2, async () => outcome(name2, await dispatch(name2, args2, run2)));
+}
+async function dispatch(name2, args2, run2) {
+  switch (name2) {
+    case "construct_status":
+      return handleStatus(run2);
+    case "construct_research":
+      return await handleResearch(args2, run2);
+    case "construct_analyze":
+      return handleAnalyze(run2);
+    case "construct_render":
+      return handleRender(args2, run2);
+    case "construct_check":
+      return handleCheck(args2, run2);
+    case "construct_review":
+      return handleReview(args2, run2);
+    case "construct_verify":
+      return handleVerify(args2, run2);
+    case "construct_read":
+      return handleRead(args2, run2);
+    default:
+      throw new ToolError(`unknown tool: ${name2}`);
+  }
+}
+function outcome(name2, result) {
+  return { text: JSON.stringify(result, null, 2) + "\n", artifact: artifactFor(name2, result) };
+}
+function artifactFor(name2, result) {
+  if (typeof result !== "object" || result === null) return void 0;
+  const r = result;
+  if (name2 === "construct_research") return typeof r.evidence_md === "string" ? r.evidence_md : void 0;
+  if (name2 === "construct_render") return typeof r.srd_md === "string" ? r.srd_md : void 0;
+  return void 0;
+}
+function handleInit(args2) {
+  const idea = requiredStr(args2, "idea", "the product idea, in one line.");
+  const out2 = requiredStr(args2, "out", "an absolute path for the run folder.");
+  if (!isAbsolute3(out2)) throw new ToolError("`out` must be an absolute path.");
+  const brief = initBrief(idea, (/* @__PURE__ */ new Date()).toISOString());
+  const path = saveBrief(resolve5(out2), brief);
+  return {
+    run: resolve5(out2),
+    brief: path,
+    next: "The brief is a SCAFFOLD. Interview the user to fill it \u2014 who it is for, what it must do, what it must not do, what already exists \u2014 before construct_research. Everything downstream is only as good as that interview; do not invent the answers."
+  };
+}
+function handleStatus(run2) {
+  const has = (rel) => existsSync17(join34(run2, rel));
+  return {
+    run: run2,
+    brief: has("brief.json"),
+    evidence: has("evidence"),
+    srd: has("SRD.json"),
+    build_plan: has("BUILD-PLAN.json"),
+    next: !has("evidence") ? "construct_research \u2014 nothing is grounded yet." : !has("SRD.json") ? "construct_render \u2014 the evidence is in, the SRD is not written." : "construct_check, then construct_review to adjudicate the claims the gate cannot judge."
+  };
+}
+async function handleResearch(args2, run2) {
+  const angles = anglesOf(args2);
+  const ctx = researchContext(run2, angles, args2);
+  const r = await runResearch(ctx, (/* @__PURE__ */ new Date()).toISOString());
+  return {
+    run: run2,
+    evidence_md: r.paths.evidenceMd,
+    angles,
+    items: r.evidence.length,
+    sources: r.meta.sources,
+    // A degraded source is information, not a failure: it bounds what the SRD
+    // may claim.
+    ...r.meta.notes.length ? { notes: r.meta.notes } : {},
+    next: "construct_analyze to see what is still thin, then construct_render."
+  };
+}
+async function handleResearchAngle(args2) {
+  const angle = requiredStr(args2, "angle", "one of: web, oss, tech, so.");
+  const query2 = requiredStr(args2, "query", "the question or topic for this angle.");
+  const mapped = { web: "market", oss: "oss", tech: "tech", so: "tech" };
+  const resolved = mapped[angle];
+  if (!resolved) throw new ToolError(`unknown angle "${angle}" \u2014 one of: web, oss, tech, so`);
+  const ctx = {
+    brief: initBrief(query2, (/* @__PURE__ */ new Date()).toISOString()),
+    runDir: "",
+    angles: [resolved],
+    query: query2,
+    webEngine: "auto",
+    semantic: false,
+    perSource: positive(args2.per_source, "per_source") ?? 6,
+    concurrency: 4,
+    maxTech: 4,
+    refresh: false,
+    docsUrls: strArray2(args2.urls),
+    marketUrls: strArray2(args2.urls)
+  };
+  const { results, notes } = await runAngles(ctx);
+  return {
+    angle,
+    query: query2,
+    ...notes.length ? { notes } : {},
+    items: assignIds2(results),
+    next: "Nothing was written. Run construct_research to fold sources into a run's dossier as citable evidence."
+  };
+}
+function handleAnalyze(run2) {
+  return { run: run2, ...analyzeRun(run2) };
+}
+function handleRender(args2, run2) {
+  const level = str2(args2.level);
+  if (level !== void 0 && level !== "light" && level !== "complex") {
+    throw new ToolError(`\`level\` must be one of: light, complex (got "${level}")`);
+  }
+  const res = renderFromSRD(run2, { merge: bool(args2.merge), prd: bool(args2.prd) });
+  return { run: run2, srd_md: join34(run2, "SRD.md"), ...res, next: "construct_check to gate it, then construct_review to adjudicate the claims." };
+}
+function handleCheck(args2, run2) {
+  const minGrounding = num2(args2.min_grounding);
+  if (minGrounding !== void 0 && (minGrounding < 0 || minGrounding > 1)) {
+    throw new ToolError("`min_grounding` must be between 0 and 1.");
+  }
+  const res = checkRun(run2, { minGrounding, semantic: bool(args2.semantic), allowUnverified: bool(args2.allow_unverified) });
+  return {
+    run: run2,
+    ...res,
+    note: "Grounding coverage is ADVISORY \u2014 this gate never fails on it. A green check means the SRD is well-FORMED, not that it is well-researched."
+  };
+}
+function handleReview(args2, run2) {
+  const res = runReview(run2, { maxReview: positive(args2.max_review, "max_review") });
+  return {
+    ...res,
+    run: run2,
+    next: "For each pair, read the cited evidence and judge whether it carries the claim. This is where advisory grounding becomes real."
+  };
+}
+function handleVerify(args2, run2) {
+  const app = str2(args2.app);
+  if (app !== void 0 && !isAbsolute3(app)) throw new ToolError("`app` must be an absolute path.");
+  if (app && !existsSync17(app)) throw new ToolError(`app not found: ${app}`);
+  const res = verifyRun(run2, { appDir: app, runTests: bool(args2.run_tests), strict: bool(args2.strict) });
+  return { ...res, run: run2 };
+}
+function handleRead(args2, run2) {
+  const raw = requiredStr(args2, "path", "a path relative to the run folder, or an absolute path inside it.");
+  const target = isAbsolute3(raw) ? raw : join34(run2, raw);
+  let real;
+  try {
+    real = realpathSync2(target);
+  } catch {
+    throw new ToolError(`no such file: ${raw}`);
+  }
+  const root = realpathSync2(run2);
+  if (real !== root && !real.startsWith(root + sep4)) {
+    throw new ToolError(`path is outside the run: ${raw}. Use your own file tool for anything else.`);
+  }
+  const st = statSync7(real);
+  if (!st.isFile()) throw new ToolError(`not a file: ${raw}`);
+  if (st.size > MAX_READ_BYTES) throw new ToolError(`file is too large to read (${st.size} bytes): ${raw}`);
+  const lines = readFileSync18(real, "utf8").split("\n");
+  const total2 = lines.length;
+  const start2 = Math.max(1, Math.floor(num2(args2.start_line) ?? 1));
+  if (start2 > total2) throw new ToolError(`start_line ${start2} is past the end of the file (${total2} lines).`);
+  const requestedEnd = Math.floor(num2(args2.end_line) ?? total2);
+  const end = Math.min(total2, Math.max(start2, requestedEnd), start2 + MAX_READ_LINES - 1);
+  return {
+    path: isAbsolute3(raw) ? real : raw,
+    start_line: start2,
+    end_line: end,
+    total_lines: total2,
+    truncated: end < Math.min(total2, requestedEnd),
+    content: lines.slice(start2 - 1, end).join("\n")
+  };
+}
+
+// src/mcp/protocol.ts
+var PROTOCOL_VERSIONS2 = ["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"];
+var LATEST_PROTOCOL2 = PROTOCOL_VERSIONS2[PROTOCOL_VERSIONS2.length - 1];
+var ASSUMED_HTTP_PROTOCOL = "2025-03-26";
+var ANNOTATIONS_SINCE2 = "2025-03-26";
+var RICH_TOOLS_SINCE2 = "2025-06-18";
+var DEFAULT_MAX_RESPONSE_BYTES2 = 1e6;
+function isProtocolVersion(v) {
+  return typeof v === "string" && PROTOCOL_VERSIONS2.includes(v);
+}
+function negotiateProtocol2(requested) {
+  return isProtocolVersion(requested) ? requested : LATEST_PROTOCOL2;
+}
+function validateArgs2(schema, args2) {
+  for (const key of schema.required) {
+    const v = args2[key];
+    if (v === void 0 || v === null || v === "") return `\`${key}\` is required`;
+  }
+  for (const [key, value] of Object.entries(args2)) {
+    if (value === void 0 || value === null) continue;
+    const spec = schema.properties[key];
+    if (!spec?.type) continue;
+    const actual = Array.isArray(value) ? "array" : typeof value;
+    if (spec.type === "number") {
+      if (actual === "number") continue;
+      if (actual === "string" && value.trim() !== "" && Number.isFinite(Number(value))) continue;
+      return `\`${key}\` must be a number, got ${actual === "string" ? JSON.stringify(value) : actual}`;
+    }
+    if (spec.type === "array") {
+      if (actual !== "array") return `\`${key}\` must be an array, got ${actual}`;
+      const arr = value;
+      if (spec.items?.type === "string" && !arr.every((x) => typeof x === "string")) {
+        return `\`${key}\` must be an array of strings`;
+      }
+      if (spec.enum) {
+        const bad = arr.find((x) => typeof x === "string" && !spec.enum.includes(x));
+        if (bad !== void 0) return `\`${key}\` contains "${String(bad)}" \u2014 allowed: ${spec.enum.join(", ")}`;
+      }
+      continue;
+    }
+    if (actual !== spec.type) return `\`${key}\` must be a ${spec.type}, got ${actual}`;
+    if (spec.enum && typeof value === "string" && !spec.enum.includes(value)) {
+      return `\`${key}\` must be one of: ${spec.enum.join(", ")}`;
+    }
+  }
+  return void 0;
+}
+var NARROWER2 = {
+  construct_research: "narrow `angles`, or lower `per_source`",
+  construct_research_angle: "lower `per_source`, or pass fewer `urls`",
+  construct_render: 'render at `level: "light"`, or read the SRD file at the returned path',
+  construct_review: "lower `max_review`",
+  construct_check: "the SRD is very large; read the report file instead of inlining it",
+  construct_read: "pass `start_line`/`end_line` to read a window instead of the whole file"
+};
+function capResponse2(text, tool, maxBytes, artifact) {
+  const bytes = Buffer.byteLength(text, "utf8");
+  if (bytes <= maxBytes) return text;
+  return JSON.stringify(
+    {
+      truncated: true,
+      tool,
+      bytes,
+      maxBytes,
+      reason: "This response exceeds the configured limit and was withheld rather than sent as an unusable partial payload.",
+      narrower: NARROWER2[tool] ?? "narrow the request and call again",
+      ...artifact ? { artifact, artifactNote: "The full result is on disk here \u2014 read it directly if you need all of it." } : {}
+    },
+    null,
+    2
+  ) + "\n";
+}
+function structuredContentFor2(text, capped, hasSchema) {
+  if (capped || !hasSchema) return void 0;
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return void 0;
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return void 0;
+  return parsed;
+}
+var LOOPBACK_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
+function isOriginAllowed(origin, allowed = []) {
+  if (origin === void 0) return true;
+  const o = origin.trim();
+  if (o === "" || o === "null") return true;
+  if (LOOPBACK_ORIGIN.test(o)) return true;
+  return allowed.some((a) => a === "*" || a.toLowerCase() === o.toLowerCase());
+}
+
+// src/mcp/tools.ts
+var runProp = { type: "string", description: "The run folder \u2014 the durable artifact holding the brief, evidence and SRD." };
+var RIGOR_NOTE = "Grounding is ADVISORY here: construct_check fails on structure, never on how well-researched a decision is. The rigor is yours \u2014 an SRD can pass every gate and still rest on nothing.";
+var TOOLS2 = [
+  {
+    name: "construct_status",
+    title: "What exists, and the next command",
+    description: "Read the run's state: which artifacts exist, what is still missing, and the exact next step. Start here on any run you did not just create \u2014 it is the cheapest way to find out where a half-finished SRD stopped.",
+    inputSchema: { type: "object", properties: { run: runProp }, required: ["run"] }
+  },
+  {
+    name: "construct_research",
+    title: "Ground the brief in real sources",
+    description: "SLOW and network-bound: fan out across the research angles \u2014 market and competitors, comparable open-source projects and their real issues, candidate-tech docs and StackOverflow pitfalls \u2014 and write an evidence dossier into the run. This is the ONLY command that grounds anything. Expect minutes on a first run; re-runs are nearly free thanks to the page cache.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        run: runProp,
+        angles: {
+          type: "array",
+          items: { type: "string" },
+          enum: ["market", "oss", "tech", "semantic"],
+          description: "Which angles to research. Default: market, oss and tech."
+        },
+        per_source: { type: "number", description: "Max evidence items kept per source." },
+        refresh: { type: "boolean", description: "Bypass the page cache and refetch." },
+        offline: { type: "boolean", description: "Use only what is already cached; make no network calls." }
+      },
+      required: ["run"]
+    }
+  },
+  {
+    name: "construct_research_angle",
+    title: "Probe one research angle, write nothing",
+    description: "Run ONE angle \u2014 web, oss, tech or so (StackOverflow) \u2014 and print what it finds without persisting it. Use it to sanity-check an angle before committing to a full construct_research, or to answer a single question that does not belong in the dossier.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        angle: { type: "string", enum: ["web", "oss", "tech", "so"], description: "Which angle to run." },
+        query: { type: "string", description: "The question or topic for this angle." },
+        urls: { type: "array", items: { type: "string" }, description: "Specific URLs to ground against instead of searching." },
+        per_source: { type: "number", description: "Max items kept." }
+      },
+      required: ["angle", "query"]
+    }
+  },
+  {
+    name: "construct_analyze",
+    title: "Find what the SRD is thin on",
+    description: "Report where the run is under-grounded or incomplete, and the exact command that fills each gap. Run it between research and render \u2014 it is what turns 'the SRD looks done' into a list of decisions still resting on nothing.",
+    inputSchema: { type: "object", properties: { run: runProp }, required: ["run"] }
+  },
+  {
+    name: "construct_render",
+    title: "Render the SRD suite",
+    description: "Write the SRD tree from the brief and the evidence: vision, scope, functional requirements with Given/When/Then acceptance criteria, NFRs, data model, interfaces, ADRs, build plan and traceability. `merge: true` preserves the prose you enriched; without it, generated sections are rebuilt.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        run: runProp,
+        level: { type: "string", enum: ["light", "complex"], description: "How much structure to emit. Default: complex." },
+        merge: { type: "boolean", description: "Preserve enriched prose instead of overwriting it." },
+        prd: { type: "boolean", description: "Also emit one PRD per functional requirement." }
+      },
+      required: ["run"]
+    }
+  },
+  {
+    name: "construct_check",
+    title: "The structural gate",
+    description: "Validate the SRD: required sections present, requirements well-formed, acceptance criteria testable, traceability intact. Exits non-zero on a structural failure. A result with ok:false is a real verdict, not a tool failure. " + RIGOR_NOTE,
+    inputSchema: {
+      type: "object",
+      properties: {
+        run: runProp,
+        min_grounding: { type: "number", description: "Report grounding coverage below this share, 0..1. Advisory \u2014 it never fails the run." },
+        semantic: { type: "boolean", description: "Also fold in the recorded review verdicts." },
+        allow_unverified: { type: "boolean", description: "With semantic, warn instead of failing when no verdicts exist yet." }
+      },
+      required: ["run"]
+    }
+  },
+  {
+    name: "construct_review",
+    title: "Build a claim-evidence worklist",
+    description: "Emit a claim-by-evidence worklist from the SRD, for you to adjudicate each pair. This is the pass that turns advisory grounding into something real: the gate cannot tell you a requirement rests on a source that does not support it, and this can.",
+    inputSchema: {
+      type: "object",
+      properties: { run: runProp, max_review: { type: "number", description: "Cap on the number of claim/evidence pairs emitted." } },
+      required: ["run"]
+    }
+  },
+  {
+    name: "construct_verify",
+    title: "Referee a build against its SRD",
+    description: "Compare a built application against the SRD and the build plan: which requirements are implemented, which are missing, which drifted. Use it to close the loop after building from the spec \u2014 not to check the spec itself, which is construct_check's job.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        run: runProp,
+        app: { type: "string", description: "Absolute path to the built application to referee." },
+        run_tests: { type: "boolean", description: "Also run the app's test suite as evidence." },
+        strict: { type: "boolean", description: "Fail on any unimplemented requirement." }
+      },
+      required: ["run"]
+    }
+  },
+  {
+    name: "construct_cache",
+    title: "Inspect the page cache",
+    description: "Report what research has cached on disk: how many pages, how much space, and how many entries are still fresh. Read-only. A warm cache is why re-running construct_research after filling a gap is nearly free.",
+    inputSchema: { type: "object", properties: {}, required: [] }
+  },
+  {
+    name: "construct_read",
+    title: "Read a file from the run",
+    description: "Read a file, or a line range of one, from the run folder \u2014 the brief, an evidence item, a rendered SRD section, a worklist. Reads are confined to the run; anything else is your own file tool's job.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        run: runProp,
+        path: { type: "string", description: "Path relative to the run folder, or an absolute path inside it." },
+        start_line: { type: "number", description: "First line to return, 1-based (default 1)." },
+        end_line: { type: "number", description: "Last line to return, inclusive (default: end of file, capped)." }
+      },
+      required: ["run", "path"]
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        start_line: { type: "number" },
+        end_line: { type: "number" },
+        total_lines: { type: "number" },
+        truncated: { type: "boolean" },
+        content: { type: "string" }
+      },
+      required: ["path", "start_line", "end_line", "total_lines", "truncated", "content"]
+    }
+  }
+];
+var WRITE_TOOLS = [
+  {
+    name: "construct_init",
+    title: "Scaffold a run folder",
+    description: "WRITES TO DISK: create the run folder and its brief from a one-line idea. The brief is a SCAFFOLD \u2014 you fill it by interviewing the user, and everything downstream is only as good as that interview. Do not invent the answers.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        idea: { type: "string", description: "The product idea, in one line." },
+        out: { type: "string", description: "Absolute path for the run folder." }
+      },
+      required: ["idea", "out"]
+    }
+  }
+];
+var TOOL_META2 = {
+  construct_status: { openWorld: false },
+  construct_research: { write: true, destructive: false, idempotent: false, openWorld: true },
+  construct_research_angle: { openWorld: true },
+  construct_analyze: { openWorld: false },
+  construct_render: { write: true, destructive: false, idempotent: true, openWorld: false },
+  construct_check: { openWorld: false },
+  construct_review: { write: true, destructive: false, idempotent: true, openWorld: false },
+  construct_verify: { write: true, destructive: false, idempotent: true, openWorld: false },
+  construct_cache: { openWorld: false },
+  construct_read: { openWorld: false },
+  construct_init: { write: true, destructive: false, idempotent: true, openWorld: false }
+};
+function annotationsFor2(name2) {
+  const meta = TOOL_META2[name2];
+  if (!meta) return void 0;
+  return {
+    readOnlyHint: !meta.write,
+    ...meta.write ? { destructiveHint: meta.destructive === true, idempotentHint: meta.idempotent === true } : {},
+    openWorldHint: meta.openWorld === true
+  };
+}
+function toolsFor2(protocolVersion, opts = {}) {
+  const base = opts.allowWrite ? [...TOOLS2, ...WRITE_TOOLS] : TOOLS2;
+  const withAnnotations = protocolVersion >= ANNOTATIONS_SINCE2;
+  const withRich = protocolVersion >= RICH_TOOLS_SINCE2;
+  return base.map((t) => {
+    const decl = {
+      name: t.name,
+      description: t.description,
+      inputSchema: applyDefaultRun(t.inputSchema, opts.defaultRun)
+    };
+    if (withRich && t.title) decl.title = t.title;
+    if (withRich && t.outputSchema) decl.outputSchema = t.outputSchema;
+    if (withAnnotations) {
+      const a = annotationsFor2(t.name);
+      if (a) decl.annotations = a;
+    }
+    return decl;
+  });
+}
+function applyDefaultRun(schema, defaultRun) {
+  const existing = schema.properties.run;
+  if (!defaultRun || !existing) return schema;
+  return {
+    type: "object",
+    properties: {
+      ...schema.properties,
+      run: { ...existing, description: `${existing.description} Optional \u2014 defaults to ${defaultRun}.` }
+    },
+    required: schema.required.filter((r) => r !== "run")
+  };
+}
+
+// src/mcp/prompts.ts
+var PromptError = class extends Error {
+};
+var PROMPTS = [
+  {
+    name: "interview_idea",
+    title: "Interview an idea into a brief",
+    description: "The elicitation workflow: turn a one-line idea into a brief worth researching, by asking the questions whose answers change what gets built \u2014 not by filling the scaffold with plausible defaults.",
+    arguments: [{ name: "idea", description: "The product idea, in one line.", required: true }]
+  },
+  {
+    name: "enrich_srd",
+    title: "Write the SRD from the evidence",
+    description: "The authoring workflow: turn the brief and the evidence dossier into requirements with testable acceptance criteria, and make every significant decision traceable to something real.",
+    arguments: [{ name: "run", description: "The run folder.", required: true }]
+  },
+  {
+    name: "judge_adr",
+    title: "Decide an architectural choice on evidence",
+    description: "The decision workflow: ground a technology or architecture choice in what the candidates actually do \u2014 their docs, their open issues, what people hit in production \u2014 rather than in what you remember about them.",
+    arguments: [
+      { name: "run", description: "The run folder.", required: true },
+      { name: "decision", description: "The decision to make (e.g. 'which queue for the job pipeline').", required: false }
+    ]
+  }
+];
+function getPrompt(name2, args2 = {}) {
+  const decl = PROMPTS.find((p) => p.name === name2);
+  if (!decl) throw new PromptError(`unknown prompt: ${name2 || "(none given)"}`);
+  for (const arg of decl.arguments) {
+    if (arg.required && !str3(args2[arg.name])) throw new PromptError(`\`${arg.name}\` is required for prompt "${name2}"`);
+  }
+  const text = name2 === "interview_idea" ? interviewIdea(args2) : name2 === "enrich_srd" ? enrichSrd(args2) : judgeAdr(args2);
+  return { description: decl.description, messages: [{ role: "user", content: { type: "text", text } }] };
+}
+var CORE_RULE = `construct_check gates STRUCTURE, not truth: it fails on a malformed requirement, never on a decision that rests on nothing. Grounding coverage is advisory by design \u2014 which means the rigor is yours. Every significant decision cites evidence the dossier actually holds, or is marked openly as an assumption.`;
+var GATE = `\`construct_check\` returning \`ok: false\` is a VERDICT, not a tool failure \u2014 the SRD is malformed, and it says where. But a green check is NOT a quality signal: read its grounding coverage, and run \`construct_review\` to adjudicate the claims the gate cannot judge.`;
+function interviewIdea(args2) {
+  const idea = str3(args2.idea);
+  return `Turn this idea into a brief worth researching:
+
+> ${idea}
+
+${CORE_RULE}
+
+**Sequence:**
+
+1. \`construct_init\` with the idea \u2014 it scaffolds the run folder and a brief. The brief is a SCAFFOLD, not an answer.
+2. Interview the user. Do not fill the brief yourself.
+3. \`construct_research\` once the brief actually says something.
+
+**Ask the questions whose answers change what gets built.** Who specifically is this for, and what do they do today instead? What must it do on day one, and what is explicitly out of scope? What already exists that it has to live with \u2014 systems, data, contracts? What is the constraint that is not negotiable: a deadline, a regulation, a team size, a budget? What would make this a failure even if it shipped and worked?
+
+**One question at a time, and follow the surprising answer.** A brief assembled from plausible defaults produces an SRD that reads well and describes a product nobody asked for. If the user does not know an answer yet, record it as an open question \u2014 that is a real finding, and \`construct_research\` may settle it.
+
+${GATE}`;
+}
+function enrichSrd(args2) {
+  const run2 = str3(args2.run);
+  return `Write the SRD for the run at \`${run2}\`.
+
+${CORE_RULE}
+
+**Sequence:**
+
+1. \`construct_status\` \u2014 find out what exists and what is missing.
+2. \`construct_read\` the brief and the evidence dossier. Read the evidence before writing requirements, not after.
+3. \`construct_analyze\` \u2014 it names what is thin and the exact command that fills each gap. Fill the gaps that matter before rendering.
+4. \`construct_render\` (use \`merge: true\` if you are re-rendering over prose you already wrote).
+5. \`construct_check\`, then \`construct_review\` to adjudicate each claim against its evidence.
+
+**What a requirement has to be.** Testable: a Given/When/Then whose failure is observable, not "the system should be fast". Scoped: one behaviour, so a build task can implement exactly it. Traceable: it exists because of something in the brief or the evidence, and it says which.
+
+**Where the evidence is thin, say so in the SRD** rather than writing a confident requirement over a gap. An explicit assumption is a thing a reviewer can challenge; an invented one is not.
+
+${GATE}`;
+}
+function judgeAdr(args2) {
+  const run2 = str3(args2.run);
+  const decision = str3(args2.decision);
+  return `Decide ${decision ? `\`${decision}\`` : "the open architectural decisions"} for the run at \`${run2}\`, on evidence.
+
+${CORE_RULE}
+
+**Sequence:**
+
+1. \`construct_read\` the evidence already in the dossier for the candidates \u2014 do not re-research what you have.
+2. \`construct_research_angle\` with \`angle: "tech"\` for a candidate's real docs, and \`angle: "oss"\` for how it behaves in the field: open issues, what people hit, what the maintainers say they will not fix.
+3. \`construct_research_angle\` with \`angle: "so"\` for the pitfalls that only show up in production.
+4. Write the ADR: the decision, the alternatives, the consequences \u2014 each citing what you found.
+5. \`construct_check\` and \`construct_review\`.
+
+**Judge candidates on what they DO, not what they are known for.** A library's reputation is three years stale; its open issue list is not. The question is never "which is best" but "which fits THIS constraint" \u2014 the one the brief said is not negotiable.
+
+**Record what you gave up.** An ADR whose consequences section is empty has not made a decision, it has expressed a preference. And where the evidence genuinely does not separate two candidates, say that and pick on a stated tiebreak \u2014 that is an honest ADR.
+
+${GATE}`;
+}
+function str3(v) {
+  return typeof v === "string" && v.trim() !== "" ? v : void 0;
+}
+var DECLARED = new Set([...TOOLS2, ...WRITE_TOOLS].map((t) => t.name));
+
+// src/mcp/resources.ts
+import { existsSync as existsSync18, readdirSync as readdirSync5, readFileSync as readFileSync19, realpathSync as realpathSync3, statSync as statSync8 } from "fs";
+import { basename as basename3, dirname as dirname7, join as join35, resolve as resolve6, sep as sep5 } from "path";
+import { fileURLToPath as fileURLToPath4 } from "url";
+var SKILL_NAME = "construct";
+var URI_SCHEME = "skill://";
+function resolveSkillRoot(moduleDir) {
+  const here = moduleDir ?? dirname7(fileURLToPath4(import.meta.url));
+  const candidates = [resolve6(here, ".."), resolve6(here, "..", "skills", SKILL_NAME), resolve6(here, "..", "..", "skills", SKILL_NAME)];
+  return candidates.find((dir) => existsSync18(join35(dir, "SKILL.md")));
+}
+function listResources(moduleDir) {
+  const root = resolveSkillRoot(moduleDir);
+  if (!root) return [];
+  const out2 = [describe(root, "SKILL.md", `${SKILL_NAME}: the skill`)];
+  const refDir = join35(root, "references");
+  if (!existsSync18(refDir)) return out2;
+  for (const file of readdirSync5(refDir).sort()) {
+    if (!file.endsWith(".md")) continue;
+    out2.push(describe(root, join35("references", file), `${SKILL_NAME} reference: ${basename3(file, ".md")}`));
+  }
+  return out2;
+}
+function readResource(uri, moduleDir) {
+  if (!uri.startsWith(URI_SCHEME)) {
+    throw new ResourceError(`unknown resource scheme in "${uri}" (expected ${URI_SCHEME}\u2026)`);
+  }
+  const root = resolveSkillRoot(moduleDir);
+  if (!root) throw new ResourceError("no skill payload found next to this build \u2014 nothing to read");
+  const rel = uri.slice(URI_SCHEME.length);
+  if (!rel) throw new ResourceError("empty resource path");
+  const target = resolve6(root, rel);
+  const rootReal = realpathSync3(root);
+  let targetReal;
+  try {
+    targetReal = realpathSync3(target);
+  } catch {
+    throw new ResourceError(`no such resource: ${uri}`);
+  }
+  if (targetReal !== rootReal && !targetReal.startsWith(rootReal + sep5)) {
+    throw new ResourceError(`resource path escapes the skill root: ${uri}`);
+  }
+  if (!statSync8(targetReal).isFile()) throw new ResourceError(`not a file: ${uri}`);
+  return { uri, mimeType: "text/markdown", text: readFileSync19(targetReal, "utf8") };
+}
+var ResourceError = class extends Error {
+};
+function describe(root, rel, fallbackTitle) {
+  const decl = {
+    uri: `${URI_SCHEME}${rel.split(sep5).join("/")}`,
+    name: rel.split(sep5).join("/"),
+    title: fallbackTitle,
+    mimeType: "text/markdown"
+  };
+  const summary = firstProse(join35(root, rel));
+  if (summary) decl.description = summary;
+  return decl;
+}
+function firstProse(file) {
+  let text;
+  try {
+    text = readFileSync19(file, "utf8");
+  } catch {
+    return void 0;
+  }
+  const body2 = text.startsWith("---\n") ? text.slice(text.indexOf("\n---", 3) + 4) : text;
+  for (const block of body2.split(/\n\s*\n/)) {
+    const line2 = block.trim();
+    if (!line2 || line2.startsWith("#") || line2.startsWith(">") || line2.startsWith("|") || line2.startsWith("```")) continue;
+    const flat = line2.replace(/\s+/g, " ").replace(/[*`]/g, "");
+    return flat.length > 300 ? `${flat.slice(0, 297)}\u2026` : flat;
+  }
+  return void 0;
+}
+
+// src/mcp/server.ts
+var ERR_INVALID_REQUEST = -32600;
+var ERR_METHOD_NOT_FOUND = -32601;
+var ERR_INVALID_PARAMS = -32602;
+var ERR_INTERNAL = -32603;
+function createServer(opts = {}) {
+  const serverInfo = { name: opts.serverName ?? "construct", version: VERSION };
+  const maxBytes = opts.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES2;
+  let protocol = LATEST_PROTOCOL2;
+  const cancelled = /* @__PURE__ */ new Set();
+  const CANCELLED_MAX = 1024;
+  const listTools = () => toolsFor2(protocol, { defaultRun: opts.defaultRun, allowWrite: opts.allowWrite });
+  async function handle2(msg, send) {
+    if (msg === null || typeof msg !== "object" || Array.isArray(msg)) {
+      send({ jsonrpc: "2.0", id: null, error: { code: ERR_INVALID_REQUEST, message: "invalid request: expected a JSON-RPC object" } });
+      return;
+    }
+    if (msg.id === void 0 || msg.id === null) {
+      if (msg.method === "notifications/cancelled") {
+        const target = msg.params?.requestId;
+        if (typeof target === "string" || typeof target === "number") {
+          if (cancelled.size >= CANCELLED_MAX) cancelled.delete(cancelled.values().next().value);
+          cancelled.add(String(target));
+        }
+      }
+      return;
+    }
+    const id = msg.id;
+    const reply = (out2) => {
+      if (cancelled.delete(String(id))) return;
+      send({ jsonrpc: "2.0", id, ...out2 });
+    };
+    try {
+      switch (msg.method) {
+        case "initialize": {
+          protocol = negotiateProtocol2(msg.params?.protocolVersion);
+          reply({
+            result: {
+              protocolVersion: protocol,
+              // Three primitives, because a skill is three things: the engine
+              // (tools), the method (prompts) and the documentation the method
+              // refers to (resources). A client given only the first has to
+              // invent the other two.
+              capabilities: {
+                tools: { listChanged: false },
+                resources: { subscribe: false, listChanged: false },
+                prompts: { listChanged: false }
+              },
+              serverInfo
+            }
+          });
+          return;
+        }
+        case "ping":
+          reply({ result: {} });
+          return;
+        case "tools/list":
+          reply({ result: { tools: listTools() } });
+          return;
+        case "tools/call":
+          await handleToolCall(msg, reply);
+          return;
+        case "resources/list":
+          reply({ result: { resources: listResources(opts.skillDir) } });
+          return;
+        case "resources/read": {
+          const uri = typeof msg.params?.uri === "string" ? msg.params.uri : "";
+          if (!uri) {
+            reply({ error: { code: ERR_INVALID_PARAMS, message: "`uri` is required" } });
+            return;
+          }
+          try {
+            reply({ result: { contents: [readResource(uri, opts.skillDir)] } });
+          } catch (e) {
+            if (e instanceof ResourceError) reply({ error: { code: ERR_INVALID_PARAMS, message: e.message } });
+            else reply({ error: { code: ERR_INTERNAL, message: errMessage2(e) } });
+          }
+          return;
+        }
+        case "prompts/list":
+          reply({ result: { prompts: PROMPTS } });
+          return;
+        case "prompts/get": {
+          const name2 = typeof msg.params?.name === "string" ? msg.params.name : "";
+          const args2 = msg.params?.arguments ?? {};
+          try {
+            reply({ result: getPrompt(name2, args2) });
+          } catch (e) {
+            if (e instanceof PromptError) reply({ error: { code: ERR_INVALID_PARAMS, message: e.message } });
+            else reply({ error: { code: ERR_INTERNAL, message: errMessage2(e) } });
+          }
+          return;
+        }
+        default:
+          reply({ error: { code: ERR_METHOD_NOT_FOUND, message: `method not found: ${String(msg.method)}` } });
+          return;
+      }
+    } catch (e) {
+      reply({ error: { code: ERR_INTERNAL, message: errMessage2(e) } });
+    }
+  }
+  async function handleToolCall(msg, reply) {
+    const params = msg.params ?? {};
+    const name2 = typeof params.name === "string" ? params.name : "";
+    const args2 = params.arguments ?? {};
+    const decl = listTools().find((t) => t.name === name2);
+    if (!decl) {
+      reply({ error: { code: ERR_INVALID_PARAMS, message: `unknown tool: ${name2 || "(none given)"}` } });
+      return;
+    }
+    const invalid = validateArgs2(decl.inputSchema, args2);
+    if (invalid) {
+      reply({ error: { code: ERR_INVALID_PARAMS, message: invalid } });
+      return;
+    }
+    try {
+      const { text: raw, artifact } = await callTool2(name2, args2, { defaultRun: opts.defaultRun, allowWrite: opts.allowWrite });
+      const text = capResponse2(raw, name2, maxBytes, artifact);
+      const capped = text !== raw;
+      const structured = protocol >= RICH_TOOLS_SINCE2 ? structuredContentFor2(text, capped, decl.outputSchema !== void 0) : void 0;
+      reply({ result: { content: [{ type: "text", text }], ...structured ? { structuredContent: structured } : {} } });
+    } catch (e) {
+      if (e instanceof ToolError) {
+        reply({ result: { content: [{ type: "text", text: e.message }], isError: true } });
+        return;
+      }
+      reply({ error: { code: ERR_INTERNAL, message: errMessage2(e) } });
+    }
+  }
+  return {
+    handle: handle2,
+    protocolVersion: () => protocol,
+    setProtocolVersion: (v) => {
+      protocol = v;
+    },
+    tools: listTools
+  };
+}
+function errMessage2(e) {
+  return e instanceof Error ? e.message : String(e);
+}
+
+// src/mcp/stdio.ts
+var MAX_IN_FLIGHT = 4;
+async function runStdioServer(opts = {}) {
+  const input = opts.input ?? process.stdin;
+  const output = opts.output ?? process.stdout;
+  const emit2 = output.write.bind(output);
+  let restore;
+  if (!opts.captureStdout && output === process.stdout) {
+    const original = process.stdout.write;
+    process.stdout.write = ((chunk, ...rest) => process.stderr.write(chunk, ...rest));
+    restore = () => {
+      process.stdout.write = original;
+    };
+  }
+  const server = createServer(opts);
+  const send = (msg) => {
+    emit2(JSON.stringify(msg) + "\n");
+  };
+  const inFlight = /* @__PURE__ */ new Set();
+  const track = (p) => {
+    inFlight.add(p);
+    void p.finally(() => inFlight.delete(p));
+    return p;
+  };
+  const drainToLimit = async () => {
+    while (inFlight.size >= MAX_IN_FLIGHT) await Promise.race(inFlight);
+  };
+  const rl = createInterface2({ input, terminal: false });
+  try {
+    for await (const line2 of rl) {
+      const trimmed = line2.trim();
+      if (!trimmed) continue;
+      let parsed;
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch {
+        send({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } });
+        continue;
+      }
+      await drainToLimit();
+      if (Array.isArray(parsed)) {
+        track(
+          (async () => {
+            const out2 = [];
+            await Promise.all(parsed.map((m) => server.handle(m, (r) => void out2.push(r))));
+            if (out2.length) emit2(JSON.stringify(out2) + "\n");
+          })().catch(reportInternal(send))
+        );
+        continue;
+      }
+      if (parsed === null || typeof parsed !== "object") {
+        send({ jsonrpc: "2.0", id: null, error: { code: ERR_INVALID_REQUEST, message: "invalid request: expected a JSON-RPC object" } });
+        continue;
+      }
+      track(server.handle(parsed, send).catch(reportInternal(send)));
+    }
+    await Promise.all(inFlight);
+  } finally {
+    rl.close();
+    restore?.();
+  }
+}
+function reportInternal(send) {
+  return (e) => {
+    send({ jsonrpc: "2.0", id: null, error: { code: -32603, message: e instanceof Error ? e.message : String(e) } });
+  };
+}
+
+// src/mcp/http.ts
+import { createServer as createHttpServer } from "http";
+var MCP_PATH = "/mcp";
+var MAX_BODY_BYTES = 4 * 1024 * 1024;
+var CORS_HEADERS = "content-type, accept, mcp-protocol-version, mcp-session-id, authorization, last-event-id";
+var LOOPBACK_BIND = /* @__PURE__ */ new Set(["127.0.0.1", "::1", "localhost"]);
+function startHttpServer(opts = {}) {
+  const bind = opts.bind ?? "127.0.0.1";
+  if (!LOOPBACK_BIND.has(bind) && !opts.allowRemote) {
+    return Promise.reject(
+      new Error(
+        `refusing to bind ${bind}: construct's MCP server clones arbitrary git URLs and reads local files. Pass --allow-remote if that is really what you want.`
+      )
+    );
+  }
+  const server = createHttpServer((req, res) => {
+    void route(req, res, opts).catch((e) => {
+      if (res.headersSent) {
+        res.destroy();
+        return;
+      }
+      sendJson(res, 500, { jsonrpc: "2.0", id: null, error: { code: -32603, message: e instanceof Error ? e.message : String(e) } });
+    });
+  });
+  server.requestTimeout = 0;
+  server.headersTimeout = 6e4;
+  server.keepAliveTimeout = 12e4;
+  return new Promise((resolve8, reject) => {
+    server.once("error", reject);
+    server.listen(opts.port ?? 0, bind, () => {
+      server.removeListener("error", reject);
+      const addr2 = server.address();
+      const port = typeof addr2 === "object" && addr2 ? addr2.port : opts.port ?? 0;
+      const host = bind.includes(":") ? `[${bind}]` : bind;
+      resolve8({
+        server,
+        port,
+        url: `http://${host}:${port}${MCP_PATH}`,
+        close: () => new Promise((done) => {
+          server.closeAllConnections?.();
+          server.close(() => done());
+        })
+      });
+    });
+  });
+}
+async function route(req, res, opts) {
+  const path = (req.url ?? "").split("?")[0];
+  const origin = header(req, "origin");
+  if (!isOriginAllowed(origin, opts.allowOrigin)) {
+    sendJson(res, 403, { error: "origin not allowed", origin });
+    return;
+  }
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, {
+      ...corsHeaders(origin),
+      "access-control-allow-methods": "POST, GET, DELETE, OPTIONS",
+      "access-control-allow-headers": CORS_HEADERS,
+      "access-control-max-age": "86400"
+    });
+    res.end();
+    return;
+  }
+  if (path !== MCP_PATH) {
+    sendJson(res, 404, { error: `not found: ${path} (the MCP endpoint is ${MCP_PATH})` }, origin);
+    return;
+  }
+  if (req.method === "GET" || req.method === "DELETE") {
+    res.writeHead(405, { allow: "POST, OPTIONS", ...corsHeaders(origin) });
+    res.end(JSON.stringify({ error: `${req.method} is not supported: this server is stateless and offers no server-initiated stream` }));
+    return;
+  }
+  if (req.method !== "POST") {
+    res.writeHead(405, { allow: "POST, OPTIONS", ...corsHeaders(origin) });
+    res.end(JSON.stringify({ error: `${req.method} is not supported` }));
+    return;
+  }
+  const contentType = (header(req, "content-type") ?? "").split(";")[0].trim().toLowerCase();
+  if (contentType && contentType !== "application/json") {
+    sendJson(res, 415, { error: `unsupported content-type "${contentType}" \u2014 send application/json` }, origin);
+    return;
+  }
+  const accept = (header(req, "accept") ?? "").toLowerCase();
+  if (accept && !/application\/json|text\/event-stream|\*\/\*/.test(accept)) {
+    sendJson(res, 406, { error: "this endpoint replies with application/json" }, origin);
+    return;
+  }
+  const declared = header(req, "mcp-protocol-version");
+  if (declared !== void 0 && !isProtocolVersion(declared)) {
+    sendJson(res, 400, { error: `unsupported MCP-Protocol-Version: ${declared}` }, origin);
+    return;
+  }
+  const protocol = declared ?? ASSUMED_HTTP_PROTOCOL;
+  let raw;
+  try {
+    raw = await readBody(req);
+  } catch (e) {
+    if (e.message === "too large") {
+      sendJson(res, 413, { error: `request body exceeds ${MAX_BODY_BYTES} bytes` }, origin);
+      return;
+    }
+    sendJson(res, 400, { error: `could not read request body: ${e.message}` }, origin);
+    return;
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    sendJson(res, 200, { jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } }, origin);
+    return;
+  }
+  const mcp = createServer(opts);
+  mcp.setProtocolVersion(protocol);
+  const out2 = [];
+  const collect2 = (m) => void out2.push(m);
+  const messages = Array.isArray(parsed) ? parsed : [parsed];
+  for (const m of messages) await mcp.handle(m, collect2);
+  if (out2.length === 0) {
+    res.writeHead(202, corsHeaders(origin));
+    res.end();
+    return;
+  }
+  sendJson(res, 200, Array.isArray(parsed) ? out2 : out2[0], origin);
+}
+function header(req, name2) {
+  const v = req.headers[name2];
+  return Array.isArray(v) ? v[0] : v;
+}
+function corsHeaders(origin) {
+  return origin ? { "access-control-allow-origin": origin, vary: "origin" } : {};
+}
+function sendJson(res, status, body2, origin, extra = {}) {
+  const text = JSON.stringify(body2);
+  res.writeHead(status, {
+    "content-type": "application/json",
+    "content-length": String(Buffer.byteLength(text, "utf8")),
+    ...corsHeaders(origin),
+    ...extra
+  });
+  res.end(text);
+}
+var DRAIN_LIMIT = MAX_BODY_BYTES * 8;
+function readBody(req) {
+  return new Promise((resolve8, reject) => {
+    const chunks = [];
+    let size = 0;
+    let over = false;
+    const declared = Number(req.headers["content-length"]);
+    if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) over = true;
+    req.on("data", (c2) => {
+      size += c2.length;
+      if (over) {
+        if (size > DRAIN_LIMIT) {
+          req.destroy();
+          reject(new Error("too large"));
+        }
+        return;
+      }
+      if (size > MAX_BODY_BYTES) {
+        over = true;
+        chunks.length = 0;
+        return;
+      }
+      chunks.push(c2);
+    });
+    req.on("end", () => {
+      if (over) reject(new Error("too large"));
+      else resolve8(Buffer.concat(chunks).toString("utf8"));
+    });
+    req.on("error", reject);
+    req.on("aborted", () => reject(new Error("client aborted the request")));
+  });
+}
+
 // src/cli.ts
 var HELP2 = `construct v${VERSION}
 Turn a product idea into a grounded, buildable SRD suite. Interview \u2192 research
@@ -18977,7 +20111,8 @@ var COMMANDS = /* @__PURE__ */ new Set([
   "orchestrate",
   "semantic",
   "firecrawl",
-  "cache"
+  "cache",
+  "mcp"
 ]);
 var VALUE_FLAGS2 = /* @__PURE__ */ new Set([
   "idea",
@@ -19001,7 +20136,14 @@ var VALUE_FLAGS2 = /* @__PURE__ */ new Set([
   "phase",
   "adr",
   "concurrency",
-  "max-tech"
+  "max-tech",
+  // `mcp` only. The flag sets are global, so these are accepted (and ignored)
+  // on every command — the same as --phase and --list already are.
+  "transport",
+  "port",
+  "bind",
+  "allow-origin",
+  "max-response-bytes"
 ]);
 var BOOL_FLAGS = /* @__PURE__ */ new Set([
   "semantic",
@@ -19018,7 +20160,10 @@ var BOOL_FLAGS = /* @__PURE__ */ new Set([
   "eco",
   "list",
   "offline",
-  "all"
+  "all",
+  // `mcp` only.
+  "allow-remote",
+  "allow-write"
 ]);
 function fail(message) {
   process.stderr.write(`construct: ${message}
@@ -19090,12 +20235,12 @@ function parseArgs(argv) {
   }
   return { command, positional, values, bools };
 }
-var ALL_ANGLES = ["market", "oss", "tech", "semantic"];
-var DEFAULT_ANGLES = ["market", "oss", "tech"];
+var ALL_ANGLES2 = ["market", "oss", "tech", "semantic"];
+var DEFAULT_ANGLES2 = ["market", "oss", "tech"];
 function parseAngles(s) {
   const out2 = [];
   for (const t of s.split(",").map((x) => x.trim().toLowerCase()).filter(Boolean)) {
-    if (!ALL_ANGLES.includes(t)) fail(`unknown angle "${t}" (use: market,oss,tech,semantic)`);
+    if (!ALL_ANGLES2.includes(t)) fail(`unknown angle "${t}" (use: market,oss,tech,semantic)`);
     if (!out2.includes(t)) out2.push(t);
   }
   if (out2.length === 0) fail("--angles resolved to nothing");
@@ -19107,7 +20252,7 @@ function csv(s) {
 function requireOut(p) {
   const out2 = (p.values.out || p.values.run || "").trim();
   if (!out2) fail("missing --out <run>");
-  return resolve5(out2);
+  return resolve7(out2);
 }
 var warnBrief = (w) => void process.stderr.write(`  \u26A0 brief: ${w}
 `);
@@ -19162,7 +20307,7 @@ async function main() {
     case "init": {
       const idea = p.values.idea;
       if (!idea) fail('missing --idea "<one-liner>"');
-      const out2 = p.values.out ? resolve5(p.values.out) : resolve5(slugify(idea) || "construct-run");
+      const out2 = p.values.out ? resolve7(p.values.out) : resolve7(slugify(idea) || "construct-run");
       const brief = initBrief(idea, (/* @__PURE__ */ new Date()).toISOString());
       const path = saveBrief(out2, brief);
       process.stderr.write(
@@ -19215,7 +20360,7 @@ async function main() {
       const c2 = brainstormCounts(b);
       process.stderr.write(
         [
-          `construct: brainstorm board at ${join34(out2, "BRAINSTORM.md")}`,
+          `construct: brainstorm board at ${join36(out2, "BRAINSTORM.md")}`,
           `  ideas:  ${b.ideas.length} (${c2.kept} kept \xB7 ${c2.parked} parked \xB7 ${c2.proposed} proposed \xB7 ${c2.rejected} rejected)`,
           `  next:   generate ideas WITH the user (references/brainstorm-playbook.md), mark statuses in`,
           `          brainstorm.json, then: construct brainstorm --out ${out2} --merge`
@@ -19225,7 +20370,7 @@ async function main() {
     }
     case "research": {
       const out2 = requireOut(p);
-      const angles = p.values.angles ? parseAngles(p.values.angles) : DEFAULT_ANGLES;
+      const angles = p.values.angles ? parseAngles(p.values.angles) : DEFAULT_ANGLES2;
       const ctx = buildResearchContext(p, out2, angles);
       const v = validateBrief(ctx.brief);
       for (const w of v.warnings) process.stderr.write(`  \u26A0 ${w}
@@ -19284,7 +20429,7 @@ async function main() {
         const r2 = renderFromSRD(out2, { merge: p.bools.has("merge"), prd: p.bools.has("prd"), noPrd: p.bools.has("no-prd") });
         process.stderr.write(
           [
-            `construct: re-emitted the SRD tree from ${join34(out2, "SRD.json")}`,
+            `construct: re-emitted the SRD tree from ${join36(out2, "SRD.json")}`,
             `  files:    ${r2.files.length} (${r2.srd.functional.length} FR \xB7 ${r2.srd.nonFunctional.length} NFR \xB7 ${r2.srd.architecture.adrs.length} ADR)`,
             `  next:     construct check --out ${out2}`
           ].join("\n") + "\n"
@@ -19312,7 +20457,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
           `construct: rendered the ${level} SRD for "${brief.idea}"`,
           `  files:    ${r.files.length} (${r.srd.functional.length} FR \xB7 ${r.srd.nonFunctional.length} NFR \xB7 ${r.srd.architecture.adrs.length} ADR)`,
           ...design ? [`  design:   ${design.components.length} components \xB7 ${design.tokens.length} tokens \xB7 a11y ${design.accessibility.standard}`] : [],
-          `  manifest: ${join34(out2, "SRD.json")}`,
+          `  manifest: ${join36(out2, "SRD.json")}`,
           `  next:     construct check --out ${out2}`
         ].join("\n") + "\n"
       );
@@ -19350,7 +20495,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
     case "review": {
       const out2 = requireOut(p);
       if (p.values.apply) {
-        const res = applyVerdicts(out2, resolve5(p.values.apply));
+        const res = applyVerdicts(out2, resolve7(p.values.apply));
         if (p.bools.has("json")) process.stdout.write(JSON.stringify(res, null, 2) + "\n");
         else process.stdout.write(formatReviewReport(res) + "\n");
         if (!res.ok) process.exit(1);
@@ -19376,7 +20521,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
     case "verify": {
       const out2 = requireOut(p);
       const res = verifyRun(out2, {
-        appDir: p.values.app ? resolve5(p.values.app) : void 0,
+        appDir: p.values.app ? resolve7(p.values.app) : void 0,
         runTests: p.bools.has("run-tests"),
         strict: p.bools.has("strict")
       });
@@ -19395,7 +20540,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
         process.stdout.write(JSON.stringify(plan ? readyFrontier(plan) : null, null, 2) + "\n");
         return;
       }
-      const has = (rel) => existsSync17(join34(out2, rel)) ? "\u2713" : "\xB7";
+      const has = (rel) => existsSync19(join36(out2, rel)) ? "\u2713" : "\xB7";
       const planLine = plan ? `  \u2713 BUILD-PLAN.json (build: ${plan.tasks.filter((t) => t.status === "done").length}/${plan.tasks.length} tasks done)` : `  \xB7 BUILD-PLAN.json (build plan)`;
       const bs = loadBrainstorm(out2);
       const bsLine = bs ? (() => {
@@ -19423,10 +20568,10 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
         process.stderr.write("construct orchestrate: --out <run> is required (the run folder to orchestrate).\n");
         process.exit(2);
       }
-      const runDir = resolve5(rawOut);
-      const engineAbs = realpathSync2(fileURLToPath4(import.meta.url));
+      const runDir = resolve7(rawOut);
+      const engineAbs = realpathSync4(fileURLToPath5(import.meta.url));
       if (p.bools.has("list")) {
-        if (!existsSync17(runDir)) {
+        if (!existsSync19(runDir)) {
           process.stderr.write(`construct orchestrate: run dir not found: ${runDir}.
 `);
           process.exit(2);
@@ -19458,7 +20603,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
           "Then fold the returned fragments in yourself and run the fold command named at the tail of each workflow (you stay the sole writer).\n"
         );
       } else {
-        process.stderr.write(`Follow ${join34(runDir, "orchestration", "RUNBOOK.md")} sequentially (the eco path).
+        process.stderr.write(`Follow ${join36(runDir, "orchestration", "RUNBOOK.md")} sequentially (the eco path).
 `);
       }
       return;
@@ -19469,6 +20614,42 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
       const r = stackControl(p.command, action);
       process.stdout.write(r.message + "\n");
       if (r.code !== 0) process.exit(r.code);
+      return;
+    }
+    case "mcp": {
+      const transport = oneOf("transport", p.values.transport ?? "stdio", ["stdio", "http"]);
+      const maxResponseBytes = p.values["max-response-bytes"] ? Number(p.values["max-response-bytes"]) : void 0;
+      if (maxResponseBytes !== void 0 && (!Number.isFinite(maxResponseBytes) || maxResponseBytes <= 0)) fail("invalid --max-response-bytes");
+      const options2 = {
+        // A default run makes `run` optional on every tool, for a server
+        // dedicated to one SRD.
+        defaultRun: p.values.out ?? p.values.run,
+        allowWrite: p.bools.has("allow-write"),
+        maxResponseBytes
+      };
+      if (transport === "stdio") {
+        await runStdioServer(options2);
+        return;
+      }
+      const port = p.values.port ? Number(p.values.port) : 7342;
+      if (!Number.isInteger(port) || port < 0 || port > 65535) fail("invalid --port");
+      const allowOrigin = p.values["allow-origin"] ? p.values["allow-origin"].split(",").map((x) => x.trim()).filter(Boolean) : void 0;
+      let running;
+      try {
+        running = await startHttpServer({ ...options2, port, bind: p.values.bind, allowOrigin, allowRemote: p.bools.has("allow-remote") });
+      } catch (e) {
+        fail(e.message);
+      }
+      process.stderr.write(`construct: MCP server listening on ${running.url}
+`);
+      process.stderr.write(`  client: claude mcp add --transport http construct ${running.url}
+`);
+      for (const sig of ["SIGINT", "SIGTERM"]) {
+        process.once(sig, () => {
+          void running.close().then(() => process.exit(0));
+        });
+      }
+      await new Promise((res) => running.server.once("close", res));
       return;
     }
     case "cache": {
@@ -19509,7 +20690,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
   }
 }
 function nextCommand(out2, plan) {
-  const has = (rel) => existsSync17(join34(out2, rel));
+  const has = (rel) => existsSync19(join36(out2, rel));
   if (!has("brief.json")) return `construct init --idea "<one-liner>" --out ${out2}   (then fill brief.json via the interview)`;
   if (!has("evidence/evidence.json")) return `construct research --out ${out2} --angles market,oss,tech`;
   if (!has("SRD.json")) return `construct render --out ${out2} --level complex`;
@@ -19522,10 +20703,10 @@ function nextCommand(out2, plan) {
   return `construct check --out ${out2} --semantic`;
 }
 function loadEvidence4(runDir) {
-  const path = join34(runDir, "evidence", "evidence.json");
-  if (!existsSync17(path)) return [];
+  const path = join36(runDir, "evidence", "evidence.json");
+  if (!existsSync19(path)) return [];
   try {
-    const data = JSON.parse(readFileSync18(path, "utf8"));
+    const data = JSON.parse(readFileSync20(path, "utf8"));
     return Array.isArray(data) ? data.filter(isEvidenceItem) : [];
   } catch {
     return [];
@@ -19537,9 +20718,9 @@ function isEvidenceItem(e) {
 function isInvokedDirectly() {
   const argv1 = process.argv[1];
   if (argv1 === void 0) return false;
-  const modulePath = fileURLToPath4(import.meta.url);
+  const modulePath = fileURLToPath5(import.meta.url);
   try {
-    if (realpathSync2(argv1) === realpathSync2(modulePath)) return true;
+    if (realpathSync4(argv1) === realpathSync4(modulePath)) return true;
   } catch {
   }
   return import.meta.url === pathToFileURL3(argv1).href;
