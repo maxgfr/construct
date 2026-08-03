@@ -315,3 +315,32 @@ describe("httpJson", () => {
     expect(r.error).toMatch(/ECONNREFUSED/);
   });
 });
+
+describe("PDF fetching", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  // Before the ladder there was no PDF branch at all: `extract` fell through its
+  // isHtml test and returned res.body verbatim — the PDF's bytes decoded as
+  // UTF-8 — which was then cached and quoted into requirements as if it were
+  // prose.
+  it("extracts a PDF instead of passing its bytes along as text", async () => {
+    const prose = "A clean sentence of extracted prose, long enough for the quality gate to judge it fairly. ".repeat(3);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => res(`%PDF-1.4\nstream\nBT (${prose}) Tj ET\nendstream\n`, { contentType: "application/pdf" })),
+    );
+    const r = await fetchAndExtract("https://pdf1.example/paper.pdf");
+    expect(r.text).toContain("A clean sentence of extracted prose");
+    expect(r.text).not.toContain("%PDF");
+  });
+
+  it("refuses a PDF no rung could read rather than emitting binary", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => res("%PDF-1.4 no text operators here", { contentType: "application/pdf" })),
+    );
+    const r = await fetchAndExtract("https://pdf2.example/scan.pdf");
+    expect(r.text).toBe("");
+    expect(r.note).toMatch(/could not extract text/i);
+  });
+});

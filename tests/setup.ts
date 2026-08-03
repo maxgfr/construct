@@ -18,4 +18,11 @@ process.env.CONSTRUCT_CACHE_DIR = dir;
 // default; the cases that exercise it opt in explicitly.
 process.env.CONSTRUCT_FIRECRAWL = "off";
 
+// The PDF extractor ladder shells out to npx (pdf-inspector) and pdftotext. In a
+// test that would mean network access, ~90s timeouts, and results that depend on
+// which tools the developer happens to have installed — the opposite of an
+// offline, deterministic suite. Pin it to the built-in reader; the cases that
+// exercise other rungs pass `engines` themselves.
+process.env.CONSTRUCT_PDF_ENGINE = "native";
+
 afterAll(() => rmSync(dir, { recursive: true, force: true }));

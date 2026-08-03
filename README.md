@@ -189,3 +189,20 @@ and [`docker/firecrawl/README.md`](docker/firecrawl/README.md).
 ## License
 
 MIT © maxgfr
+
+## PDF sources
+
+A `.pdf` URL or an `application/pdf` response goes through an **extractor
+ladder** (`src/research/pdf/`): `npx @firecrawl/pdf-inspector` (the PDF on
+stdin, in a child process) → the self-hosted Firecrawl → `pdftotext` → a
+built-in dependency-free reader — stopping at the first rung whose output passes
+a quality gate, and REFUSING rather than quoting a PDF none of them could read.
+
+Without it a PDF body was returned verbatim: its bytes decoded as UTF-8, cached,
+and quoted into requirements as if it were prose. The gate rejects text laced
+with C0/C1 control bytes or U+FFFD at ANY length — the built-in reader can emit
+16 MB of image-stream garbage for a 12 MB paper, which every length-limited
+check waves through.
+
+`CONSTRUCT_NO_NPX=1` drops the npx rung; `CONSTRUCT_PDF_ENGINE=<rung>` pins one.
+

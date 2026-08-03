@@ -4,8 +4,13 @@ import { HTTP_GET_TIMEOUT_MS, HTTP_JSON_TIMEOUT_MS, RETRY_AFTER_CAP_MS, RETRY_BA
 import { recordFetch } from "./metrics.js";
 import * as cache from "./cache.js";
 import { probeFirecrawl, scrapeViaFirecrawl } from "./firecrawl.js";
+import { extractPdf } from "./pdf/ladder.js";
 
 type RawItem = Omit<EvidenceItem, "id">;
+
+const PDF_URL_RE = /\.pdf($|[?#])/i;
+// 16 MB: papers and specs routinely exceed the 4 MB default for HTML.
+const PDF_FETCH_OPTS = { accept: "application/pdf,*/*", binary: true, maxBytes: 16 * 1024 * 1024 } as const;
 
 const UA = "construct/0.x (+https://github.com/maxgfr/construct)";
 // A recent desktop-browser UA, used ONLY as a fallback when the polite bot UA is
@@ -21,6 +26,7 @@ export interface HttpResult {
   retryAfter?: string; // raw Retry-After header, when the server sent one
   etag?: string; // validators kept so a stale cache entry can be revalidated
   lastModified?: string;
+  bytes?: Buffer; // raw body, only when opts.binary — a PDF must not be decoded as utf8
 }
 
 // A failure worth one more try: the network hiccuped (status 0), the server
@@ -45,6 +51,7 @@ export async function httpGet(
     accept?: string;
     maxBytes?: number;
     headers?: Record<string, string>;
+    binary?: boolean;
     retries?: number;
     sleep?: (ms: number) => Promise<void>;
   } = {},
@@ -68,7 +75,7 @@ export async function httpGet(
 
 async function httpGetOnce(
   url: string,
-  opts: { timeoutMs?: number; accept?: string; maxBytes?: number; headers?: Record<string, string> },
+  opts: { timeoutMs?: number; accept?: string; maxBytes?: number; headers?: Record<string, string>; binary?: boolean },
 ): Promise<HttpResult> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? HTTP_GET_TIMEOUT_MS);
@@ -84,7 +91,8 @@ async function httpGetOnce(
     return {
       ok: res.ok,
       status: res.status,
-      body: buf.subarray(0, max).toString("utf8"),
+      body: opts.binary ? "" : buf.subarray(0, max).toString("utf8"),
+      bytes: opts.binary ? buf.subarray(0, max) : undefined,
       contentType: res.headers.get("content-type") ?? "",
       retryAfter: res.headers.get("retry-after") ?? undefined,
       etag: res.headers.get("etag") ?? undefined,
@@ -310,6 +318,22 @@ export async function fetchAndExtract(url: string): Promise<{ text: string; note
       return { ...out, note: `${url} returned ${res.status}; served the cached copy from ${new Date(cached.entry.fetchedAt).toISOString()}.` };
     }
     return { text: "", note: `Could not fetch ${url} (status ${res.status}${res.error ? ", " + res.error : ""}).` };
+  }
+  // A PDF is not text. Without this branch `extract` falls through its isHtml
+  // test and returns res.body verbatim — the PDF's bytes decoded as UTF-8 —
+  // which then gets cached and quoted into requirements as if it were prose.
+  if (PDF_URL_RE.test(url) || /application\/pdf/i.test(res.contentType)) {
+    const bytes = res.bytes ?? (await httpGet(url, PDF_FETCH_OPTS)).bytes;
+    const got = bytes
+      ? await extractPdf(bytes, {
+          firecrawl: async () => (await scrapeViaFirecrawl(url))?.markdown,
+        })
+      : { text: "", reason: "empty response body" };
+    if (!got.text) return { text: "", note: `Fetched ${url} but could not extract text — ${got.reason}.` };
+    // `text/markdown` is what tells every reader of this entry that the body is
+    // already clean prose and must not go through the HTML stripper.
+    cache.write(url, { status: res.status, contentType: "text/markdown", extractor: "native", etag: res.etag, lastModified: res.lastModified }, got.text);
+    return { text: got.text, ...(note ? { note } : {}) };
   }
   cache.write(url, { status: res.status, contentType: res.contentType, extractor: "native", etag: res.etag, lastModified: res.lastModified }, res.body);
   return { ...extract(res.body, res.contentType), ...(note ? { note } : {}) };
