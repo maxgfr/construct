@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [3.6.0](https://github.com/maxgfr/construct/compare/v3.5.0...v3.6.0) (2026-08-03)
+
+
+### Features
+
+* **engine:** re-pin codeindex v2.26.0 ([bd8f21b](https://github.com/maxgfr/construct/commit/bd8f21b23523db5f132aadfe5d264790d035b85a))
+* **pdf:** extract PDFs through a ladder instead of emitting raw bytes ([25965d3](https://github.com/maxgfr/construct/commit/25965d3566469f81170463ba301ee5561e71790e))
+
 # [3.5.0](https://github.com/maxgfr/construct/compare/v3.4.0...v3.5.0) (2026-08-01)
 
 
