@@ -8,6 +8,12 @@ const SEARXNG_BASE = process.env.CONSTRUCT_SEARXNG || "http://localhost:8888";
 
 // Discovery via a LOCAL SearXNG instance (keyless, self-hosted, brought up by
 // `construct semantic up`). Returns null when unreachable so we fall through.
+// SearXNG answers 200 with an EMPTY result list when its own upstreams have
+// throttled it, naming them in `unresponsive_engines` rather than failing. Those
+// names are carried out so a rate-limited instance is not reported as a query
+// with no hits — the first is transient and worth retrying, the second is not.
+let searxngThrottled: string[] = [];
+
 async function viaSearxng(query: string, n: number): Promise<string[] | null> {
   const url = `${SEARXNG_BASE.replace(/\/$/, "")}/search?q=${encodeURIComponent(query)}&format=json`;
   // Local instance: a refused connection won't heal in 300ms — don't retry.
@@ -15,6 +21,10 @@ async function viaSearxng(query: string, n: number): Promise<string[] | null> {
   if (!r.ok) return null;
   try {
     const data = JSON.parse(r.body);
+    // `[["brave","Suspended: too many requests"],["duckduckgo","CAPTCHA"],…]`
+    searxngThrottled = (Array.isArray(data.unresponsive_engines) ? data.unresponsive_engines : [])
+      .map((u: any) => (Array.isArray(u) ? (u[1] ? `${u[0]} (${u[1]})` : String(u[0])) : String(u)))
+      .filter(Boolean);
     const urls = (data.results ?? []).map((x: any) => x.url).filter(Boolean);
     return urls.slice(0, n);
   } catch {
@@ -99,7 +109,13 @@ export async function discover(query: string, engine: WebEngine, n: number): Pro
     if (s === null) searxngDown = true;
     if (s?.length) return { urls: s, via: "searxng", notes };
     if (engine === "searxng") {
-      notes.push(s === null ? `SearXNG unreachable at ${SEARXNG_BASE}. Run \`construct semantic up\`.` : "SearXNG returned no results.");
+      notes.push(
+        s === null
+          ? `SearXNG unreachable at ${SEARXNG_BASE}. Run \`construct semantic up\`.`
+          : searxngThrottled.length
+            ? `SearXNG returned no results — its upstream engines are throttling this instance, which is transient: ${searxngThrottled.join(", ")}. Retry in a few minutes.`
+            : "SearXNG returned no results.",
+      );
     }
   }
   if (engine === "ddg" || engine === "auto") {

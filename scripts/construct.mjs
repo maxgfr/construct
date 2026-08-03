@@ -1874,12 +1874,14 @@ async function pool(items, limit, fn) {
 
 // src/research/web.ts
 var SEARXNG_BASE = process.env.CONSTRUCT_SEARXNG || "http://localhost:8888";
+var searxngThrottled = [];
 async function viaSearxng(query2, n) {
   const url = `${SEARXNG_BASE.replace(/\/$/, "")}/search?q=${encodeURIComponent(query2)}&format=json`;
   const r = await httpGet(url, { accept: "application/json", timeoutMs: SEARXNG_TIMEOUT_MS, retries: 0 });
   if (!r.ok) return null;
   try {
     const data = JSON.parse(r.body);
+    searxngThrottled = (Array.isArray(data.unresponsive_engines) ? data.unresponsive_engines : []).map((u) => Array.isArray(u) ? u[1] ? `${u[0]} (${u[1]})` : String(u[0]) : String(u)).filter(Boolean);
     const urls = (data.results ?? []).map((x) => x.url).filter(Boolean);
     return urls.slice(0, n);
   } catch {
@@ -1926,7 +1928,9 @@ async function discover(query2, engine, n) {
     if (s === null) searxngDown = true;
     if (s?.length) return { urls: s, via: "searxng", notes };
     if (engine === "searxng") {
-      notes.push(s === null ? `SearXNG unreachable at ${SEARXNG_BASE}. Run \`construct semantic up\`.` : "SearXNG returned no results.");
+      notes.push(
+        s === null ? `SearXNG unreachable at ${SEARXNG_BASE}. Run \`construct semantic up\`.` : searxngThrottled.length ? `SearXNG returned no results \u2014 its upstream engines are throttling this instance, which is transient: ${searxngThrottled.join(", ")}. Retry in a few minutes.` : "SearXNG returned no results."
+      );
     }
   }
   if (engine === "ddg" || engine === "auto") {
