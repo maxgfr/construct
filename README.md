@@ -206,3 +206,18 @@ check waves through.
 
 `CONSTRUCT_NO_NPX=1` drops the npx rung; `CONSTRUCT_PDF_ENGINE=<rung>` pins one.
 
+## Shared container stack
+
+The stack is **shared with the sibling skills** (ultrasearch, construct,
+ultradoc): one compose project, one set of containers, one set of volumes. They
+used to define three separate projects on the same host ports, so only one could
+be up at a time — starting a second failed on the port *after* leaving its
+sidecars running. Bringing it up from any of them now targets the same
+containers, so the second is a no-op and the RAM is paid once.
+
+Upgrading from a version with per-skill container names? Remove the old ones
+once — this file can no longer stop them, and they still hold the ports:
+
+```bash
+docker rm -f $(docker ps -aq --filter name='^(ultrasearch|construct|ultradoc)-')
+```
