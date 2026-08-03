@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { readFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { discover, webFetchUrls } from "../src/research/web.js";
+import { discover, resetDiscoveryProbes, webFetchUrls } from "../src/research/web.js";
 import { marketAngle } from "../src/research/market.js";
 import { runResearch } from "../src/research/registry.js";
 
@@ -274,5 +274,52 @@ describe("feature-targeted excerpting (multi-question)", () => {
     } as never;
     const [r] = await marketAngle(ctx);
     expect(r!.items.map((i) => i.snippet).join(" ")).toMatch(/escrow payment is released/i);
+  });
+});
+
+// SearXNG answers 200 with an EMPTY result list when its own upstreams have
+// throttled it, naming them in `unresponsive_engines`. Reporting that as a query
+// with no hits sends you rewording a question that was fine.
+describe("SearXNG throttling", () => {
+  // `searxngDown` is memoised for the process: an earlier case in this file
+  // marks it dead, which would make these read as "unreachable".
+  beforeEach(() => resetDiscoveryProbes());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    resetDiscoveryProbes();
+  });
+
+  it("names the throttled upstream engines and says it is transient", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        res(
+          JSON.stringify({
+            results: [],
+            unresponsive_engines: [
+              ["brave", "Suspended: too many requests"],
+              ["duckduckgo", "CAPTCHA"],
+            ],
+          }),
+          { contentType: "application/json" },
+        ),
+      ),
+    );
+    const r = await discover("anything", "searxng", 5);
+    expect(r.urls).toHaveLength(0);
+    const note = r.notes.join(" ");
+    expect(note).toMatch(/throttling this instance/i);
+    expect(note).toMatch(/transient/i);
+    expect(note).toContain("brave (Suspended: too many requests)");
+  });
+
+  it("still says plainly when a query simply has no hits", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => res(JSON.stringify({ results: [] }), { contentType: "application/json" })),
+    );
+    const r = await discover("anything", "searxng", 5);
+    expect(r.notes.join(" ")).toContain("SearXNG returned no results.");
+    expect(r.notes.join(" ")).not.toMatch(/throttling/i);
   });
 });
