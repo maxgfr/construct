@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+## [3.6.1](https://github.com/maxgfr/construct/compare/v3.6.0...v3.6.1) (2026-08-03)
+
+
+### Bug Fixes
+
+* **searxng:** say when the instance is throttled, not that the query is empty ([97c931d](https://github.com/maxgfr/construct/commit/97c931dd5e20853c5299a9f3c96d6df92b95b1b3))
+
 # [3.6.0](https://github.com/maxgfr/construct/compare/v3.5.0...v3.6.0) (2026-08-03)
 
 
