@@ -1367,6 +1367,8 @@ async function searchViaFirecrawl(query2, n) {
 
 // src/research/pdf/exec.ts
 import { spawn } from "child_process";
+var PDF_INSPECTOR_SPEC = "@firecrawl/pdf-inspector@1";
+var ANYDOC_SPEC = "@firecrawl/anydoc@0.1";
 var MAX_STDOUT_BYTES = 24 * 1024 * 1024;
 function binaryName(name2) {
   return process.platform === "win32" && name2 === "npx" ? "npx.cmd" : name2;
@@ -1566,11 +1568,11 @@ function enabledExtractors(engines) {
   return PDF_EXTRACTORS;
 }
 async function viaAnydoc(bytes) {
-  const r = await runWithInput("npx", ["-y", "--prefer-offline", "@firecrawl/anydoc", "-", "--format", "pdf"], bytes, NPX_TIMEOUT_MS);
+  const r = await runWithInput("npx", ["-y", "--prefer-offline", ANYDOC_SPEC, "-", "--format", "pdf"], bytes, NPX_TIMEOUT_MS);
   return r.ok ? r.stdout : void 0;
 }
 async function viaPdfInspector(bytes) {
-  const r = await runWithInput("npx", ["-y", "--prefer-offline", "@firecrawl/pdf-inspector", "-"], bytes, NPX_TIMEOUT_MS);
+  const r = await runWithInput("npx", ["-y", "--prefer-offline", PDF_INSPECTOR_SPEC, "-"], bytes, NPX_TIMEOUT_MS);
   return r.ok ? r.stdout : void 0;
 }
 async function viaPdftotext(bytes) {
@@ -1615,7 +1617,7 @@ function enabledDocExtractors(engines) {
   return DOC_EXTRACTORS;
 }
 async function viaAnydoc2(bytes, format) {
-  const args2 = ["-y", "--prefer-offline", "@firecrawl/anydoc", "-"];
+  const args2 = ["-y", "--prefer-offline", ANYDOC_SPEC, "-"];
   if (format) args2.push("--format", format);
   const r = await runWithInput("npx", args2, bytes, NPX_TIMEOUT_MS2);
   return r.ok ? r.stdout : void 0;

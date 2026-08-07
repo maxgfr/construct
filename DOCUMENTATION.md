@@ -193,14 +193,14 @@ Node 18 zero-dep floor job (the committed bundle renders + checks with no instal
 ## PDF sources
 
 A `.pdf` URL or an `application/pdf` response goes through an **extractor
-ladder** (`src/research/pdf/`): `npx @firecrawl/pdf-inspector` → `npx @firecrawl/anydoc` (the PDF on
+ladder** (`src/research/pdf/`): `npx @firecrawl/pdf-inspector@1` → `npx @firecrawl/anydoc@0.1` (the PDF on
 stdin, in a child process) → the self-hosted Firecrawl → `pdftotext` → a
 built-in dependency-free reader — stopping at the first rung whose output passes
 a quality gate, and REFUSING rather than quoting a PDF none of them could read.
 
 **Office documents** — `.docx`/`.doc`/`.odt`/`.rtf`, `.pptx`/`.ppt`/`.odp`,
 `.xlsx`/`.xls`/`.ods`, `.epub`, `.csv` — go through their own two-rung ladder
-(`src/research/doc/`): `npx @firecrawl/anydoc` (the bytes on stdin, converted to
+(`src/research/doc/`): `npx @firecrawl/anydoc@0.1` (the bytes on stdin, converted to
 GitHub-Flavored Markdown) → the self-hosted Firecrawl. Same gate, same refusal.
 
 The refusal is the point: these are ZIP and OLE containers, so the fall-through
