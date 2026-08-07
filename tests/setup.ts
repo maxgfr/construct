@@ -31,4 +31,9 @@ process.env.CONSTRUCT_PDF_ENGINE = "native";
 // default honest: an office document nothing can read must REFUSE.
 process.env.CONSTRUCT_DOC_ENGINE = "none";
 
+// OCR shells out to copyable-pdf + tesseract and rasterises at 300 DPI:
+// machine-dependent, and seconds per page. A budget of 0 switches the rung off
+// for the suite; tests/pdf-ocr.test.ts drives it with the subprocess stubbed.
+process.env.CONSTRUCT_OCR_MAX = "0";
+
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
