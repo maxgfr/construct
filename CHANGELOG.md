@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [3.9.0](https://github.com/maxgfr/construct/compare/v3.8.1...v3.9.0) (2026-08-07)
+
+
+### Features
+
+* **pdf:** read scanned PDFs with copyable-pdf, the ladder's OCR rung ([a4f8b27](https://github.com/maxgfr/construct/commit/a4f8b278b6abe52ded0686f2d436dd50bb4ed790))
+
 ## [3.8.1](https://github.com/maxgfr/construct/compare/v3.8.0...v3.8.1) (2026-08-07)
 
 
