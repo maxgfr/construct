@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+## [3.8.1](https://github.com/maxgfr/construct/compare/v3.8.0...v3.8.1) (2026-08-07)
+
+
+### Bug Fixes
+
+* **pdf,doc:** pin the npx extractor rungs instead of floating on latest ([9fc1179](https://github.com/maxgfr/construct/commit/9fc1179534590e090d6c31366607059d7eaff5d6))
+
 # [3.8.0](https://github.com/maxgfr/construct/compare/v3.7.0...v3.8.0) (2026-08-07)
 
 
