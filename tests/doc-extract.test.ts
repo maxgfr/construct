@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fetchAndExtract } from "../src/research/fetch.js";
-import { resetDocLadderCache } from "../src/research/doc/ladder.js";
+import { resetDocLadderCache } from "../src/research/doc.js";
 
 // A real .docx — a ZIP whose first bytes are `PK\x03\x04` and which is full of
 // bytes above 0x7F. Committed rather than generated so the regression below is

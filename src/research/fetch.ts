@@ -4,9 +4,9 @@ import { HTTP_GET_TIMEOUT_MS, HTTP_JSON_TIMEOUT_MS, RETRY_AFTER_CAP_MS, RETRY_BA
 import { recordFetch } from "./metrics.js";
 import * as cache from "./cache.js";
 import { probeFirecrawl, scrapeViaFirecrawl } from "./firecrawl.js";
-import { extractPdf } from "./pdf/ladder.js";
-import { extractDocument } from "./doc/ladder.js";
-import { docFormatForUrl, docFormatForContentType } from "./doc/formats.js";
+import { extractPdf } from "./pdf.js";
+import { extractDocument } from "./doc.js";
+import { docFormatForUrl, docFormatForContentType } from "./doc.js";
 
 type RawItem = Omit<EvidenceItem, "id">;
 

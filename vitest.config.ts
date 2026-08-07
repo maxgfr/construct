@@ -11,6 +11,10 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       include: ["src/**"],
+      // The vendored engines are pinned artifacts with their own suites and
+      // their own ratchets in their own repositories, and their bytes are
+      // verified against a sha256 rather than edited here.
+      exclude: ["src/vendor/**"],
       reporter: ["text", "lcov"],
     },
   },
