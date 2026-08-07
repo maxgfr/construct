@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [3.8.0](https://github.com/maxgfr/construct/compare/v3.7.0...v3.8.0) (2026-08-07)
+
+
+### Features
+
+* **doc:** read office documents instead of quoting their bytes ([91c6593](https://github.com/maxgfr/construct/commit/91c6593ea926cf8567b0f6fb498ae4ff69afa768))
+
 # [3.7.0](https://github.com/maxgfr/construct/compare/v3.6.1...v3.7.0) (2026-08-06)
 
 
