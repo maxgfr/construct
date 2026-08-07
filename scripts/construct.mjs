@@ -1436,8 +1436,11 @@ function scanRatios(t) {
   return { control: control / t.length, replacement: replacement / t.length };
 }
 function assessPdfText(text) {
+  return assessExtractedText(text, "no text layer (scanned or image-only PDF?)");
+}
+function assessExtractedText(text, emptyReason) {
   const t = text.trim();
-  if (!t) return { ok: false, reason: "no text layer (scanned or image-only PDF?)" };
+  if (!t) return { ok: false, reason: emptyReason };
   const { control, replacement } = scanRatios(t);
   if (control > CONTROL_RATIO_MAX) {
     return { ok: false, reason: "binary/control characters in the text (undecodable PDF stream)" };
@@ -1551,7 +1554,7 @@ function pdfToText(buf) {
 }
 
 // src/research/pdf/ladder.ts
-var PDF_EXTRACTORS = ["pdf-inspector", "firecrawl", "pdftotext", "native"];
+var PDF_EXTRACTORS = ["pdf-inspector", "anydoc", "firecrawl", "pdftotext", "native"];
 var NPX_TIMEOUT_MS = 9e4;
 var PDFTOTEXT_TIMEOUT_MS = 6e4;
 var dead = /* @__PURE__ */ new Set();
@@ -1559,8 +1562,12 @@ function enabledExtractors(engines) {
   if (engines) return engines;
   const forced = process.env.CONSTRUCT_PDF_ENGINE?.trim();
   if (forced && PDF_EXTRACTORS.includes(forced)) return [forced];
-  if (process.env.CONSTRUCT_NO_NPX) return PDF_EXTRACTORS.filter((e) => e !== "pdf-inspector");
+  if (process.env.CONSTRUCT_NO_NPX) return PDF_EXTRACTORS.filter((e) => e !== "pdf-inspector" && e !== "anydoc");
   return PDF_EXTRACTORS;
+}
+async function viaAnydoc(bytes) {
+  const r = await runWithInput("npx", ["-y", "--prefer-offline", "@firecrawl/anydoc", "-", "--format", "pdf"], bytes, NPX_TIMEOUT_MS);
+  return r.ok ? r.stdout : void 0;
 }
 async function viaPdfInspector(bytes) {
   const r = await runWithInput("npx", ["-y", "--prefer-offline", "@firecrawl/pdf-inspector", "-"], bytes, NPX_TIMEOUT_MS);
@@ -1577,6 +1584,7 @@ async function extractPdf(bytes, opts = {}) {
     let text;
     try {
       if (id === "pdf-inspector") text = await viaPdfInspector(bytes);
+      else if (id === "anydoc") text = await viaAnydoc(bytes);
       else if (id === "pdftotext") text = await viaPdftotext(bytes);
       else if (id === "firecrawl") text = opts.firecrawl ? await opts.firecrawl() : void 0;
       else text = pdfToText(bytes);
@@ -1594,9 +1602,106 @@ async function extractPdf(bytes, opts = {}) {
   return { text: "", reason: lastReason ?? "no PDF extractor available" };
 }
 
+// src/research/doc/ladder.ts
+var DOC_EXTRACTORS = ["anydoc", "firecrawl"];
+var NPX_TIMEOUT_MS2 = 9e4;
+var dead2 = /* @__PURE__ */ new Set();
+function enabledDocExtractors(engines) {
+  if (engines) return engines;
+  const forced = process.env.CONSTRUCT_DOC_ENGINE?.trim();
+  if (forced === "none") return [];
+  if (forced && DOC_EXTRACTORS.includes(forced)) return [forced];
+  if (process.env.CONSTRUCT_NO_NPX) return DOC_EXTRACTORS.filter((e) => e !== "anydoc");
+  return DOC_EXTRACTORS;
+}
+async function viaAnydoc2(bytes, format) {
+  const args2 = ["-y", "--prefer-offline", "@firecrawl/anydoc", "-"];
+  if (format) args2.push("--format", format);
+  const r = await runWithInput("npx", args2, bytes, NPX_TIMEOUT_MS2);
+  return r.ok ? r.stdout : void 0;
+}
+async function extractDocument(bytes, fmt, opts = {}) {
+  let lastReason;
+  for (const id of enabledDocExtractors(opts.engines)) {
+    if (dead2.has(id)) continue;
+    let text;
+    try {
+      if (id === "anydoc") text = await viaAnydoc2(bytes, fmt.format);
+      else text = opts.firecrawl ? await opts.firecrawl() : void 0;
+    } catch {
+      text = void 0;
+    }
+    if (text === void 0) {
+      if (id !== "firecrawl") dead2.add(id);
+      continue;
+    }
+    const verdict = assessExtractedText(text, "the converter produced no text");
+    if (verdict.ok) return { text: text.trim(), via: id };
+    lastReason = verdict.reason;
+  }
+  return { text: "", reason: lastReason ?? "no document converter available" };
+}
+
+// src/research/doc/formats.ts
+var BINARY = { textFallback: false };
+var CSV = { format: "csv", textFallback: true };
+var BY_EXTENSION = {
+  // Word
+  doc: BINARY,
+  docx: BINARY,
+  docm: BINARY,
+  odt: BINARY,
+  rtf: BINARY,
+  // PowerPoint
+  ppt: BINARY,
+  pps: BINARY,
+  pot: BINARY,
+  pptx: BINARY,
+  pptm: BINARY,
+  ppsx: BINARY,
+  ppsm: BINARY,
+  odp: BINARY,
+  // Excel
+  xls: BINARY,
+  xlsx: BINARY,
+  xlsm: BINARY,
+  xlsb: BINARY,
+  ods: BINARY,
+  // Everything else the converter reads
+  epub: BINARY,
+  csv: CSV
+};
+var BY_CONTENT_TYPE = {
+  "application/msword": BINARY,
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": BINARY,
+  "application/vnd.ms-word.document.macroenabled.12": BINARY,
+  "application/vnd.oasis.opendocument.text": BINARY,
+  "application/rtf": BINARY,
+  "text/rtf": BINARY,
+  "application/vnd.ms-powerpoint": BINARY,
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation": BINARY,
+  "application/vnd.oasis.opendocument.presentation": BINARY,
+  "application/vnd.ms-excel": BINARY,
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": BINARY,
+  "application/vnd.ms-excel.sheet.binary.macroenabled.12": BINARY,
+  "application/vnd.oasis.opendocument.spreadsheet": BINARY,
+  "application/epub+zip": BINARY,
+  "text/csv": CSV
+};
+var DOC_EXTENSIONS = Object.keys(BY_EXTENSION);
+function docFormatForUrl(url) {
+  const m = /\.([a-z0-9]{2,5})(?:$|[?#])/i.exec(url);
+  return m ? BY_EXTENSION[m[1].toLowerCase()] : void 0;
+}
+function docFormatForContentType(contentType) {
+  const type = contentType.split(";")[0]?.trim().toLowerCase();
+  return type ? BY_CONTENT_TYPE[type] : void 0;
+}
+
 // src/research/fetch.ts
 var PDF_URL_RE = /\.pdf($|[?#])/i;
 var PDF_FETCH_OPTS = { accept: "application/pdf,*/*", binary: true, maxBytes: 16 * 1024 * 1024 };
+var DOC_FETCH_OPTS = { accept: "*/*", binary: true, maxBytes: 16 * 1024 * 1024 };
 var UA = "construct/0.x (+https://github.com/maxgfr/construct)";
 var BROWSER_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 function transient(status) {
@@ -1789,6 +1894,18 @@ async function fetchAndExtract(url) {
     if (!got.text) return { text: "", note: `Fetched ${url} but could not extract text \u2014 ${got.reason}.` };
     write(url, { status: res.status, contentType: "text/markdown", extractor: "native", etag: res.etag, lastModified: res.lastModified }, got.text);
     return { text: got.text, ...note ? { note } : {} };
+  }
+  const docFmt = docFormatForUrl(url) ?? docFormatForContentType(res.contentType);
+  if (docFmt) {
+    const bytes = res.bytes ?? (await httpGet(url, DOC_FETCH_OPTS)).bytes;
+    const got = bytes ? await extractDocument(bytes, docFmt, {
+      firecrawl: async () => (await scrapeViaFirecrawl(url))?.markdown
+    }) : { text: "", reason: "empty response body" };
+    const fallback = !got.text && docFmt.textFallback && bytes?.length ? bytes.toString("utf8") : "";
+    const text = got.text || fallback;
+    if (!text) return { text: "", note: `Fetched ${url} but could not extract text \u2014 ${got.reason}.` };
+    write(url, { status: res.status, contentType: "text/markdown", extractor: "native", etag: res.etag, lastModified: res.lastModified }, text);
+    return { text, ...note ? { note } : {} };
   }
   write(url, { status: res.status, contentType: res.contentType, extractor: "native", etag: res.etag, lastModified: res.lastModified }, res.body);
   return { ...extract(res.body, res.contentType), ...note ? { note } : {} };

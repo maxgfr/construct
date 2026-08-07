@@ -5,12 +5,17 @@ import { recordFetch } from "./metrics.js";
 import * as cache from "./cache.js";
 import { probeFirecrawl, scrapeViaFirecrawl } from "./firecrawl.js";
 import { extractPdf } from "./pdf/ladder.js";
+import { extractDocument } from "./doc/ladder.js";
+import { docFormatForUrl, docFormatForContentType } from "./doc/formats.js";
 
 type RawItem = Omit<EvidenceItem, "id">;
 
 const PDF_URL_RE = /\.pdf($|[?#])/i;
 // 16 MB: papers and specs routinely exceed the 4 MB default for HTML.
 const PDF_FETCH_OPTS = { accept: "application/pdf,*/*", binary: true, maxBytes: 16 * 1024 * 1024 } as const;
+// Office documents are binary too: the default text fetch decodes them as UTF-8,
+// which is lossy and irreversible. Same ceiling as PDFs.
+const DOC_FETCH_OPTS = { accept: "*/*", binary: true, maxBytes: 16 * 1024 * 1024 } as const;
 
 const UA = "construct/0.x (+https://github.com/maxgfr/construct)";
 // A recent desktop-browser UA, used ONLY as a fallback when the polite bot UA is
@@ -334,6 +339,25 @@ export async function fetchAndExtract(url: string): Promise<{ text: string; note
     // already clean prose and must not go through the HTML stripper.
     cache.write(url, { status: res.status, contentType: "text/markdown", extractor: "native", etag: res.etag, lastModified: res.lastModified }, got.text);
     return { text: got.text, ...(note ? { note } : {}) };
+  }
+  // Neither is an office document, and for the same reason: .docx/.pptx/.xlsx
+  // are ZIP containers and .doc/.xls/.ppt are OLE streams, so `extract` would
+  // hand their decoded bytes straight into a requirement as if it were prose.
+  const docFmt = docFormatForUrl(url) ?? docFormatForContentType(res.contentType);
+  if (docFmt) {
+    const bytes = res.bytes ?? (await httpGet(url, DOC_FETCH_OPTS)).bytes;
+    const got = bytes
+      ? await extractDocument(bytes, docFmt, {
+          firecrawl: async () => (await scrapeViaFirecrawl(url))?.markdown,
+        })
+      : { text: "", reason: "empty response body" };
+    // CSV is already readable as plain text, so it keeps its raw body rather
+    // than being refused when no converter is available.
+    const fallback = !got.text && docFmt.textFallback && bytes?.length ? bytes.toString("utf8") : "";
+    const text = got.text || fallback;
+    if (!text) return { text: "", note: `Fetched ${url} but could not extract text — ${got.reason}.` };
+    cache.write(url, { status: res.status, contentType: "text/markdown", extractor: "native", etag: res.etag, lastModified: res.lastModified }, text);
+    return { text, ...(note ? { note } : {}) };
   }
   cache.write(url, { status: res.status, contentType: res.contentType, extractor: "native", etag: res.etag, lastModified: res.lastModified }, res.body);
   return { ...extract(res.body, res.contentType), ...(note ? { note } : {}) };

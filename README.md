@@ -193,10 +193,21 @@ MIT © maxgfr
 ## PDF sources
 
 A `.pdf` URL or an `application/pdf` response goes through an **extractor
-ladder** (`src/research/pdf/`): `npx @firecrawl/pdf-inspector` (the PDF on
+ladder** (`src/research/pdf/`): `npx @firecrawl/pdf-inspector` → `npx @firecrawl/anydoc` (the PDF on
 stdin, in a child process) → the self-hosted Firecrawl → `pdftotext` → a
 built-in dependency-free reader — stopping at the first rung whose output passes
 a quality gate, and REFUSING rather than quoting a PDF none of them could read.
+
+**Office documents** — `.docx`/`.doc`/`.odt`/`.rtf`, `.pptx`/`.ppt`/`.odp`,
+`.xlsx`/`.xls`/`.ods`, `.epub`, `.csv` — go through their own two-rung ladder
+(`src/research/doc/`): `npx @firecrawl/anydoc` (the bytes on stdin, converted to
+GitHub-Flavored Markdown) → the self-hosted Firecrawl. Same gate, same refusal.
+
+The refusal is the point: these are ZIP and OLE containers, so the fall-through
+this replaced did not degrade the evidence, it fabricated it — a `.docx` was
+quoted into requirements as if it were prose, as kilobytes of replacement characters, silently. anydoc needs
+Node 20+, so an unavailable converter is a normal outcome rather than a
+misconfiguration; `CONSTRUCT_DOC_ENGINE=none` disables the ladder.
 
 Without it a PDF body was returned verbatim: its bytes decoded as UTF-8, cached,
 and quoted into requirements as if it were prose. The gate rejects text laced

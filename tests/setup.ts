@@ -25,4 +25,10 @@ process.env.CONSTRUCT_FIRECRAWL = "off";
 // exercise other rungs pass `engines` themselves.
 process.env.CONSTRUCT_PDF_ENGINE = "native";
 
+// The office-document ladder shells out to npx (anydoc) too, and unlike the PDF
+// one it has no built-in last rung to pin it to — so `none` disables it. The
+// tests that exercise a rung pass `engines` themselves. This also keeps the
+// default honest: an office document nothing can read must REFUSE.
+process.env.CONSTRUCT_DOC_ENGINE = "none";
+
 afterAll(() => rmSync(dir, { recursive: true, force: true }));

@@ -59,13 +59,14 @@ describe("assessPdfText", () => {
 describe("enabledExtractors", () => {
   it("defaults to the full ladder, strongest first", () => {
     vi.stubEnv("CONSTRUCT_PDF_ENGINE", undefined);
-    expect(enabledExtractors()).toEqual(["pdf-inspector", "firecrawl", "pdftotext", "native"]);
+    expect(enabledExtractors()).toEqual(["pdf-inspector", "anydoc", "firecrawl", "pdftotext", "native"]);
   });
 
-  it("drops the rung that needs an implicit install under CONSTRUCT_NO_NPX", () => {
+  it("drops BOTH rungs that need an implicit install under CONSTRUCT_NO_NPX", () => {
     vi.stubEnv("CONSTRUCT_PDF_ENGINE", undefined);
     vi.stubEnv("CONSTRUCT_NO_NPX", "1");
     expect(enabledExtractors()).not.toContain("pdf-inspector");
+    expect(enabledExtractors()).not.toContain("anydoc");
     expect(enabledExtractors()).toContain("pdftotext");
   });
 
@@ -76,7 +77,7 @@ describe("enabledExtractors", () => {
 
   it("ignores an unknown engine name rather than emptying the ladder", () => {
     vi.stubEnv("CONSTRUCT_PDF_ENGINE", "nope");
-    expect(enabledExtractors()).toEqual(["pdf-inspector", "firecrawl", "pdftotext", "native"]);
+    expect(enabledExtractors()).toEqual(["pdf-inspector", "anydoc", "firecrawl", "pdftotext", "native"]);
   });
 });
 
