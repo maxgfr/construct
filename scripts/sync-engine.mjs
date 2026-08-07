@@ -45,6 +45,21 @@ const ENGINES = {
 const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");
 const args = process.argv.slice(2);
 
+// `--list` prints one `<name> <repo> <pinned-tag>` line per engine. The daily
+// re-pin workflow reads it instead of carrying its own copy of this table, so
+// adding an engine here is the only edit needed — the automation cannot drift
+// from the list it is supposed to be watching.
+if (args[0] === "--list") {
+  for (const [name, { repo, meta }] of Object.entries(ENGINES)) {
+    let tag = "-";
+    try {
+      tag = JSON.parse(readFileSync(join(vendorDir, meta), "utf8")).tag;
+    } catch {}
+    console.log(`${name} ${repo} ${tag}`);
+  }
+  process.exit(0);
+}
+
 function selected() {
   const i = args.indexOf("--engine");
   if (i === -1) return Object.keys(ENGINES);
