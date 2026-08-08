@@ -1,17 +1,11 @@
-import { ANNOTATIONS_SINCE, RICH_TOOLS_SINCE, type JsonSchema, type JsonSchemaProp, type ProtocolVersion } from "./protocol.js";
+import { ANNOTATIONS_SINCE, RICH_TOOLS_SINCE, type JsonSchema, type JsonSchemaProp, type ProtocolVersion } from "../engine.js";
 
 // What the server advertises. Pure data — nothing here imports the research
 // pipeline, so the declarations can be asserted in a test without reaching the
 // network. handlers.ts is where these names become work.
 
-export interface ToolDecl {
-  name: string;
-  description: string;
-  inputSchema: JsonSchema;
-  title?: string;
-  outputSchema?: JsonSchema;
-  annotations?: Record<string, boolean>;
-}
+export type { ToolDecl } from "../engine.js";
+import type { ToolDecl } from "../engine.js";
 
 const runProp: JsonSchemaProp = { type: "string", description: "The run folder — the durable artifact holding the brief, evidence and SRD." };
 

@@ -25,8 +25,8 @@ import { loadPlan, readyFrontier } from "./plan.js";
 import { listPhases, orchestrateRun } from "./orchestrate.js";
 import { stackControl } from "./research/semantic.js";
 import { configureFirecrawl } from "./research/firecrawl.js";
-import { runStdioServer } from "./mcp/stdio.js";
-import { startHttpServer } from "./mcp/http.js";
+import { runStdioServer, startHttpServer } from "./engine.js";
+import { constructAdapter } from "./mcp/adapter.js";
 
 const HELP = `construct v${VERSION}
 Turn a product idea into a grounded, buildable SRD suite. Interview → research
@@ -749,7 +749,7 @@ async function main(): Promise<void> {
       if (transport === "stdio") {
         // Nothing is written to stdout here: from this point stdout carries
         // JSON-RPC frames only, and runStdioServer guards that.
-        await runStdioServer(options);
+        await runStdioServer(constructAdapter(options), options);
         return;
       }
 
@@ -763,7 +763,13 @@ async function main(): Promise<void> {
         : undefined;
       let running: Awaited<ReturnType<typeof startHttpServer>>;
       try {
-        running = await startHttpServer({ ...options, port, bind: p.values.bind, allowOrigin, allowRemote: p.bools.has("allow-remote") });
+        running = await startHttpServer(constructAdapter(options), {
+          ...options,
+          port,
+          bind: p.values.bind,
+          allowOrigin,
+          allowRemote: p.bools.has("allow-remote"),
+        });
       } catch (e) {
         fail((e as Error).message);
       }

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { constructAdapter } from "../src/mcp/adapter.js";
 import { TOOLS, WRITE_TOOLS, TOOL_META, annotationsFor, toolsFor } from "../src/mcp/tools.js";
-import { validateArgs } from "../src/mcp/protocol.js";
+import { validateArgs } from "../src/engine.js";
 
 const ALL = [...TOOLS, ...WRITE_TOOLS];
 

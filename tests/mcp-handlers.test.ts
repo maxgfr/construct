@@ -2,7 +2,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createServer, type JsonRpcMessage } from "../src/mcp/server.js";
+import { constructAdapter } from "../src/mcp/adapter.js";
+import { createServer, type JsonRpcMessage } from "../src/engine.js";
 import { callTool, ToolError } from "../src/mcp/handlers.js";
 
 // The handlers driven through the JSON-RPC core, in-process, against a real run
@@ -24,7 +25,7 @@ afterAll(() => {
   for (const d of temps) rmSync(d, { recursive: true, force: true });
 });
 
-const server = createServer();
+const server = createServer(constructAdapter());
 
 async function rpc(msg: Omit<JsonRpcMessage, "jsonrpc">): Promise<JsonRpcMessage | undefined> {
   let out: JsonRpcMessage | undefined;
@@ -146,7 +147,7 @@ describe("guardrails", () => {
   });
 
   it("uses the server's default run when the caller omits one", async () => {
-    const withDefault = createServer({ defaultRun: RUN });
+    const withDefault = createServer(constructAdapter({ defaultRun: RUN }));
     let out: JsonRpcMessage | undefined;
     await withDefault.handle({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "construct_status", arguments: {} } }, (m) => {
       out = m;
