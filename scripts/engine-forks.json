@@ -1,0 +1,16 @@
+{
+  "_comment": "Declarations in this repo that shadow a webindex export, with why they have not been adopted. A ratchet: entries may leave, never arrive. Anything not listed fails verify-engine-usage, so the next fork is an argued decision rather than a quiet copy. An entry that no longer matches anything also fails, so the list cannot rot.",
+  "forks": {
+    "src/research/cache.ts:cacheDir": "this cache is RICHER than the engine's (ETag revalidation, stats, clean). Adopting today would be a regression; the engine's cache has to grow first.",
+    "src/research/fetch.ts:HttpResult": "fetch stack genuinely diverges from the engine's \u2014 conditional GET / streaming caps / consent stripping. Reconciling it is a behaviour decision, not a dedup.",
+    "src/research/fetch.ts:httpGet": "fetch stack genuinely diverges from the engine's \u2014 conditional GET / streaming caps / consent stripping. Reconciling it is a behaviour decision, not a dedup.",
+    "src/research/fetch.ts:httpJson": "fetch stack genuinely diverges from the engine's \u2014 conditional GET / streaming caps / consent stripping. Reconciling it is a behaviour decision, not a dedup.",
+    "src/research/fetch.ts:htmlToText": "fetch stack genuinely diverges from the engine's \u2014 conditional GET / streaming caps / consent stripping. Reconciling it is a behaviour decision, not a dedup.",
+    "src/research/fetch.ts:fetchAndExtract": "fetch stack genuinely diverges from the engine's \u2014 conditional GET / streaming caps / consent stripping. Reconciling it is a behaviour decision, not a dedup.",
+    "src/research/firecrawl.ts:firecrawlBase": "the engine's client is a superset, but this skill's fetch.ts consumes it and fetch.ts is not adopted yet \u2014 swap both together or neither.",
+    "src/research/firecrawl.ts:probeFirecrawl": "the engine's client is a superset, but this skill's fetch.ts consumes it and fetch.ts is not adopted yet \u2014 swap both together or neither.",
+    "src/research/firecrawl.ts:mapScrapeResponse": "the engine's client is a superset, but this skill's fetch.ts consumes it and fetch.ts is not adopted yet \u2014 swap both together or neither.",
+    "src/research/firecrawl.ts:scrapeViaFirecrawl": "the engine's client is a superset, but this skill's fetch.ts consumes it and fetch.ts is not adopted yet \u2014 swap both together or neither.",
+    "src/research/firecrawl.ts:searchViaFirecrawl": "the engine's client is a superset, but this skill's fetch.ts consumes it and fetch.ts is not adopted yet \u2014 swap both together or neither."
+  }
+}
