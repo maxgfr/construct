@@ -12,20 +12,12 @@ import { fileURLToPath } from "node:url";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const skill = join(root, "skills", "construct");
 
-// The engine bundle + the optional Docker stacks (compose file, the SearXNG
-// settings and the Firecrawl env). All of them must ship INSIDE the skill dir so
-// the installed skill is self-contained — the compose lives at skills/construct/
-// so it is `../docker-compose.yml` from the bundle, and its `./docker/searxng`
-// and `./docker/firecrawl` bind mounts resolve to the shipped siblings.
-// `firecrawl.env` in particular is an `env_file:` reference: without it, `docker
-// compose --profile extract up` fails outright from an installed skill.
-const pairs = [
-  ["scripts/construct.mjs", "scripts/construct.mjs"],
-  ["docker-compose.yml", "docker-compose.yml"],
-  ["docker/searxng/settings.yml", "docker/searxng/settings.yml"],
-  ["docker/firecrawl/firecrawl.env", "docker/firecrawl/firecrawl.env"],
-  ["docker/firecrawl/README.md", "docker/firecrawl/README.md"],
-];
+// Just the engine bundle now. The compose file, the SearXNG settings and the
+// Firecrawl env used to be copied in beside it so the installed skill could
+// find them by walking up from the bundle — a lookup that failed for every
+// install shaped differently from the one it assumed. They are embedded in the
+// engine and written out on demand, so there is nothing left to ship or find.
+const pairs = [["scripts/construct.mjs", "scripts/construct.mjs"]];
 
 for (const [from, to] of pairs) {
   const source = join(root, from);

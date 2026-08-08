@@ -14,7 +14,8 @@ dependency-free; it only speaks HTTP to localhost.
 
 ## The stacks
 
-One `docker-compose.yml`, two profiles.
+One compose file, embedded in the engine and written into the cache dir on
+demand. Four services behind profiles:
 
 | Service | Image | Port | Profile | Role |
 |---------|-------|------|---------|------|
@@ -33,7 +34,7 @@ node scripts/construct.mjs semantic up       # profile `all`: qdrant + ollama + 
 node scripts/construct.mjs semantic status   # docker compose ps
 node scripts/construct.mjs semantic down
 
-node scripts/construct.mjs firecrawl up      # profile `extract`: firecrawl + its 4 sidecars
+node scripts/construct.mjs firecrawl up      # firecrawl + its 4 sidecars, and SearXNG behind /search
 node scripts/construct.mjs firecrawl status
 node scripts/construct.mjs firecrawl down
 ```
@@ -43,24 +44,22 @@ returning — otherwise the next thing the engine does (pull the model, query
 :8888, scrape a page) races the container's startup, and a single failed probe
 is remembered for the rest of the process.
 
-`docker-compose.yml`, `docker/searxng/settings.yml` and
-`docker/firecrawl/firecrawl.env` **ship inside the installed skill** (next to the
-bundle), so these commands work from the install directory — no repo checkout
-needed. If the engine can't find the compose file it says so explicitly
-(reinstall via `npx skills add maxgfr/construct`) rather than emitting a raw
-docker error.
+The compose file, the SearXNG settings and the Firecrawl env are **embedded in
+the engine** and written out on first use, so these commands work from any
+install — an `npx skills add` copy, a global npm install, a checkout. There is no
+file to find and nothing left to fail to find; the previous version searched for
+`docker-compose.yml` beside the bundle and told you to reinstall when the layout
+did not match.
 
-Start a subset directly:
-
-```
-docker compose --profile semantic up -d     # qdrant + ollama
-docker compose --profile search up -d       # searxng only (for the market angle)
-docker compose --profile extract up -d      # firecrawl only
-```
+`up` also pulls the images first, on their own 20-minute budget
+(`CONSTRUCT_DOCKER_PULL_TIMEOUT_MS`) — the Ollama image alone is over 1.6 GB, and
+letting `up`'s shorter deadline cover the download turns a slow network into a
+failed start.
 
 **Firecrawl is deliberately not in `all`.** It is ~3 GB of images and ~4 GB of
-RAM across five containers; `semantic up` has to stay cheap. Details and a curl
-smoke test: `docker/firecrawl/README.md`.
+RAM across five containers; `semantic up` has to stay cheap. Once it is up,
+`curl -s localhost:3002/v2/scrape -H 'content-type: application/json' -d
+'{"url":"https://example.com"}'` is the one-line smoke test.
 
 ## Use them
 

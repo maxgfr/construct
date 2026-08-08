@@ -183,8 +183,7 @@ main-content extraction** on every page fetch — the only way a JS-rendered pag
 yields evidence at all. Both are optional and degrade quietly: when a stack is
 down, research runs exactly as it did before and says so in the dossier notes.
 
-See [`references/semantic-setup.md`](skills/construct/references/semantic-setup.md)
-and [`docker/firecrawl/README.md`](docker/firecrawl/README.md).
+See [`references/semantic-setup.md`](skills/construct/references/semantic-setup.md).
 
 ## License
 

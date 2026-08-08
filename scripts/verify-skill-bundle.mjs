@@ -74,18 +74,15 @@ else readFileSync(rootEngine).equals(readFileSync(pkgEngine))
   ? ok(`embedded engine skills/${name}/${engine} is byte-identical to ${engine}`)
   : bad(`skills/${name}/${engine} differs from ${engine} — run \`node scripts/copy-bundle.mjs\` and commit`);
 
-// 5. The optional Docker stacks ship inside the skill, byte-identical to the
-// repo-root source (else `construct semantic|firecrawl up|down|status`, the
-// --semantic embedding rescore and the Firecrawl extraction layer cannot run
-// from the installed layout — the compose references firecrawl.env by path).
-for (const rel of ["docker-compose.yml", "docker/searxng/settings.yml", "docker/firecrawl/firecrawl.env", "docker/firecrawl/README.md"]) {
-  const rootFile = join(root, rel);
-  const pkgFile = join(skillDir, rel);
-  if (!existsSync(rootFile)) bad(`missing ${rel} at repo root`);
-  else if (!existsSync(pkgFile)) bad(`missing skills/${name}/${rel} — run \`node scripts/copy-bundle.mjs\``);
-  else readFileSync(rootFile).equals(readFileSync(pkgFile))
-    ? ok(`docker stack skills/${name}/${rel} is byte-identical to ${rel}`)
-    : bad(`skills/${name}/${rel} differs from ${rel} — run \`node scripts/copy-bundle.mjs\` and commit`);
+// 5. Nothing Docker-shaped is left in the skill. The compose file, the SearXNG
+// settings and the Firecrawl env used to be copied in and checked byte-for-byte
+// against the repo root, because the installed layout found them by walking up
+// from the bundle. They are embedded in the engine now, so a copy here would be
+// a stale second source of truth that `up` silently prefers.
+for (const rel of ["docker-compose.yml", "docker"]) {
+  existsSync(join(skillDir, rel))
+    ? bad(`skills/${name}/${rel} is left over — the stack lives in the engine now; delete it`)
+    : ok(`no stale ${rel} in skills/${name}/`);
 }
 
 if (errors.length) {

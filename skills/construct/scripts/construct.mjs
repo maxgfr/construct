@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { resolve as resolve7, join as join36 } from "path";
-import { existsSync as existsSync19, readFileSync as readFileSync20 } from "fs";
-import { pathToFileURL as pathToFileURL3, fileURLToPath as fileURLToPath4 } from "url";
+import { resolve as resolve7, join as join35 } from "path";
+import { existsSync as existsSync18, readFileSync as readFileSync20 } from "fs";
+import { pathToFileURL as pathToFileURL3, fileURLToPath as fileURLToPath3 } from "url";
 import { realpathSync as realpathSync4 } from "fs";
 
 // src/types.ts
@@ -23,7 +23,7 @@ var DESIGN_TOKENS_SEEDED_BANNER = "Seeded defaults \u2014 replace these with the
 var BUILD_PLAN_SCHEMA_VERSION = 1;
 
 // src/util.ts
-import { execFile, spawnSync } from "child_process";
+import { execFile, spawnSync as spawnSync2 } from "child_process";
 
 // src/config.ts
 var HTTP_GET_TIMEOUT_MS = 2e4;
@@ -46,11 +46,6 @@ var GIT_RESET_TIMEOUT_MS = 6e4;
 var VERIFY_COMMAND_TIMEOUT_MS = 6e5;
 var REACHABLE_TIMEOUT_MS = 2500;
 var EMBED_TIMEOUT_MS = 6e4;
-var COMPOSE_DOWN_TIMEOUT_MS = 12e4;
-var COMPOSE_PS_TIMEOUT_MS = 3e4;
-var COMPOSE_UP_TIMEOUT_MS = 3e5;
-var COMPOSE_UP_HEAVY_TIMEOUT_MS = 9e5;
-var OLLAMA_PULL_TIMEOUT_MS = 6e5;
 var FIRECRAWL_PROBE_TIMEOUT_MS = 2e3;
 var FIRECRAWL_PAGE_TIMEOUT_MS = 3e4;
 var FIRECRAWL_SCRAPE_TIMEOUT_MS = 45e3;
@@ -62,8 +57,12 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "fs
 import { join } from "path";
 import { tmpdir } from "os";
 import { spawn } from "child_process";
-import { existsSync as existsSync3, readdirSync, readFileSync as readFileSync3, realpathSync, statSync } from "fs";
-import { basename, dirname, join as join3, resolve, sep } from "path";
+import { spawnSync } from "child_process";
+import { existsSync as existsSync2, mkdirSync, readFileSync as readFileSync2, writeFileSync as writeFileSync2 } from "fs";
+import { tmpdir as tmpdir2 } from "os";
+import { dirname, join as join2 } from "path";
+import { existsSync as existsSync4, readdirSync, readFileSync as readFileSync4, realpathSync, statSync } from "fs";
+import { basename, dirname as dirname2, join as join4, resolve, sep } from "path";
 import { fileURLToPath } from "url";
 import { createInterface } from "readline";
 import { createServer as createHttpServer } from "http";
@@ -679,6 +678,408 @@ var SCRAPE_MAX_AGE_MS = 24 * 60 * 60 * 1e3;
 var PDF_FETCH_OPTS = { accept: "application/pdf,*/*", binary: true, maxBytes: 16 * 1024 * 1024 };
 var DOC_FETCH_OPTS = { accept: "*/*", binary: true, maxBytes: 16 * 1024 * 1024 };
 var MASK64 = (1n << 64n) - 1n;
+var COMPOSE_YAML = `# Optional, fully-local, no-API-key stack for a semantic mode, web
+# search and content extraction. Start it with \`{{CLI}} semantic up\` (or
+# \`docker compose --profile all up -d\`). The published bundle stays
+# dependency-free \u2014 it only speaks HTTP to these containers on localhost;
+# nothing here is required for Tier-1 retrieval.
+#
+# Profiles let you start subsets:
+#   --profile semantic  \u2192 qdrant + ollama (vector search)
+#   --profile search    \u2192 searxng (web discovery)
+#   --profile all       \u2192 everything above
+#   --profile extract   \u2192 firecrawl (content cleaning; \`{{CLI}} firecrawl up\`)
+# \u2500\u2500 One stack, however many tools use it \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+# Any tool needing SearXNG or Firecrawl binds the SAME host ports. Run two from
+# separate compose projects and only one can ever be up: the second fails with
+# "port is already allocated", after leaving its sidecars running.
+#
+# So this file uses one fixed project name, one set of container names and one
+# set of volumes. A second tool bringing the stack up is a no-op against the
+# containers already running, and the whole thing costs one machine's worth of
+# RAM rather than one per tool.
+#
+# WARNING: any tool shipping its own copy of these service blocks must keep them
+# byte-identical. Docker compares the RESOLVED config, so a divergence makes an
+# up from one recreate the other's running containers.
+
+name: skills
+
+services:
+  # Vector database \u2014 Apache-2.0, self-hosted, no key.
+  qdrant:
+    image: qdrant/qdrant:v1.18.2
+    container_name: skills-qdrant
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant:/qdrant/storage
+    restart: unless-stopped
+    profiles: ["semantic", "all"]
+    healthcheck:
+      # The image ships no curl/wget \u2014 probe the REST port over bash's /dev/tcp.
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # Local embedding server \u2014 no key, no data leaves the machine. Pull the model
+  # once: \`docker compose exec ollama ollama pull nomic-embed-text\`
+  # (\`{{CLI}} semantic up\` does this for you).
+  ollama:
+    image: ollama/ollama:0.30.7
+    container_name: skills-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    restart: unless-stopped
+    profiles: ["semantic", "all"]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # Self-hosted metasearch for keyless web discovery. JSON output is enabled in
+  # docker/searxng/settings.yml so the engine can be queried programmatically.
+  # Also backs Firecrawl's keyless /search through SEARXNG_ENDPOINT.
+  searxng:
+    image: searxng/searxng:2026.6.11-a1490676e
+    container_name: skills-searxng
+    ports:
+      - "8888:8080"
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8888/
+    volumes:
+      - ./docker/searxng:/etc/searxng:rw
+    restart: unless-stopped
+    profiles: ["search", "all"]
+    healthcheck:
+      # busybox wget is in the image; /healthz answers on the container port.
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # Self-hosted Firecrawl \u2014 keyless content cleaning. Fetches a page with a real
+  # browser and returns main-content markdown, which beats the built-in regex
+  # HTML stripper on nav/cookie chrome and is the only way JS-rendered pages
+  # yield any text at all. Keyless because USE_DB_AUTHENTICATION=false; see
+  # docker/firecrawl/firecrawl.env for the tunables.
+  #
+  # Deliberately NOT in the "all" profile: it is ~3 GB of images and 5
+  # containers, and \`{{CLI}} semantic up\` must stay cheap.
+  #
+  #   docker compose --profile search --profile extract up -d --wait
+  firecrawl:
+    image: ghcr.io/firecrawl/firecrawl:2.10.5@sha256:8ce1af201332e1de046d70d5d516fbfe7f0f6229820d271d880873eeca531ea6
+    container_name: skills-firecrawl
+    ports:
+      - "3002:3002"
+    env_file:
+      - ./docker/firecrawl/firecrawl.env
+    environment:
+      # Wiring lives here; tunables live in the env file above.
+      - HOST=0.0.0.0
+      - PORT=3002
+      - ENV=local
+      - REDIS_URL=redis://firecrawl-redis:6379
+      - REDIS_RATE_LIMIT_URL=redis://firecrawl-redis:6379
+      - PLAYWRIGHT_MICROSERVICE_URL=http://firecrawl-playwright:3000/scrape
+      - POSTGRES_HOST=firecrawl-postgres
+      - NUQ_RABBITMQ_URL=amqp://firecrawl-rabbitmq:5672
+      # Keeps /search keyless by delegating to the searxng service above.
+      # Unreachable when the \`search\` profile is down \u2014 Firecrawl then falls
+      # back to DuckDuckGo on its own.
+      - SEARXNG_ENDPOINT=http://searxng:8080
+    command: node dist/src/harness.js --start-docker
+    depends_on:
+      firecrawl-redis:
+        condition: service_started
+      firecrawl-playwright:
+        condition: service_started
+      firecrawl-postgres:
+        condition: service_started
+      firecrawl-rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles: ["extract"]
+    # The image ships no curl/wget, but it is a Node image \u2014 probe with node.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3002/').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    # Trimmed for a 16 GB laptop; upstream asks for 4 CPU / 8 GB. Measured at
+    # 2.3 GB steady under 5 concurrent scrapes, so 3 GB was too tight a cap \u2014
+    # MAX_RAM=0.8 in the env file makes Firecrawl self-throttle at ~3.2 GB.
+    cpus: 2.0
+    mem_limit: 4g
+    memswap_limit: 4g
+
+  # Headless-browser sidecar \u2014 this is what makes JS-rendered pages extractable.
+  firecrawl-playwright:
+    image: ghcr.io/firecrawl/playwright-service:latest@sha256:8c50add7293201e575110e6c7489fa383a9dfc46f168936526a458e06ffc5c28
+    container_name: skills-firecrawl-playwright
+    environment:
+      - PORT=3000
+      - BLOCK_MEDIA=true
+      - MAX_CONCURRENT_PAGES=4
+    restart: unless-stopped
+    profiles: ["extract"]
+    cpus: 1.5
+    mem_limit: 2g
+    memswap_limit: 2g
+    tmpfs:
+      - /tmp/.cache:noexec,nosuid,size=512m
+
+  firecrawl-redis:
+    image: redis:alpine
+    container_name: skills-firecrawl-redis
+    command: redis-server --bind 0.0.0.0
+    restart: unless-stopped
+    profiles: ["extract"]
+
+  firecrawl-rabbitmq:
+    image: rabbitmq:3-management
+    container_name: skills-firecrawl-rabbitmq
+    restart: unless-stopped
+    profiles: ["extract"]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  firecrawl-postgres:
+    image: ghcr.io/firecrawl/nuq-postgres:latest@sha256:aed86f62858f29bd971abddcdeb301c12888098d2cf5d33c1ba42b053bc460f6
+    container_name: skills-firecrawl-postgres
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=postgres
+    volumes:
+      - firecrawl_pg:/var/lib/postgresql/data
+    restart: unless-stopped
+    profiles: ["extract"]
+
+volumes:
+  qdrant:
+  ollama:
+  firecrawl_pg:
+`;
+var SEARXNG_SETTINGS_YAML = `# Minimal SearXNG config for keyless, self-hosted web discovery. The important
+# bit is enabling the JSON output format so the CLI can query it
+# programmatically (\`/search?format=json\`) \u2014 most PUBLIC instances disable it,
+# which is why a local one ships here.
+#
+# The service names and ports below are deliberately stable, so several tools on
+# one machine share a single container rather than each starting their own.
+use_default_settings: true
+
+server:
+  # Override with a real random secret if you expose this beyond localhost.
+  secret_key: "searxng-local-dev-change-me"
+  # The limiter/bot-detection middleware answers 403 to format=json requests.
+  limiter: false
+  image_proxy: false
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  formats:
+    - html
+    - json
+`;
+var FIRECRAWL_ENV = `# Tunables for the self-hosted Firecrawl stack (docker compose --profile extract).
+# Wiring (hostnames, ports, SEARXNG_ENDPOINT) lives in docker-compose.yml and
+# overrides anything set here.
+
+# THIS is what makes the API keyless. Turning it on would require a Supabase
+# project; there is no reason to for a localhost stack.
+USE_DB_AUTHENTICATION=false
+
+# Firecrawl's Rust PDF extractor, which is OFF by default upstream. Without it
+# Firecrawl falls back to pdf-parse (JS) for PDFs. Still keyless: this is the
+# local Rust path, not the MinerU / Fire PDF routes, which need API credentials.
+# Reached as a rung of the PDF ladder when the built-in reader finds no text.
+PDF_RUST_EXTRACT_ENABLE=true
+
+# Postgres credentials for the bundled nuq-postgres container. It is not
+# published on a host port, so these never leave the compose network.
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+POSTGRES_DB=postgres
+POSTGRES_PORT=5432
+
+# Admin queue dashboard at http://localhost:3002/admin/CHANGEME/queues
+BULL_AUTH_KEY=CHANGEME
+
+# Concurrency, trimmed for a laptop. Upstream defaults are 8/5/5/10 and assume
+# a 4-CPU / 8-GB box; these keep the stack near ~4 GB total.
+NUM_WORKERS_PER_QUEUE=2
+MAX_CONCURRENT_JOBS=3
+BROWSER_POOL_SIZE=2
+CRAWL_CONCURRENT_REQUESTS=4
+
+# Back off before the host runs out of headroom.
+MAX_CPU=0.8
+MAX_RAM=0.8
+
+LOGGING_LEVEL=info
+`;
+function renderAsset(template) {
+  return template.replaceAll("{{CLI}}", brand().cli);
+}
+function ensureComposeMaterialized() {
+  const base = join2(brand().cacheDir ?? join2(tmpdir2(), brand().name), "compose");
+  const composePath = join2(base, "docker-compose.yml");
+  const settingsPath = join2(base, "docker", "searxng", "settings.yml");
+  const firecrawlEnvPath = join2(base, "docker", "firecrawl", "firecrawl.env");
+  writeIfChanged(composePath, renderAsset(COMPOSE_YAML));
+  writeIfChanged(settingsPath, renderAsset(SEARXNG_SETTINGS_YAML));
+  writeIfChanged(firecrawlEnvPath, renderAsset(FIRECRAWL_ENV));
+  return composePath;
+}
+function writeIfChanged(path, content) {
+  try {
+    if (existsSync2(path) && readFileSync2(path, "utf8") === content) return;
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync2(path, content);
+  } catch {
+  }
+}
+var DEFAULT_PULL_TIMEOUT_MS = 12e5;
+var UP_TIMEOUT_MS = 3e5;
+var DOWN_TIMEOUT_MS = 12e4;
+var PS_TIMEOUT_MS = 3e4;
+var MODEL_PULL_TIMEOUT_MS = 6e5;
+function pullTimeoutMs() {
+  return envInt("DOCKER_PULL_TIMEOUT_MS", DEFAULT_PULL_TIMEOUT_MS);
+}
+function embedModel() {
+  return env("EMBED_MODEL") ?? "nomic-embed-text";
+}
+function defaultRun(cmd, args2, opts) {
+  const res = spawnSync(cmd, args2, {
+    encoding: "utf8",
+    timeout: opts.timeoutMs,
+    maxBuffer: 64 * 1024 * 1024,
+    stdio: opts.capture ? "pipe" : "inherit"
+  });
+  const missing = !!res.error && res.error.code === "ENOENT";
+  return {
+    ok: !res.error && res.status === 0,
+    stdout: res.stdout ?? "",
+    stderr: res.stderr ?? (res.error ? String(res.error.message) : ""),
+    missing
+  };
+}
+function defaultHas(cmd) {
+  const probe = defaultRun(process.platform === "win32" ? "where" : "which", [cmd], { timeoutMs: 1e4, capture: true });
+  return probe.ok && probe.stdout.trim().length > 0;
+}
+var STACKS = {
+  searxng: {
+    profiles: ["search"],
+    summary: "SearXNG is up (:8888) \u2014 keyless discovery, JSON API enabled."
+  },
+  firecrawl: {
+    profiles: ["search", "extract"],
+    summary: "Firecrawl is up (:3002 \xB7 playwright \xB7 redis \xB7 rabbitmq \xB7 postgres), with SearXNG behind it.",
+    postUp: () => [
+      "  keyless: USE_DB_AUTHENTICATION=false \u2014 no API key is sent or needed.",
+      "  effect:  pages are now cleaned by a real browser; --firecrawl off opts out."
+    ]
+  },
+  semantic: {
+    profiles: ["semantic"],
+    summary: "Qdrant (:6333) and Ollama (:11434) are up.",
+    postUp: (file, run2) => {
+      const model = embedModel();
+      const pull = run2("docker", ["compose", "-f", file, "exec", "-T", "ollama", "ollama", "pull", model], { timeoutMs: MODEL_PULL_TIMEOUT_MS, capture: true });
+      return [pull.ok ? `  model:   ${model} ready` : `  model:   pull it yourself: docker compose -f ${file} exec ollama ollama pull ${model}`];
+    }
+  },
+  all: {
+    profiles: ["all", "extract"],
+    summary: "The whole stack is up (Qdrant \xB7 Ollama \xB7 SearXNG \xB7 Firecrawl).",
+    postUp: (file, run2) => STACKS.semantic.postUp(file, run2)
+  }
+};
+function combine(names) {
+  const specs = names.map((n) => STACKS[n]);
+  if (specs.some((x) => !x)) return null;
+  const found = specs;
+  if (found.length === 1) return found[0];
+  return {
+    profiles: [...new Set(found.flatMap((x) => x.profiles))],
+    summary: found.map((x) => x.summary).join("\n  "),
+    postUp: (file, run2) => found.flatMap((x) => x.postUp?.(file, run2) ?? [])
+  };
+}
+var STACK_SERVICES = Object.keys(STACKS);
+var SERVICE_PROFILES = Object.fromEntries(Object.entries(STACKS).map(([k, v]) => [k, v.profiles]));
+function stackControl(service, action, deps = {}) {
+  const run2 = deps.run ?? defaultRun;
+  const has = deps.has ?? defaultHas;
+  const names = Array.isArray(service) ? service : [service];
+  const tag = `${brand().cli} ${names.join("+")}`;
+  const spec = combine(names);
+  if (!spec) {
+    const bad = names.filter((n) => !STACKS[n]);
+    return { message: `${brand().cli}: unknown service ${bad.map((b) => `"${b}"`).join(", ")} \u2014 expected one of ${STACK_SERVICES.join(", ")}`, code: 1 };
+  }
+  if (action !== "up" && action !== "down" && action !== "status") {
+    return { message: `${tag}: unknown action "${action}" (use: up | down | status)`, code: 1 };
+  }
+  if (!has("docker")) {
+    return { message: `${tag}: docker not found on PATH. The stack is optional \u2014 everything it provides degrades to a note.`, code: 1 };
+  }
+  const file = ensureComposeMaterialized();
+  const profiles = spec.profiles.flatMap((p) => ["--profile", p]);
+  if (action === "down") {
+    const r = run2("docker", ["compose", "-f", file, ...profiles, "down"], { timeoutMs: DOWN_TIMEOUT_MS, capture: true });
+    return { message: r.ok ? `${tag}: stopped.` : `${tag}: down failed.
+${r.stderr}`, code: r.ok ? 0 : 1 };
+  }
+  if (action === "status") {
+    const r = run2("docker", ["compose", "-f", file, ...profiles, "ps"], { timeoutMs: PS_TIMEOUT_MS, capture: true });
+    return { message: r.ok ? r.stdout.trim() || `${tag}: no services running.` : `${tag}: status failed.
+${r.stderr}`, code: 0 };
+  }
+  const pulled = run2("docker", ["compose", "-f", file, ...profiles, "pull"], { timeoutMs: pullTimeoutMs() });
+  if (!pulled.ok) {
+    return {
+      message: `${tag}: pulling the images failed (they are large \u2014 raise ${envName("DOCKER_PULL_TIMEOUT_MS")}, currently ${pullTimeoutMs()}ms).` + (pulled.stderr ? `
+${pulled.stderr}` : ""),
+      code: 1
+    };
+  }
+  const up2 = run2("docker", ["compose", "-f", file, ...profiles, "up", "-d", "--wait"], { timeoutMs: UP_TIMEOUT_MS });
+  if (!up2.ok) return { message: `${tag}: up failed.${up2.stderr ? `
+${up2.stderr}` : ""}`, code: 1 };
+  return { message: [`${tag}: ${spec.summary}`, ...spec.postUp?.(file, run2) ?? []].join("\n"), code: 0 };
+}
+var chains = /* @__PURE__ */ new Map();
+function withRunLock(slug, fn) {
+  const prev = chains.get(slug) ?? Promise.resolve();
+  const next = prev.then(fn, fn);
+  const tail = next.then(noop, noop);
+  chains.set(slug, tail);
+  tail.then(() => {
+    if (chains.get(slug) === tail) chains.delete(slug);
+  }, noop);
+  return next;
+}
+function noop() {
+}
 var DEFAULT_TTL_MS = 24 * 60 * 60 * 1e3;
 var PROTOCOL_VERSIONS = ["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"];
 var LATEST_PROTOCOL = PROTOCOL_VERSIONS[PROTOCOL_VERSIONS.length - 1];
@@ -765,20 +1166,20 @@ function isOriginAllowed(origin, allowed = []) {
 var skillName = () => brand().name;
 var URI_SCHEME = "skill://";
 function resolveSkillRoot(moduleDir) {
-  const here = moduleDir ?? dirname(fileURLToPath(import.meta.url));
+  const here = moduleDir ?? dirname2(fileURLToPath(import.meta.url));
   const name2 = brand().name;
   const candidates = [resolve(here, ".."), resolve(here, "..", "skills", name2), resolve(here, "..", "..", "skills", name2)];
-  return candidates.find((dir) => existsSync3(join3(dir, "SKILL.md")));
+  return candidates.find((dir) => existsSync4(join4(dir, "SKILL.md")));
 }
 function listResources(moduleDir) {
   const root = resolveSkillRoot(moduleDir);
   if (!root) return [];
   const out2 = [describe(root, "SKILL.md", `${skillName()}: the skill`)];
-  const refDir = join3(root, "references");
-  if (!existsSync3(refDir)) return out2;
+  const refDir = join4(root, "references");
+  if (!existsSync4(refDir)) return out2;
   for (const file of readdirSync(refDir).sort()) {
     if (!file.endsWith(".md")) continue;
-    out2.push(describe(root, join3("references", file), `${skillName()} reference: ${basename(file, ".md")}`));
+    out2.push(describe(root, join4("references", file), `${skillName()} reference: ${basename(file, ".md")}`));
   }
   return out2;
 }
@@ -802,7 +1203,7 @@ function readResource(uri, moduleDir) {
     throw new ResourceError(`resource path escapes the skill root: ${uri}`);
   }
   if (!statSync(targetReal).isFile()) throw new ResourceError(`not a file: ${uri}`);
-  return { uri, mimeType: "text/markdown", text: readFileSync3(targetReal, "utf8") };
+  return { uri, mimeType: "text/markdown", text: readFileSync4(targetReal, "utf8") };
 }
 var ResourceError = class extends Error {
 };
@@ -813,14 +1214,14 @@ function describe(root, rel2, fallbackTitle) {
     title: fallbackTitle,
     mimeType: "text/markdown"
   };
-  const summary = firstProse(join3(root, rel2));
+  const summary = firstProse(join4(root, rel2));
   if (summary) decl.description = summary;
   return decl;
 }
 function firstProse(file) {
   let text;
   try {
-    text = readFileSync3(file, "utf8");
+    text = readFileSync4(file, "utf8");
   } catch {
     return void 0;
   }
@@ -1227,7 +1628,7 @@ configure({
 
 // src/util.ts
 function sh(cmd, args2, opts = {}) {
-  const res = spawnSync(cmd, args2, {
+  const res = spawnSync2(cmd, args2, {
     cwd: opts.cwd,
     input: opts.input,
     encoding: "utf8",
@@ -1279,10 +1680,10 @@ function slugify(input) {
 }
 
 // src/brief.ts
-import { existsSync as existsSync2, readFileSync as readFileSync2, writeFileSync as writeFileSync2, mkdirSync } from "fs";
-import { join as join2 } from "path";
+import { existsSync as existsSync3, readFileSync as readFileSync3, writeFileSync as writeFileSync3, mkdirSync as mkdirSync2 } from "fs";
+import { join as join3 } from "path";
 function briefPath(runDir) {
-  return join2(runDir, "brief.json");
+  return join3(runDir, "brief.json");
 }
 function initBrief(idea, now) {
   return {
@@ -1302,18 +1703,18 @@ function initBrief(idea, now) {
   };
 }
 function saveBrief(runDir, brief) {
-  mkdirSync(runDir, { recursive: true });
+  mkdirSync2(runDir, { recursive: true });
   const path = briefPath(runDir);
-  writeFileSync2(path, JSON.stringify(brief, null, 2));
+  writeFileSync3(path, JSON.stringify(brief, null, 2));
   return path;
 }
 function loadBrief(runDir, warn = () => {
 }) {
   const path = briefPath(runDir);
-  if (!existsSync2(path)) {
+  if (!existsSync3(path)) {
     throw new Error(`No brief.json in ${runDir} \u2014 run \`construct init --idea "..." --out ${runDir}\` first.`);
   }
-  const raw = readFileSync2(path, "utf8");
+  const raw = readFileSync3(path, "utf8");
   let data;
   try {
     data = JSON.parse(raw);
@@ -1513,8 +1914,8 @@ function validateBrief(brief) {
 }
 
 // src/brainstorm.ts
-import { existsSync as existsSync4, readFileSync as readFileSync4, writeFileSync as writeFileSync3, mkdirSync as mkdirSync2 } from "fs";
-import { join as join4 } from "path";
+import { existsSync as existsSync5, readFileSync as readFileSync5, writeFileSync as writeFileSync4, mkdirSync as mkdirSync3 } from "fs";
+import { join as join5 } from "path";
 
 // src/templates.ts
 var BRAINSTORM_ANGLE_ORDER = [
@@ -2010,22 +2411,22 @@ var ANGLES = ["reframe", "segment", "feature", "differentiator", "anti-goal", "w
 var STATUSES = ["proposed", "kept", "parked", "rejected"];
 var TARGETS = ["featureWishlist", "competitors", "nonGoals", "goals", "candidateTech", "openQuestions"];
 function brainstormPath(runDir) {
-  return join4(runDir, "brainstorm.json");
+  return join5(runDir, "brainstorm.json");
 }
 function initBrainstorm(idea, now) {
   return { schemaVersion: BRAINSTORM_SCHEMA_VERSION, idea: idea.trim(), createdAt: now, ideas: [] };
 }
 function saveBrainstorm(runDir, b) {
-  mkdirSync2(runDir, { recursive: true });
+  mkdirSync3(runDir, { recursive: true });
   const path = brainstormPath(runDir);
-  writeFileSync3(path, JSON.stringify(b, null, 2));
+  writeFileSync4(path, JSON.stringify(b, null, 2));
   return path;
 }
 function writeBrainstormMd(runDir, b) {
-  mkdirSync2(runDir, { recursive: true });
-  const path = join4(runDir, "BRAINSTORM.md");
+  mkdirSync3(runDir, { recursive: true });
+  const path = join5(runDir, "BRAINSTORM.md");
   const md = renderBrainstormMd(b);
-  writeFileSync3(path, md.endsWith("\n") ? md : md + "\n");
+  writeFileSync4(path, md.endsWith("\n") ? md : md + "\n");
   return path;
 }
 function brainstormCounts(b) {
@@ -2037,10 +2438,10 @@ var line = (v) => typeof v === "string" ? v.replace(/\s+/g, " ").trim() : void 0
 function loadBrainstorm(runDir, warn = () => {
 }) {
   const path = brainstormPath(runDir);
-  if (!existsSync4(path)) return void 0;
+  if (!existsSync5(path)) return void 0;
   let data;
   try {
-    data = JSON.parse(readFileSync4(path, "utf8"));
+    data = JSON.parse(readFileSync5(path, "utf8"));
   } catch (e) {
     throw new Error(`brainstorm.json is unreadable: ${e.message}`);
   }
@@ -2164,7 +2565,7 @@ function mergeBrainstorm(briefIn, brainstormIn, now, warn = () => {
 }
 
 // src/research/registry.ts
-import { join as join24 } from "path";
+import { join as join23 } from "path";
 
 // src/research/metrics.ts
 import { AsyncLocalStorage } from "async_hooks";
@@ -2197,9 +2598,9 @@ async function timeAngle(angle, sink, fn) {
 
 // src/research/cache.ts
 import { createHash } from "crypto";
-import { existsSync as existsSync5, mkdirSync as mkdirSync3, readFileSync as readFileSync5, readdirSync as readdirSync2, rmSync as rmSync2, statSync as statSync2, writeFileSync as writeFileSync4 } from "fs";
+import { existsSync as existsSync6, mkdirSync as mkdirSync4, readFileSync as readFileSync6, readdirSync as readdirSync2, rmSync as rmSync2, statSync as statSync2, writeFileSync as writeFileSync5 } from "fs";
 import { homedir } from "os";
-import { join as join5 } from "path";
+import { join as join6 } from "path";
 function extractorOf(entry) {
   return entry.extractor === "firecrawl" ? "firecrawl" : "native";
 }
@@ -2213,7 +2614,7 @@ function cacheOptions() {
 function cacheDir() {
   const override = process.env.CONSTRUCT_CACHE_DIR?.trim();
   if (override) return override;
-  return join5(homedir(), ".cache", "construct", "http");
+  return join6(homedir(), ".cache", "construct", "http");
 }
 function ttlMs() {
   const raw = Number(process.env.CONSTRUCT_CACHE_TTL_HOURS);
@@ -2226,15 +2627,15 @@ function keyFor(url) {
 function paths(url) {
   const k = keyFor(url);
   const dir = cacheDir();
-  return { meta: join5(dir, `${k}.json`), body: join5(dir, `${k}.body`) };
+  return { meta: join6(dir, `${k}.json`), body: join6(dir, `${k}.body`) };
 }
 function read(url) {
   const { meta, body: body2 } = paths(url);
-  if (!existsSync5(meta) || !existsSync5(body2)) return null;
+  if (!existsSync6(meta) || !existsSync6(body2)) return null;
   try {
-    const entry = JSON.parse(readFileSync5(meta, "utf8"));
+    const entry = JSON.parse(readFileSync6(meta, "utf8"));
     if (typeof entry?.fetchedAt !== "number") return null;
-    return { entry, body: readFileSync5(body2, "utf8") };
+    return { entry, body: readFileSync6(body2, "utf8") };
   } catch {
     return null;
   }
@@ -2244,10 +2645,10 @@ function isFresh(entry, now = Date.now()) {
 }
 function write(url, entry, body2, now = Date.now()) {
   try {
-    mkdirSync3(cacheDir(), { recursive: true });
+    mkdirSync4(cacheDir(), { recursive: true });
     const p = paths(url);
-    writeFileSync4(p.body, body2);
-    writeFileSync4(p.meta, JSON.stringify({ url, fetchedAt: now, ...entry }, null, 2));
+    writeFileSync5(p.body, body2);
+    writeFileSync5(p.meta, JSON.stringify({ url, fetchedAt: now, ...entry }, null, 2));
   } catch {
   }
 }
@@ -2266,11 +2667,11 @@ function revalidationHeaders(entry) {
 function stats(now = Date.now()) {
   const dir = cacheDir();
   const out2 = { dir, entries: 0, bytes: 0, fresh: 0, stale: 0, ttlHours: ttlMs() / 36e5 };
-  if (!existsSync5(dir)) return out2;
+  if (!existsSync6(dir)) return out2;
   let oldest = Number.POSITIVE_INFINITY;
   let newest = 0;
   for (const name2 of readdirSync2(dir)) {
-    const abs = join5(dir, name2);
+    const abs = join6(dir, name2);
     try {
       out2.bytes += statSync2(abs).size;
     } catch {
@@ -2278,7 +2679,7 @@ function stats(now = Date.now()) {
     }
     if (!name2.endsWith(".json")) continue;
     try {
-      const entry = JSON.parse(readFileSync5(abs, "utf8"));
+      const entry = JSON.parse(readFileSync6(abs, "utf8"));
       out2.entries++;
       if (isFresh(entry, now)) out2.fresh++;
       else out2.stale++;
@@ -2295,22 +2696,22 @@ function stats(now = Date.now()) {
 }
 function clean(all, now = Date.now()) {
   const dir = cacheDir();
-  if (!existsSync5(dir)) return 0;
+  if (!existsSync6(dir)) return 0;
   let removed = 0;
   for (const name2 of readdirSync2(dir)) {
     if (!name2.endsWith(".json")) continue;
-    const meta = join5(dir, name2);
+    const meta = join6(dir, name2);
     let drop = all;
     if (!drop) {
       try {
-        drop = !isFresh(JSON.parse(readFileSync5(meta, "utf8")), now);
+        drop = !isFresh(JSON.parse(readFileSync6(meta, "utf8")), now);
       } catch {
         drop = true;
       }
     }
     if (!drop) continue;
     rmSync2(meta, { force: true });
-    rmSync2(join5(dir, name2.replace(/\.json$/, ".body")), { force: true });
+    rmSync2(join6(dir, name2.replace(/\.json$/, ".body")), { force: true });
     removed++;
   }
   return removed;
@@ -2844,17 +3245,17 @@ async function marketAngle(ctx) {
 }
 
 // src/clone.ts
-import { existsSync as existsSync6, statSync as statSync3, mkdirSync as mkdirSync4, readdirSync as readdirSync3, rmSync as rmSync3 } from "fs";
-import { resolve as resolve2, join as join6, basename as basename2 } from "path";
-import { tmpdir as tmpdir2 } from "os";
+import { existsSync as existsSync7, statSync as statSync3, mkdirSync as mkdirSync5, readdirSync as readdirSync3, rmSync as rmSync3 } from "fs";
+import { resolve as resolve2, join as join7, basename as basename2 } from "path";
+import { tmpdir as tmpdir3 } from "os";
 function cacheRoot() {
-  return join6(tmpdir2(), "construct");
+  return join7(tmpdir3(), "construct");
 }
 function resolveRepo(raw) {
   const trimmed = raw.trim();
   if (trimmed) {
     const asPath = resolve2(trimmed);
-    if (existsSync6(asPath) && statSync3(asPath).isDirectory()) {
+    if (existsSync7(asPath) && statSync3(asPath).isDirectory()) {
       return {
         raw: trimmed,
         host: "local",
@@ -2903,15 +3304,15 @@ function resolveRepo(raw) {
 }
 async function ensureClone(ref, opts = {}) {
   if (ref.isLocal) return resolve2(ref.raw);
-  const dir = join6(cacheRoot(), ref.slug);
-  const alreadyCloned = existsSync6(join6(dir, ".git"));
+  const dir = join7(cacheRoot(), ref.slug);
+  const alreadyCloned = existsSync7(join7(dir, ".git"));
   if (alreadyCloned && !opts.refresh) return dir;
   if (alreadyCloned && opts.refresh) {
     await shAsync("git", ["-C", dir, "fetch", "--depth", "1", "origin"], { timeoutMs: GIT_FETCH_TIMEOUT_MS });
     await shAsync("git", ["-C", dir, "reset", "--hard", "FETCH_HEAD"], { timeoutMs: GIT_RESET_TIMEOUT_MS });
     return dir;
   }
-  mkdirSync4(cacheRoot(), { recursive: true });
+  mkdirSync5(cacheRoot(), { recursive: true });
   const args2 = ["clone", "--depth", "1", "--filter=blob:none"];
   if (opts.branch) args2.push("--branch", opts.branch);
   args2.push(ref.cloneUrl, dir);
@@ -2920,7 +3321,7 @@ async function ensureClone(ref, opts = {}) {
     if (res.missing) {
       throw new Error(`git is not installed or not on PATH \u2014 cannot clone ${ref.cloneUrl}`);
     }
-    if (existsSync6(dir)) {
+    if (existsSync7(dir)) {
       try {
         rmSync3(dir, { recursive: true, force: true });
       } catch (e) {
@@ -2940,20 +3341,20 @@ async function ensureClone(ref, opts = {}) {
       );
     }
   }
-  if (!existsSync6(dir) || readdirSync3(dir).length === 0) {
+  if (!existsSync7(dir) || readdirSync3(dir).length === 0) {
     throw new Error(`clone produced an empty tree at ${dir}`);
   }
   return dir;
 }
 
 // src/vendor/codeindex-engine.mjs
-import { spawnSync as spawnSync2 } from "child_process";
-import { readdirSync as readdirSync4, statSync as statSync4, lstatSync, readFileSync as readFileSync6, realpathSync as realpathSync2 } from "fs";
-import { join as join7, sep as sep2, extname } from "path";
+import { spawnSync as spawnSync3 } from "child_process";
+import { readdirSync as readdirSync4, statSync as statSync4, lstatSync, readFileSync as readFileSync7, realpathSync as realpathSync2 } from "fs";
+import { join as join8, sep as sep2, extname } from "path";
 import { createHash as createHash2 } from "crypto";
-import { readFileSync as readFileSync22, existsSync as existsSync7 } from "fs";
+import { readFileSync as readFileSync22, existsSync as existsSync8 } from "fs";
 import { homedir as homedir2 } from "os";
-import { dirname as dirname2, join as join22 } from "path";
+import { dirname as dirname3, join as join22 } from "path";
 import { fileURLToPath as fileURLToPath2 } from "url";
 import { basename as basename3 } from "path";
 import { readFileSync as readFileSync32 } from "fs";
@@ -2961,13 +3362,13 @@ import { join as join32 } from "path";
 import { posix } from "path";
 import { join as join72 } from "path";
 import { posix as posix2 } from "path";
-import { join as join8 } from "path";
+import { join as join82 } from "path";
 import { join as join9 } from "path";
 import { join as join10 } from "path";
 import { join as join11 } from "path";
 import { readFileSync as readFileSync62, writeFileSync as writeFileSync22 } from "fs";
 import { join as join12 } from "path";
-import { mkdirSync as mkdirSync22, readdirSync as readdirSync22, readFileSync as readFileSync7, rmSync as rmSync22, statSync as statSync32, writeFileSync as writeFileSync32 } from "fs";
+import { mkdirSync as mkdirSync22, readdirSync as readdirSync22, readFileSync as readFileSync72, rmSync as rmSync22, statSync as statSync32, writeFileSync as writeFileSync32 } from "fs";
 import { dirname as dirname4, join as join13 } from "path";
 import { existsSync as existsSync52, readdirSync as readdirSync32, statSync as statSync42 } from "fs";
 import { join as join14 } from "path";
@@ -2991,11 +3392,11 @@ import { basename as basename22 } from "path";
 import { existsSync as existsSync32, readFileSync as readFileSync42 } from "fs";
 import { join as join52 } from "path";
 import { createHash as createHash22 } from "crypto";
-import { existsSync as existsSync42, mkdirSync as mkdirSync5, mkdtempSync as mkdtempSync2, readFileSync as readFileSync52, renameSync, rmSync as rmSync4, writeFileSync as writeFileSync5 } from "fs";
-import { dirname as dirname3, join as join62, resolve as resolve3, sep as sep22 } from "path";
+import { existsSync as existsSync42, mkdirSync as mkdirSync6, mkdtempSync as mkdtempSync2, readFileSync as readFileSync52, renameSync, rmSync as rmSync4, writeFileSync as writeFileSync6 } from "fs";
+import { dirname as dirname32, join as join62, resolve as resolve3, sep as sep22 } from "path";
 import { gunzipSync } from "zlib";
 import { join as join15 } from "path";
-import { existsSync as existsSync8, mkdirSync as mkdirSync32, readFileSync as readFileSync10, writeFileSync as writeFileSync42 } from "fs";
+import { existsSync as existsSync82, mkdirSync as mkdirSync32, readFileSync as readFileSync10, writeFileSync as writeFileSync42 } from "fs";
 import { join as join20, resolve as resolve22 } from "path";
 var __defProp = Object.defineProperty;
 var __getOwnPropNames = Object.getOwnPropertyNames;
@@ -3018,7 +3419,7 @@ var init_types = __esm({
   }
 });
 function sh2(cmd, args2, opts = {}) {
-  const res = spawnSync2(cmd, args2, {
+  const res = spawnSync3(cmd, args2, {
     cwd: opts.cwd,
     input: opts.input,
     encoding: "utf8",
@@ -3372,12 +3773,12 @@ function walk(root, opts = {}) {
     }
     let rules = frame.rules;
     if (useGitignore && entries.some((e) => e.name === ".gitignore")) {
-      const parsed = parseGitignore(readText(join7(frame.dir, ".gitignore")), frame.rel);
+      const parsed = parseGitignore(readText(join8(frame.dir, ".gitignore")), frame.rel);
       if (parsed.length) rules = [...rules, ...parsed];
     }
     for (const entry of entries) {
       const name2 = entry.name;
-      const abs = join7(frame.dir, name2);
+      const abs = join8(frame.dir, name2);
       const rel2 = frame.rel ? `${frame.rel}/${name2}` : name2;
       const isLink = entry.isSymbolicLink();
       if (entry.isDirectory() && ignoreDirs.has(name2)) continue;
@@ -3434,7 +3835,7 @@ function walk(root, opts = {}) {
 }
 function readText(abs) {
   try {
-    const buf = readFileSync6(abs);
+    const buf = readFileSync7(abs);
     if (buf.length >= 2 && buf[0] === 255 && buf[1] === 254) {
       return buf.subarray(2, 2 + (buf.length - 2 & ~1)).toString("utf16le");
     }
@@ -8762,11 +9163,11 @@ function resolveGrammarsTier(opts = {}) {
     tier,
     dir,
     cacheDir: cacheDir2,
-    dirs: [dir, ...existsSync7(join22(dir, "..", EXTENDED_DIR)) ? [join22(dir, "..", EXTENDED_DIR)] : []]
+    dirs: [dir, ...existsSync8(join22(dir, "..", EXTENDED_DIR)) ? [join22(dir, "..", EXTENDED_DIR)] : []]
   });
   const legacy = process.env.CODEINDEX_GRAMMAR_DIR ?? process.env.ULTRAINDEX_GRAMMAR_DIR;
-  if (legacy && legacy.trim() && existsSync7(legacy)) return withDirs("env", legacy);
-  const here = opts.moduleDir ?? dirname2(fileURLToPath2(import.meta.url));
+  if (legacy && legacy.trim() && existsSync8(legacy)) return withDirs("env", legacy);
+  const here = opts.moduleDir ?? dirname3(fileURLToPath2(import.meta.url));
   const adjacent = [
     join22(here, "grammars"),
     // bundle: <...>/scripts/grammars
@@ -8774,10 +9175,10 @@ function resolveGrammarsTier(opts = {}) {
     // dev: src/ast → <repo>/scripts/grammars
     join22(here, "..", "scripts", "grammars")
   ];
-  for (const c2 of adjacent) if (existsSync7(c2)) return withDirs("adjacent", c2);
+  for (const c2 of adjacent) if (existsSync8(c2)) return withDirs("adjacent", c2);
   const env2 = process.env.CODEINDEX_GRAMMARS_DIR;
-  if (env2 && env2.trim() && existsSync7(env2)) return withDirs("env", env2);
-  if (existsSync7(cacheDir2)) return withDirs("cache", cacheDir2);
+  if (env2 && env2.trim() && existsSync8(env2)) return withDirs("env", env2);
+  if (existsSync8(cacheDir2)) return withDirs("cache", cacheDir2);
   return { tier: "none", cacheDir: cacheDir2, dirs: [] };
 }
 function resolveGrammarsDir(opts) {
@@ -8789,7 +9190,7 @@ async function ensureGrammars(keys) {
   const firstIn = (name2) => {
     for (const d of dirs) {
       const p = join22(d, name2);
-      if (existsSync7(p)) return p;
+      if (existsSync8(p)) return p;
     }
     return void 0;
   };
@@ -13190,7 +13591,7 @@ function symbolComplexity(scan2, rel2, top = 50) {
     if (f.kind !== "code") continue;
     if (rel2 && f.rel !== rel2) continue;
     if (!f.symbols.length) continue;
-    const lines = readText(join8(scan2.root, f.rel)).split("\n");
+    const lines = readText(join82(scan2.root, f.rel)).split("\n");
     for (const s of f.symbols) {
       if (s.kind === "reexport" || s.kind === "reexport-all") continue;
       const end = s.endLine ?? s.line;
@@ -13681,7 +14082,7 @@ function writeMemory(repo, name2, content) {
 }
 function readMemory(repo, name2) {
   try {
-    return readFileSync7(memoryPath(repo, name2), "utf8");
+    return readFileSync72(memoryPath(repo, name2), "utf8");
   } catch {
     return void 0;
   }
@@ -17346,8 +17747,8 @@ function extractTarInto(rawTar, destDir) {
     if (dest !== root && !dest.startsWith(root + sep22)) {
       throw new Error(`tar entry escapes destination: ${entry.name}`);
     }
-    mkdirSync5(dirname3(dest), { recursive: true });
-    writeFileSync5(dest, entry.data);
+    mkdirSync6(dirname32(dest), { recursive: true });
+    writeFileSync6(dest, entry.data);
     written.push(rel2);
   }
   return written;
@@ -17371,7 +17772,7 @@ async function pullGrammars(cacheDir2, opts = {}) {
     }
   }
   const runtime = join62(cacheDir2, "web-tree-sitter.wasm");
-  const markerPath = join62(dirname3(cacheDir2), `${ENGINE_VERSION}.sha256`);
+  const markerPath = join62(dirname32(cacheDir2), `${ENGINE_VERSION}.sha256`);
   if (existsSync42(runtime) && expected && existsSync42(markerPath)) {
     let marker = "";
     try {
@@ -17399,8 +17800,8 @@ async function pullGrammars(cacheDir2, opts = {}) {
   }
   let tmp;
   try {
-    mkdirSync5(dirname3(cacheDir2), { recursive: true });
-    tmp = mkdtempSync2(join62(dirname3(cacheDir2), ".grammars-tmp-"));
+    mkdirSync6(dirname32(cacheDir2), { recursive: true });
+    tmp = mkdtempSync2(join62(dirname32(cacheDir2), ".grammars-tmp-"));
     extractGrammarsTarball(bytes, tmp);
     if (!existsSync42(join62(tmp, "web-tree-sitter.wasm"))) {
       throw new Error("archive is missing web-tree-sitter.wasm");
@@ -17408,7 +17809,7 @@ async function pullGrammars(cacheDir2, opts = {}) {
     if (existsSync42(cacheDir2)) rmSync4(cacheDir2, { recursive: true, force: true });
     renameSync(tmp, cacheDir2);
     tmp = void 0;
-    if (expected) writeFileSync5(markerPath, expected + "\n");
+    if (expected) writeFileSync6(markerPath, expected + "\n");
   } catch (e) {
     if (tmp) {
       try {
@@ -18435,7 +18836,7 @@ function parseMcpFlags(argv) {
       throw new Error(`unknown flag for \`mcp\`: ${a}`);
     }
   }
-  if (defaultRepo && !existsSync8(defaultRepo)) throw new Error(`--repo path does not exist: ${defaultRepo}`);
+  if (defaultRepo && !existsSync82(defaultRepo)) throw new Error(`--repo path does not exist: ${defaultRepo}`);
   return { defaultRepo, serverInfo: name2 ? { name: name2 } : void 0, maxResponseBytes };
 }
 var VALUE_FLAGS = /* @__PURE__ */ new Set([
@@ -18504,7 +18905,7 @@ async function runCli(rawArgv) {
     return;
   }
   const flags2 = parseFlags(rest);
-  if (!existsSync8(flags2.repo)) throw new Error(`--repo path does not exist: ${flags2.repo}`);
+  if (!existsSync82(flags2.repo)) throw new Error(`--repo path does not exist: ${flags2.repo}`);
   const scans = !SCANLESS_COMMANDS.has(cmd) && !(cmd === "embed" && flags2.positional !== "build");
   let precomputedWalk;
   if (scans && !flags2.noAst) {
@@ -18819,7 +19220,7 @@ async function runCli(rawArgv) {
     const cacheDir2 = sharedGrammarsCacheDir();
     if (sub === "status") {
       const info2 = resolveGrammarsTier();
-      const present = (name2) => info2.dirs.some((d) => existsSync8(join20(d, name2)));
+      const present = (name2) => info2.dirs.some((d) => existsSync82(join20(d, name2)));
       const runtimePresent = present("web-tree-sitter.wasm");
       const target = resolveGrammarsPullTarget();
       const resolvedIn = (keys) => [...keys].filter((k) => present(`${k}.wasm`)).sort();
@@ -19415,9 +19816,6 @@ async function techAngle(ctx) {
 }
 
 // src/research/semantic.ts
-import { existsSync as existsSync9 } from "fs";
-import { join as join21, dirname as dirname5 } from "path";
-import { fileURLToPath as fileURLToPath3 } from "url";
 var OLLAMA = (process.env.CONSTRUCT_OLLAMA || "http://localhost:11434").replace(/\/$/, "");
 var EMBED_MODEL = process.env.CONSTRUCT_EMBED_MODEL || "nomic-embed-text";
 function cosine(a, b) {
@@ -19470,71 +19868,24 @@ ${it.snippet}`);
   if (failures) notes.push(`${failures} item(s) could not be embedded; ranked last.`);
   return { available: true, results: out2, notes };
 }
-function composeFile() {
-  const here = dirname5(fileURLToPath3(import.meta.url));
-  for (const cand of [join21(here, "..", "docker-compose.yml"), join21(here, "docker-compose.yml"), join21(here, "..", "..", "docker-compose.yml")]) {
-    if (existsSync9(cand)) return cand;
-  }
-  return null;
-}
-var STACKS = {
-  semantic: {
-    profile: "all",
-    summary: "stack is up (Qdrant :6333 \xB7 Ollama :11434 \xB7 SearXNG :8888).",
-    use: "  use:    construct research --out <run> --angles market,oss,tech,semantic --semantic",
-    upTimeoutMs: COMPOSE_UP_TIMEOUT_MS
-  },
-  firecrawl: {
-    profile: "extract",
-    summary: "stack is up (Firecrawl :3002 \u2014 keyless, no API key).",
-    use: "  use:    construct research --out <run>   (pages are cleaned through Firecrawl automatically)",
-    upTimeoutMs: COMPOSE_UP_HEAVY_TIMEOUT_MS
-  }
+var STACK_SERVICES2 = {
+  semantic: ["semantic", "searxng"],
+  firecrawl: ["firecrawl"]
 };
-function stackControl(stack, action, composeFilePath = composeFile()) {
-  const spec = STACKS[stack];
-  const ref = `construct ${stack}`;
-  if (!["up", "down", "status"].includes(action)) {
-    return { message: `${ref}: unknown action "${action}" (use: up | down | status)`, code: 1 };
-  }
-  if (!have("docker")) {
-    return { message: `${ref}: docker not found. Install Docker, then retry. See references/semantic-setup.md.`, code: 1 };
-  }
-  if (!composeFilePath) {
-    return {
-      message: `${ref}: docker-compose.yml not found next to the bundle \u2014 reinstall the skill (\`npx skills add maxgfr/construct\`), or run from the repo. See references/semantic-setup.md.`,
-      code: 1
-    };
-  }
-  const file = composeFilePath;
-  if (action === "down") {
-    const r = sh("docker", ["compose", "-f", file, "--profile", spec.profile, "down"], { timeoutMs: COMPOSE_DOWN_TIMEOUT_MS });
-    return { message: r.ok ? `${ref}: stack stopped.` : `${ref}: down failed.
-${r.stderr}`, code: r.ok ? 0 : 1 };
-  }
-  if (action === "status") {
-    const r = sh("docker", ["compose", "-f", file, "--profile", spec.profile, "ps"], { timeoutMs: COMPOSE_PS_TIMEOUT_MS });
-    return { message: r.ok ? r.stdout || `${ref}: no services running.` : `${ref}: status failed.
-${r.stderr}`, code: 0 };
-  }
-  const up2 = sh("docker", ["compose", "-f", file, "--profile", spec.profile, "up", "-d", "--wait"], { timeoutMs: spec.upTimeoutMs });
-  if (!up2.ok) return { message: `${ref}: up failed.
-${up2.stderr}`, code: 1 };
-  const lines = [`${ref}: ${spec.summary}`];
-  if (stack === "semantic") {
-    const pull = sh("docker", ["compose", "-f", file, "exec", "-T", "ollama", "ollama", "pull", EMBED_MODEL], { timeoutMs: OLLAMA_PULL_TIMEOUT_MS });
-    lines.push(
-      pull.ok ? `  model:  ${EMBED_MODEL} ready` : `  model:  pull '${EMBED_MODEL}' yourself: docker compose -f ${file} exec ollama ollama pull ${EMBED_MODEL}`
-    );
-  }
-  lines.push(spec.use);
-  return { message: lines.join("\n"), code: 0 };
+var USE_HINT = {
+  semantic: "  use:    construct research --out <run> --angles market,oss,tech,semantic --semantic",
+  firecrawl: "  use:    construct research --out <run>   (pages are cleaned through Firecrawl automatically)"
+};
+function stackCommand(stack, action, deps = {}) {
+  const r = stackControl(STACK_SERVICES2[stack], action, deps);
+  return r.code === 0 && action === "up" ? { ...r, message: `${r.message}
+${USE_HINT[stack]}` } : r;
 }
 
 // src/research/dossier.ts
 import { createHash as createHash4 } from "crypto";
-import { existsSync as existsSync10, mkdirSync as mkdirSync6, readFileSync as readFileSync11, writeFileSync as writeFileSync6 } from "fs";
-import { join as join23 } from "path";
+import { existsSync as existsSync9, mkdirSync as mkdirSync7, readFileSync as readFileSync11, writeFileSync as writeFileSync7 } from "fs";
+import { join as join21 } from "path";
 var SOURCE_ORDER = ["market", "oss", "docs", "so", "issue", "pr"];
 var SOURCE_LABEL = {
   market: "Market & competitors",
@@ -19555,8 +19906,8 @@ function emptyLedger() {
   return { schemaVersion: ID_LEDGER_SCHEMA_VERSION, next: 1, assigned: {} };
 }
 function loadLedger(dir) {
-  const p = join23(dir, "ids.json");
-  if (!existsSync10(p)) return emptyLedger();
+  const p = join21(dir, "ids.json");
+  if (!existsSync9(p)) return emptyLedger();
   try {
     const raw = JSON.parse(readFileSync11(p, "utf8"));
     if (raw.schemaVersion !== ID_LEDGER_SCHEMA_VERSION) return emptyLedger();
@@ -19644,15 +19995,15 @@ function fmtBytes(n) {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 function writeDossier(dir, evidence, meta, ledger = emptyLedger()) {
-  mkdirSync6(dir, { recursive: true });
-  const evidenceJson = join23(dir, "evidence.json");
-  const evidenceMd = join23(dir, "EVIDENCE.md");
-  const metaJson = join23(dir, "meta.json");
-  const idsJson = join23(dir, "ids.json");
-  writeFileSync6(evidenceJson, JSON.stringify(evidence, null, 2));
-  writeFileSync6(evidenceMd, renderEvidenceMarkdown(evidence, meta));
-  writeFileSync6(metaJson, JSON.stringify(meta, null, 2));
-  writeFileSync6(idsJson, JSON.stringify(ledger, null, 2));
+  mkdirSync7(dir, { recursive: true });
+  const evidenceJson = join21(dir, "evidence.json");
+  const evidenceMd = join21(dir, "EVIDENCE.md");
+  const metaJson = join21(dir, "meta.json");
+  const idsJson = join21(dir, "ids.json");
+  writeFileSync7(evidenceJson, JSON.stringify(evidence, null, 2));
+  writeFileSync7(evidenceMd, renderEvidenceMarkdown(evidence, meta));
+  writeFileSync7(metaJson, JSON.stringify(meta, null, 2));
+  writeFileSync7(idsJson, JSON.stringify(ledger, null, 2));
   return { dir, evidenceJson, evidenceMd, metaJson, idsJson };
 }
 
@@ -19708,7 +20059,7 @@ function capSource(r, perSource) {
 async function runResearch(ctx, builtAt) {
   const { results, notes, timings } = await runAngles(ctx);
   const capped = results.map((r) => capSource(r, ctx.perSource));
-  const dir = join24(ctx.runDir, "evidence");
+  const dir = join23(ctx.runDir, "evidence");
   const ledger = loadLedger(dir);
   const evidence = assignIds2(capped, ledger);
   const presentSources = [...new Set(evidence.map((e) => e.source))];
@@ -19729,13 +20080,13 @@ async function runResearch(ctx, builtAt) {
 }
 
 // src/render.ts
-import { existsSync as existsSync12, mkdirSync as mkdirSync7, readFileSync as readFileSync13, writeFileSync as writeFileSync8, rmSync as rmSync5 } from "fs";
-import { join as join27, dirname as dirname6 } from "path";
+import { existsSync as existsSync11, mkdirSync as mkdirSync8, readFileSync as readFileSync13, writeFileSync as writeFileSync9, rmSync as rmSync5 } from "fs";
+import { join as join26, dirname as dirname5 } from "path";
 
 // src/srd.ts
-import { join as join25 } from "path";
+import { join as join24 } from "path";
 function srdManifestPath(runDir) {
-  return join25(runDir, "SRD.json");
+  return join24(runDir, "SRD.json");
 }
 function pad3(n) {
   return String(n).padStart(3, "0");
@@ -20525,10 +20876,10 @@ function evNum(id) {
 }
 
 // src/plan.ts
-import { existsSync as existsSync11, readFileSync as readFileSync12, writeFileSync as writeFileSync7 } from "fs";
-import { join as join26 } from "path";
+import { existsSync as existsSync10, readFileSync as readFileSync12, writeFileSync as writeFileSync8 } from "fs";
+import { join as join25 } from "path";
 function buildPlanPath(runDir) {
-  return join26(runDir, "BUILD-PLAN.json");
+  return join25(runDir, "BUILD-PLAN.json");
 }
 function milestoneLabel(title) {
   return title.split("\u2014")[0].trim() || title.trim();
@@ -20663,7 +21014,7 @@ function readyFrontier(plan) {
 }
 function loadPlan(runDir) {
   const path = buildPlanPath(runDir);
-  if (!existsSync11(path)) return null;
+  if (!existsSync10(path)) return null;
   try {
     const data = JSON.parse(readFileSync12(path, "utf8"));
     return data && typeof data === "object" && Array.isArray(data.tasks) ? data : null;
@@ -20673,15 +21024,15 @@ function loadPlan(runDir) {
 }
 function writePlan(runDir, plan) {
   const path = buildPlanPath(runDir);
-  writeFileSync7(path, JSON.stringify(plan, null, 2) + "\n");
+  writeFileSync8(path, JSON.stringify(plan, null, 2) + "\n");
   return path;
 }
 
 // src/render.ts
 function writeFile(out2, rel2, content, files) {
-  const abs = join27(out2, rel2);
-  mkdirSync7(dirname6(abs), { recursive: true });
-  writeFileSync8(abs, content.endsWith("\n") ? content : content + "\n");
+  const abs = join26(out2, rel2);
+  mkdirSync8(dirname5(abs), { recursive: true });
+  writeFileSync9(abs, content.endsWith("\n") ? content : content + "\n");
   files.push(rel2);
 }
 function renderSRD(brief, evidence, opts) {
@@ -20691,7 +21042,7 @@ function renderSRD(brief, evidence, opts) {
 }
 function renderFromSRD(runDir, opts) {
   const manifest = srdManifestPath(runDir);
-  if (!existsSync12(manifest)) {
+  if (!existsSync11(manifest)) {
     throw new Error(`No SRD.json in ${runDir} \u2014 render the SRD first (construct render), then edit it and re-run with --from-srd.`);
   }
   let srd;
@@ -20728,17 +21079,17 @@ function syncTraceability(srd) {
 function emitSRD(srd, opts) {
   const files = [];
   const out2 = opts.out;
-  if (!opts.prd && !opts.noPrd && existsSync12(join27(out2, "requirements", "prd"))) {
+  if (!opts.prd && !opts.noPrd && existsSync11(join26(out2, "requirements", "prd"))) {
     throw new Error("requirements/prd exists from a previous --prd render \u2014 re-run with --prd to regenerate it, or --no-prd to delete it deliberately.");
   }
   syncTraceability(srd);
-  rmSync5(join27(out2, "architecture", "decisions"), { recursive: true, force: true });
-  rmSync5(join27(out2, "design"), { recursive: true, force: true });
-  rmSync5(join27(out2, "prd"), { recursive: true, force: true });
+  rmSync5(join26(out2, "architecture", "decisions"), { recursive: true, force: true });
+  rmSync5(join26(out2, "design"), { recursive: true, force: true });
+  rmSync5(join26(out2, "prd"), { recursive: true, force: true });
   writeFile(out2, "00-overview/VISION.md", renderVision(srd), files);
   writeFile(out2, "00-overview/SCOPE.md", renderScope(srd), files);
   writeFile(out2, "requirements/FUNCTIONAL.md", renderFunctional(srd), files);
-  rmSync5(join27(out2, "requirements", "prd"), { recursive: true, force: true });
+  rmSync5(join26(out2, "requirements", "prd"), { recursive: true, force: true });
   if (opts.prd) {
     for (const fr of srd.functional) {
       writeFile(out2, `requirements/prd/PRD-${fr.id}-${slugTitle(fr.title)}.md`, renderFeaturePRD(fr, srd), files);
@@ -20771,26 +21122,26 @@ function emitSRD(srd, opts) {
     writeFile(out2, "design/SCREENS.md", renderScreens(srd.design), files);
     writeFile(out2, "design/ACCESSIBILITY.md", renderAccessibility(srd.design), files);
   }
-  writeFileSync8(srdManifestPath(out2), JSON.stringify(srd, null, 2) + "\n");
+  writeFileSync9(srdManifestPath(out2), JSON.stringify(srd, null, 2) + "\n");
   files.push("SRD.json");
   if (opts.merge) {
     writeFile(out2, "SRD.md", renderMergeBundle(srd), files);
   } else {
-    rmSync5(join27(out2, "SRD.md"), { force: true });
+    rmSync5(join26(out2, "SRD.md"), { force: true });
   }
   return { dir: out2, files, srd };
 }
 
 // src/check.ts
-import { existsSync as existsSync14, readFileSync as readFileSync15, readdirSync as readdirSync5, statSync as statSync6 } from "fs";
-import { join as join29, relative, sep as sep3 } from "path";
+import { existsSync as existsSync13, readFileSync as readFileSync15, readdirSync as readdirSync5, statSync as statSync6 } from "fs";
+import { join as join28, relative, sep as sep3 } from "path";
 
 // src/review.ts
-import { existsSync as existsSync13, readFileSync as readFileSync14, writeFileSync as writeFileSync9 } from "fs";
-import { join as join28 } from "path";
+import { existsSync as existsSync12, readFileSync as readFileSync14, writeFileSync as writeFileSync10 } from "fs";
+import { join as join27 } from "path";
 var VALID_VERDICTS = ["supported", "partial", "refuted", "unsupported"];
 function loadEvidence(path) {
-  if (!existsSync13(path)) return [];
+  if (!existsSync12(path)) return [];
   try {
     const data = JSON.parse(readFileSync14(path, "utf8"));
     return Array.isArray(data) ? data.filter(
@@ -20836,14 +21187,14 @@ function claimDigest(snippet, claim, cap = 600) {
 }
 function runReview(runDir, opts = {}) {
   const manifest = srdManifestPath(runDir);
-  if (!existsSync13(manifest)) throw new Error(`No SRD.json in ${runDir} \u2014 render the SRD first (construct render).`);
+  if (!existsSync12(manifest)) throw new Error(`No SRD.json in ${runDir} \u2014 render the SRD first (construct render).`);
   let srd;
   try {
     srd = JSON.parse(readFileSync14(manifest, "utf8"));
   } catch (e) {
     throw new Error(`SRD.json is unreadable: ${e.message}`);
   }
-  const evidence = loadEvidence(join28(runDir, "evidence", "evidence.json"));
+  const evidence = loadEvidence(join27(runDir, "evidence", "evidence.json"));
   const byId = new Map(evidence.map((e) => [e.id, e]));
   const pairs = [];
   for (const c2 of srdClaims(srd)) {
@@ -20875,8 +21226,8 @@ function runReview(runDir, opts = {}) {
     run: runDir,
     pairs: worklist.pairs.map((p) => ({ ...p, verdict: null, note: "" }))
   };
-  writeFileSync9(join28(runDir, "VERIFY.todo.json"), JSON.stringify(todo, null, 2));
-  writeFileSync9(join28(runDir, "VERIFY.md"), renderWorklistMd(worklist, pairs.length, dropped));
+  writeFileSync10(join27(runDir, "VERIFY.todo.json"), JSON.stringify(todo, null, 2));
+  writeFileSync10(join27(runDir, "VERIFY.md"), renderWorklistMd(worklist, pairs.length, dropped));
   return worklist;
 }
 function renderWorklistMd(wl, total2, dropped) {
@@ -20904,7 +21255,7 @@ function renderWorklistMd(wl, total2, dropped) {
   return out2.join("\n");
 }
 function applyVerdicts(runDir, verdictsPath) {
-  if (!existsSync13(verdictsPath)) throw new Error(`verdicts file not found: ${verdictsPath}`);
+  if (!existsSync12(verdictsPath)) throw new Error(`verdicts file not found: ${verdictsPath}`);
   let raw;
   try {
     raw = JSON.parse(readFileSync14(verdictsPath, "utf8"));
@@ -20933,8 +21284,8 @@ function applyVerdicts(runDir, verdictsPath) {
     });
     seen.add(key(v.claimId, v.evidenceId));
   }
-  const todoPath = join28(runDir, "VERIFY.todo.json");
-  if (existsSync13(todoPath)) {
+  const todoPath = join27(runDir, "VERIFY.todo.json");
+  if (existsSync12(todoPath)) {
     try {
       const todo = JSON.parse(readFileSync14(todoPath, "utf8"));
       for (const p of todo.pairs ?? []) {
@@ -20957,7 +21308,7 @@ function applyVerdicts(runDir, verdictsPath) {
   }
   const result = reduceVerdicts(verdicts);
   const srdGeneratedAt = readSrdGeneratedAt(runDir);
-  writeFileSync9(join28(runDir, "VERIFY.json"), JSON.stringify({ ...result, ...srdGeneratedAt ? { srdGeneratedAt } : {}, verdicts }, null, 2));
+  writeFileSync10(join27(runDir, "VERIFY.json"), JSON.stringify({ ...result, ...srdGeneratedAt ? { srdGeneratedAt } : {}, verdicts }, null, 2));
   return { ...result, ...srdGeneratedAt ? { srdGeneratedAt } : {} };
 }
 function normalizedRank(pairs) {
@@ -20982,8 +21333,8 @@ function normalizedRank(pairs) {
   };
 }
 function readSrdGeneratedAt(runDir) {
-  const p = join28(runDir, "SRD.json");
-  if (!existsSync13(p)) return void 0;
+  const p = join27(runDir, "SRD.json");
+  if (!existsSync12(p)) return void 0;
   try {
     const srd = JSON.parse(readFileSync14(p, "utf8"));
     return typeof srd.generatedAt === "string" ? srd.generatedAt : void 0;
@@ -21185,7 +21536,7 @@ function mdFiles(runDir) {
       continue;
     }
     for (const name2 of entries) {
-      const abs = join29(dir, name2);
+      const abs = join28(dir, name2);
       let st;
       try {
         st = statSync6(abs);
@@ -21205,8 +21556,8 @@ function mdFiles(runDir) {
   return out2.sort();
 }
 function countProposedIdeas(runDir) {
-  const p = join29(runDir, "brainstorm.json");
-  if (!existsSync14(p)) return 0;
+  const p = join28(runDir, "brainstorm.json");
+  if (!existsSync13(p)) return 0;
   try {
     const data = JSON.parse(readFileSync15(p, "utf8"));
     return Array.isArray(data.ideas) ? data.ideas.filter((i2) => i2 && i2.status === "proposed").length : 0;
@@ -21215,8 +21566,8 @@ function countProposedIdeas(runDir) {
   }
 }
 function loadEvidence2(runDir) {
-  const path = join29(runDir, "evidence", "evidence.json");
-  if (!existsSync14(path)) {
+  const path = join28(runDir, "evidence", "evidence.json");
+  if (!existsSync13(path)) {
     return { evidence: [], note: `No evidence/evidence.json \u2014 grounding coverage is 0 (run \`construct research\` to ground the SRD).` };
   }
   try {
@@ -21277,8 +21628,8 @@ function uncoveredPairs(runDir, verdicts) {
     label.set(k, `${v.claimId}\xB7${v.evidenceId}`);
     if (v.verdict) adjudicated.add(k);
   }
-  const todoPath = join29(runDir, "VERIFY.todo.json");
-  if (existsSync14(todoPath)) {
+  const todoPath = join28(runDir, "VERIFY.todo.json");
+  if (existsSync13(todoPath)) {
     try {
       const todo = JSON.parse(readFileSync15(todoPath, "utf8"));
       for (const p of todo.pairs ?? []) {
@@ -21293,7 +21644,7 @@ function uncoveredPairs(runDir, verdicts) {
   return missing.sort();
 }
 function applySemantic(runDir, result, allowUnverified) {
-  const p = join29(runDir, "VERIFY.json");
+  const p = join28(runDir, "VERIFY.json");
   const skip = (reason, hint) => {
     if (allowUnverified) {
       result.structural.warnings.push(`--semantic: ${reason} \u2014 ${hint}; semantic gate skipped (--allow-unverified).`);
@@ -21302,7 +21653,7 @@ function applySemantic(runDir, result, allowUnverified) {
       result.ok = false;
     }
   };
-  if (!existsSync14(p)) {
+  if (!existsSync13(p)) {
     skip("no VERIFY.json", "run `construct review` then `review --apply <verdicts.json>` first");
     return;
   }
@@ -21354,7 +21705,7 @@ function checkDesign(runDir, srd, errors, warnings) {
   const ds = srd.design;
   if (!ds) return;
   for (const f of DESIGN_REQUIRED_FILES) {
-    if (!existsSync14(join29(runDir, f))) errors.push(`Missing required design file: ${f} (re-render at --level complex).`);
+    if (!existsSync13(join28(runDir, f))) errors.push(`Missing required design file: ${f} (re-render at --level complex).`);
   }
   const frIds = new Set(srd.functional.map((f) => f.id));
   if (ds.components.length === 0) errors.push("Design system has no components \u2014 a complex SRD's design must name its UI components.");
@@ -21376,8 +21727,8 @@ function checkDesign(runDir, srd, errors, warnings) {
   for (const r of ds.accessibility.requirements) {
     if (!r.acceptance.length) errors.push(`Accessibility requirement ${r.id} has no acceptance criteria.`);
   }
-  const tokenDoc = join29(runDir, "design", "DESIGN-TOKENS.md");
-  if (existsSync14(tokenDoc) && readFileSync15(tokenDoc, "utf8").includes(DESIGN_TOKENS_SEEDED_BANNER)) {
+  const tokenDoc = join28(runDir, "design", "DESIGN-TOKENS.md");
+  if (existsSync13(tokenDoc) && readFileSync15(tokenDoc, "utf8").includes(DESIGN_TOKENS_SEEDED_BANNER)) {
     warnings.push("Design tokens are still seeded defaults \u2014 replace them with the product's real brand values (see references/design-system-authoring.md).");
   }
 }
@@ -21385,11 +21736,11 @@ function checkModules(runDir, srd, errors, warnings) {
   const mods = srd.modules;
   if (!mods?.length) return;
   const moduleIds = new Set(mods.map((m) => m.id));
-  if (!existsSync14(join29(runDir, "prd", "README.md"))) {
+  if (!existsSync13(join28(runDir, "prd", "README.md"))) {
     errors.push(`Missing required module-PRD index: prd/README.md (re-render).`);
   }
   for (const m of mods) {
-    if (!existsSync14(join29(runDir, "prd", m.id, "PRD.md"))) {
+    if (!existsSync13(join28(runDir, "prd", m.id, "PRD.md"))) {
       errors.push(`Missing required module PRD: prd/${m.id}/PRD.md (re-render).`);
     }
     for (const dep of m.dependsOn) {
@@ -21420,10 +21771,10 @@ function checkRun(runDir, opts = {}) {
     resolved: []
   };
   for (const f of REQUIRED_FILES) {
-    if (!existsSync14(join29(runDir, f))) errors.push(`Missing required file: ${f} (run \`construct render --out ${runDir}\`).`);
+    if (!existsSync13(join28(runDir, f))) errors.push(`Missing required file: ${f} (run \`construct render --out ${runDir}\`).`);
   }
   const manifest = srdManifestPath(runDir);
-  if (!existsSync14(manifest)) {
+  if (!existsSync13(manifest)) {
     errors.push(`No SRD.json in ${runDir} \u2014 render the SRD first.`);
     return { ok: false, structural: { ok: false, errors, warnings }, coverage: emptyCoverage };
   }
@@ -21435,7 +21786,7 @@ function checkRun(runDir, opts = {}) {
     return { ok: false, structural: { ok: false, errors, warnings }, coverage: emptyCoverage };
   }
   for (const rel2 of mdFiles(runDir)) {
-    const text = readFileSync15(join29(runDir, rel2), "utf8");
+    const text = readFileSync15(join28(runDir, rel2), "utf8");
     if (DECISION_RE.test(text)) errors.push(`Unresolved decision (\u{1F9E0}) in ${rel2} \u2014 resolve it before the SRD is complete.`);
     else if (PLACEHOLDER_RE.test(text)) warnings.push(`Possible leftover placeholder (TODO/TBD/FIXME) in ${rel2} \u2014 confirm it is intentional.`);
   }
@@ -21534,7 +21885,7 @@ function checkRun(runDir, opts = {}) {
     applySemantic(runDir, result, opts.allowUnverified ?? false);
   } else if (coverage.resolved.length > 0) {
     const citedClaims = coverage.frGrounded + coverage.nfrGrounded + coverage.adrGrounded;
-    result.semanticSkipped = { citedClaims, verifyExists: existsSync14(join29(runDir, "VERIFY.json")) };
+    result.semanticSkipped = { citedClaims, verifyExists: existsSync13(join28(runDir, "VERIFY.json")) };
   }
   return result;
 }
@@ -21595,11 +21946,11 @@ function formatCheckReport(r, runDir) {
 }
 
 // src/analyze.ts
-import { existsSync as existsSync15, readFileSync as readFileSync16 } from "fs";
-import { join as join30 } from "path";
+import { existsSync as existsSync14, readFileSync as readFileSync16 } from "fs";
+import { join as join29 } from "path";
 function loadEvidence3(runDir) {
-  const path = join30(runDir, "evidence", "evidence.json");
-  if (!existsSync15(path)) return [];
+  const path = join29(runDir, "evidence", "evidence.json");
+  if (!existsSync14(path)) return [];
   try {
     const data = JSON.parse(readFileSync16(path, "utf8"));
     return Array.isArray(data) ? data.filter(
@@ -21610,8 +21961,8 @@ function loadEvidence3(runDir) {
   }
 }
 function loadMetaNotes(runDir) {
-  const path = join30(runDir, "evidence", "meta.json");
-  if (!existsSync15(path)) return [];
+  const path = join29(runDir, "evidence", "meta.json");
+  if (!existsSync14(path)) return [];
   try {
     const meta = JSON.parse(readFileSync16(path, "utf8"));
     return Array.isArray(meta.notes) ? meta.notes.filter((n) => typeof n === "string") : [];
@@ -21689,8 +22040,8 @@ function formatGapReport(r, runDir) {
 }
 
 // src/verify.ts
-import { existsSync as existsSync16, readFileSync as readFileSync17 } from "fs";
-import { isAbsolute as isAbsolute2, join as join31, resolve as resolve4 } from "path";
+import { existsSync as existsSync15, readFileSync as readFileSync17 } from "fs";
+import { isAbsolute as isAbsolute2, join as join30, resolve as resolve4 } from "path";
 var TEST_FILE_RE = /\.(test|spec)\.[^./]+$|_(test|spec)\.[^./]+$|(^|\/)test_[^/]+\.[^./]+$/i;
 var TEST_SUFFIX_RE = /(^|\/)[^/]*[A-Z]\w*Tests?\.(java|kt|kts|cs|scala|groovy)$/;
 var TEST_DIR_RE = /(^|\/)(tests?|__tests__|spec|specs|e2e)\//i;
@@ -21728,7 +22079,7 @@ function verifyRun(runDir, opts = {}) {
   const warnings = [];
   const frTestCoverage = [];
   const planPath = buildPlanPath(runDir);
-  if (!existsSync16(planPath)) {
+  if (!existsSync15(planPath)) {
     errors.push(`No BUILD-PLAN.json in ${runDir} \u2014 render the SRD first (construct render).`);
     return { ok: false, errors, warnings, frTestCoverage };
   }
@@ -21742,7 +22093,7 @@ function verifyRun(runDir, opts = {}) {
     return { ok: false, errors, warnings, frTestCoverage };
   }
   const manifest = srdManifestPath(runDir);
-  if (!existsSync16(manifest)) {
+  if (!existsSync15(manifest)) {
     errors.push(`No SRD.json in ${runDir} \u2014 the plan cannot be verified against a missing SRD.`);
     return { ok: false, errors, warnings, frTestCoverage };
   }
@@ -21792,13 +22143,13 @@ function verifyRun(runDir, opts = {}) {
     const ok2 = errors.length === 0;
     return { ok: ok2, errors, warnings, frTestCoverage };
   }
-  if (!existsSync16(appDir)) {
+  if (!existsSync15(appDir)) {
     errors.push(`App directory does not exist: ${appDir}.`);
     return { ok: false, errors, warnings, frTestCoverage };
   }
   for (const t of doneTasks) {
     for (const rel2 of [...t.artifacts, ...t.tests]) {
-      if (!existsSync16(join31(appDir, rel2))) errors.push(`${t.id} is done but its declared file is missing: ${rel2}.`);
+      if (!existsSync15(join30(appDir, rel2))) errors.push(`${t.id} is done but its declared file is missing: ${rel2}.`);
     }
     if (t.frIds.length && t.tests.length === 0) {
       warnings.push(`${t.id} is done but declares no tests \u2014 record the test files that exercise ${t.frIds.join(", ")}.`);
@@ -21886,11 +22237,11 @@ function formatVerifyReport(r, runDir) {
 }
 
 // src/orchestrate.ts
-import { existsSync as existsSync17, mkdirSync as mkdirSync8, readFileSync as readFileSync18, writeFileSync as writeFileSync10 } from "fs";
-import { join as join34, resolve as resolve5 } from "path";
+import { existsSync as existsSync16, mkdirSync as mkdirSync9, readFileSync as readFileSync18, writeFileSync as writeFileSync11 } from "fs";
+import { join as join33, resolve as resolve5 } from "path";
 
 // src/orchestrate-templates.ts
-import { join as join33 } from "path";
+import { join as join31 } from "path";
 var ADR_LENSES = ["feasibility", "operations-cost", "user-value"];
 function oneWriterFooter(runAbs, sanctionedWrite) {
   return `
@@ -21900,7 +22251,7 @@ Return ONLY the structured output specified above. Subagents NEVER write into th
 
 ${sanctionedWrite}` : ""}
 
-Exception for oversized prose: if a justification is too large to return, write ONLY to \`${join33(runAbs, "orchestration", "out")}/<role>-<batch>.md\` (a file namespaced to you alone) and return its path.
+Exception for oversized prose: if a justification is too large to return, write ONLY to \`${join31(runAbs, "orchestration", "out")}/<role>-<batch>.md\` (a file namespaced to you alone) and return its path.
 `;
 }
 var RESEARCH_SCHEMA = {
@@ -22040,7 +22391,7 @@ var FOLD_PREAMBLE = {
 };
 function phaseWorkflowScript(ph, runAbs, engineAbs, units, adr) {
   const spec = phaseSpec(ph.name);
-  const scriptPath = join33(runAbs, "orchestration", `${ph.name}.workflow.mjs`);
+  const scriptPath = join31(runAbs, "orchestration", `${ph.name}.workflow.mjs`);
   const meta = { name: `construct-${ph.name}`, description: spec.description(units.length), phases: [{ title: spec.title }] };
   const adrConsts = adr ? [`const ADR = ${JSON.stringify(adr.adr)}`, `const EVIDENCE = ${JSON.stringify(adr.evidence)}`] : [];
   const tail = FOLD_PREAMBLE[ph.name] ?? [];
@@ -22106,11 +22457,11 @@ ${footer}`,
 
 You are an adversarial skeptic verifying that each SRD claim is actually SUPPORTED by the evidence it cites (references/orchestration.md Pattern 4). Assume the citation is decorative until the evidence proves otherwise.
 
-Worklist: \`${join33(runAbs, "VERIFY.todo.json")}\` (\`{ pairs: [...] }\`; each pair has \`claimId\`, \`kind\`, \`claim\`, \`evidenceId\`, \`source\`, \`digest\`). Handle ONLY the pairs whose \`claimId::evidenceId\` key is named in your prompt (\`PAIRS=<key,\u2026>\`). If a PAIRS key is no longer in the worklist, skip it and say so in your note.
+Worklist: \`${join31(runAbs, "VERIFY.todo.json")}\` (\`{ pairs: [...] }\`; each pair has \`claimId\`, \`kind\`, \`claim\`, \`evidenceId\`, \`source\`, \`digest\`). Handle ONLY the pairs whose \`claimId::evidenceId\` key is named in your prompt (\`PAIRS=<key,\u2026>\`). If a PAIRS key is no longer in the worklist, skip it and say so in your note.
 
 For EACH of your pairs:
 
-1. Read the pair's \`claim\` and its \`digest\` (the cited item's snippet). You may open the evidence source URL (see \`${join33(runAbs, "evidence", "EVIDENCE.md")}\`) for more context. A digest flagged \`[low-signal snippet \u2026]\` must be adjudicated skeptically \u2014 never grant \`supported\` on the URL alone.
+1. Read the pair's \`claim\` and its \`digest\` (the cited item's snippet). You may open the evidence source URL (see \`${join31(runAbs, "evidence", "EVIDENCE.md")}\`) for more context. A digest flagged \`[low-signal snippet \u2026]\` must be adjudicated skeptically \u2014 never grant \`supported\` on the URL alone.
 2. Judge the claim\u2194evidence link:
    - \`supported\` \u2014 the cited evidence directly backs the claim.
    - \`partial\` \u2014 it backs a weaker version of the claim.
@@ -22137,9 +22488,9 @@ Return (structured output): \`{ "lens", "score", "rationale" }\` \u2014 a 1\u201
 ${footer}`,
     builder: `# Contract: builder
 
-You build ONE task of \`${join33(runAbs, "BUILD-PLAN.json")}\`, test-first, in your OWN isolated git worktree (references/orchestration.md Pattern 5 + references/build-playbook.md). Your prompt names your task (\`TASK=<id>\`). If your TASK id is no longer in the worklist, skip it and say so in your summary.
+You build ONE task of \`${join31(runAbs, "BUILD-PLAN.json")}\`, test-first, in your OWN isolated git worktree (references/orchestration.md Pattern 5 + references/build-playbook.md). Your prompt names your task (\`TASK=<id>\`). If your TASK id is no longer in the worklist, skip it and say so in your summary.
 
-1. Read your task in the plan. Its \`acceptance\` entries POINT into \`${join33(runAbs, "SRD.json")}\` (\`functional[frId].acceptance[index]\`) \u2014 the SRD stays the single source of truth for what "done" means.
+1. Read your task in the plan. Its \`acceptance\` entries POINT into \`${join31(runAbs, "SRD.json")}\` (\`functional[frId].acceptance[index]\`) \u2014 the SRD stays the single source of truth for what "done" means.
 2. Work ONLY inside your own git worktree (the workflow dispatches you with \`isolation: 'worktree'\`). TDD each acceptance criterion: failing test first, then make it pass \u2014 and **every test names its FR id** (e.g. \`describe("FR-001 \u2026")\`; that is what \`verify\` greps for).
 3. Run the app's test command yourself in the worktree. Do NOT run \`verify\` or the milestone gate \u2014 the orchestrator referees after folding the whole frontier.
 4. NEVER edit \`BUILD-PLAN.json\`, \`SRD.json\` or anything in the run folder, and never touch files another frontier task owns \u2014 app-shared files (routing, schema, the test harness) are serialised by the orchestrator.
@@ -22151,7 +22502,7 @@ ${builderFooter}`
 function runbookMd(phases, runAbs, engineAbs) {
   const status = phases.map((p) => `| ${p.name} | \`${p.worklist}\` | ${p.ready ? `ready (${p.items} unit(s))` : "not ready"} | \`${p.prerequisite}\` |`).join("\n");
   const engine = `node ${engineAbs}`;
-  const agents = join33(runAbs, "orchestration", "agents");
+  const agents = join31(runAbs, "orchestration", "agents");
   return `# construct \u2014 sequential RUNBOOK (eco / no-subagent fallback)
 
 Run: \`${runAbs}\` \xB7 Engine: \`${engine}\`
@@ -22169,17 +22520,17 @@ ${status}
 
 ## The loop (play every role yourself, one unit at a time)
 
-1. **Interview \u2192 brief** (if not done): \`${engine} init --idea "<one-liner>" --out ${runAbs}\`, then fill \`${join33(runAbs, "brief.json")}\` one question at a time (references/interview-playbook.md).
-2. **Research, then dig every gap** \u2014 \`${engine} research --out ${runAbs}\` builds the dossier; \`${engine} analyze --out ${runAbs}\` names each gap + its drill command. For EVERY gap, apply \`${join33(agents, "researcher.md")}\` yourself (run the drill, WebSearch what it misses, keep the URLs worth grounding). Fold in serially with ONE pinned re-run: \`${engine} research --out ${runAbs} --angles market,oss,tech --url <u,...>\` \u2192 re-run \`analyze\`. Loop until clean or the user stops you.
+1. **Interview \u2192 brief** (if not done): \`${engine} init --idea "<one-liner>" --out ${runAbs}\`, then fill \`${join31(runAbs, "brief.json")}\` one question at a time (references/interview-playbook.md).
+2. **Research, then dig every gap** \u2014 \`${engine} research --out ${runAbs}\` builds the dossier; \`${engine} analyze --out ${runAbs}\` names each gap + its drill command. For EVERY gap, apply \`${join31(agents, "researcher.md")}\` yourself (run the drill, WebSearch what it misses, keep the URLs worth grounding). Fold in serially with ONE pinned re-run: \`${engine} research --out ${runAbs} --angles market,oss,tech --url <u,...>\` \u2192 re-run \`analyze\`. Loop until clean or the user stops you.
 3. **Render**: \`${engine} render --out ${runAbs} --level complex\`, then enrich the SRD (SKILL.md step 4).
-4. **Claim-support review** \u2014 \`${engine} review --out ${runAbs}\` writes \`${join33(runAbs, "VERIFY.todo.json")}\`. For EVERY pair, apply \`${join33(agents, "claim-reviewer.md")}\` yourself (verdict + note into a \`verdicts.json\`). Then fold: \`${engine} review --apply verdicts.json --out ${runAbs}\` and gate: \`${engine} check --out ${runAbs} --semantic\` (must exit 0 before presenting).
-5. **Judge panel \u2014 only for ONE genuinely contested ADR** \u2014 apply \`${join33(agents, "adr-judge.md")}\` yourself three times (feasibility / operations-cost / user-value) over the pasted ADR + its cited evidence. Majority (\u22652 lenses \u22653) \u2192 one line per lens under *Alternatives considered*, flip \`proposed \u2192 accepted\` in \`${join33(runAbs, "SRD.json")}\`, re-emit: \`${engine} render --out ${runAbs} --from-srd\`.
-6. **Build the frontier** \u2014 per ready task (\`${engine} status --out ${runAbs} --json\` \u2192 \`frontier\`), apply \`${join33(agents, "builder.md")}\` yourself (sequentially you may work in the app dir directly \u2014 no worktree needed); fold artifacts/tests/status into \`${join33(runAbs, "BUILD-PLAN.json")}\`, then \`${engine} verify --out ${runAbs}\`. Milestone gate once the frontier is folded: \`${engine} verify --out ${runAbs} --run-tests --strict\`.
+4. **Claim-support review** \u2014 \`${engine} review --out ${runAbs}\` writes \`${join31(runAbs, "VERIFY.todo.json")}\`. For EVERY pair, apply \`${join31(agents, "claim-reviewer.md")}\` yourself (verdict + note into a \`verdicts.json\`). Then fold: \`${engine} review --apply verdicts.json --out ${runAbs}\` and gate: \`${engine} check --out ${runAbs} --semantic\` (must exit 0 before presenting).
+5. **Judge panel \u2014 only for ONE genuinely contested ADR** \u2014 apply \`${join31(agents, "adr-judge.md")}\` yourself three times (feasibility / operations-cost / user-value) over the pasted ADR + its cited evidence. Majority (\u22652 lenses \u22653) \u2192 one line per lens under *Alternatives considered*, flip \`proposed \u2192 accepted\` in \`${join31(runAbs, "SRD.json")}\`, re-emit: \`${engine} render --out ${runAbs} --from-srd\`.
+6. **Build the frontier** \u2014 per ready task (\`${engine} status --out ${runAbs} --json\` \u2192 \`frontier\`), apply \`${join31(agents, "builder.md")}\` yourself (sequentially you may work in the app dir directly \u2014 no worktree needed); fold artifacts/tests/status into \`${join31(runAbs, "BUILD-PLAN.json")}\`, then \`${engine} verify --out ${runAbs}\`. Milestone gate once the frontier is folded: \`${engine} verify --out ${runAbs} --run-tests --strict\`.
 
 The adversarial SRD review (Pattern 2) stays a single fresh-eyes pass by design \u2014 run it
 per references/adversarial-review.md; it is deliberately not a fan-out and not emitted here.
 
-With subagents available, prefer the emitted workflows instead: \`orchestrate --out ${runAbs} --phase <p>\` then \`Workflow({ scriptPath: "${join33(runAbs, "orchestration", "<p>.workflow.mjs")}" })\` \u2014 you stay the sole writer either way.
+With subagents available, prefer the emitted workflows instead: \`orchestrate --out ${runAbs} --phase <p>\` then \`Workflow({ scriptPath: "${join31(runAbs, "orchestration", "<p>.workflow.mjs")}" })\` \u2014 you stay the sole writer either way.
 `;
 }
 
@@ -22188,7 +22539,7 @@ var PHASES = ["research", "claim-review", "adr-judges", "build"];
 var SMALL_WORKLIST = 3;
 function loadSrd(runDir) {
   const manifest = srdManifestPath(runDir);
-  if (!existsSync17(manifest)) return null;
+  if (!existsSync16(manifest)) return null;
   try {
     const srd = JSON.parse(readFileSync18(manifest, "utf8"));
     return srd && typeof srd === "object" ? srd : null;
@@ -22197,8 +22548,8 @@ function loadSrd(runDir) {
   }
 }
 function loadDossier(runDir) {
-  const path = join34(runDir, "evidence", "evidence.json");
-  if (!existsSync17(path)) return [];
+  const path = join33(runDir, "evidence", "evidence.json");
+  if (!existsSync16(path)) return [];
   try {
     const data = JSON.parse(readFileSync18(path, "utf8"));
     return Array.isArray(data) ? data.filter(
@@ -22209,7 +22560,7 @@ function loadDossier(runDir) {
   }
 }
 function researchUnits(runDir, engineAbs) {
-  if (!existsSync17(join34(runDir, "brief.json")) || !existsSync17(join34(runDir, "evidence", "evidence.json"))) return null;
+  if (!existsSync16(join33(runDir, "brief.json")) || !existsSync16(join33(runDir, "evidence", "evidence.json"))) return null;
   try {
     const r = analyzeRun(runDir);
     const labels = [
@@ -22229,9 +22580,9 @@ function researchUnits(runDir, engineAbs) {
 function listPhases(runDir, engineAbs) {
   const run2 = resolve5(runDir);
   const gaps = researchUnits(run2, engineAbs);
-  const todoPath = join34(run2, "VERIFY.todo.json");
+  const todoPath = join33(run2, "VERIFY.todo.json");
   let pairKeys = null;
-  if (existsSync17(todoPath)) {
+  if (existsSync16(todoPath)) {
     try {
       const todo = JSON.parse(readFileSync18(todoPath, "utf8"));
       if (todo && Array.isArray(todo.pairs)) {
@@ -22249,7 +22600,7 @@ function listPhases(runDir, engineAbs) {
     {
       name: "research",
       ready: gaps !== null,
-      worklist: join34(run2, "evidence", "evidence.json"),
+      worklist: join33(run2, "evidence", "evidence.json"),
       items: gaps?.length ?? 0,
       ids: gaps ?? [],
       prerequisite: `node ${engineAbs} research --out ${run2}`
@@ -22273,7 +22624,7 @@ function listPhases(runDir, engineAbs) {
     {
       name: "build",
       ready: frontier !== null,
-      worklist: join34(run2, "BUILD-PLAN.json"),
+      worklist: join33(run2, "BUILD-PLAN.json"),
       items: frontier?.length ?? 0,
       ids: frontier ?? [],
       prerequisite: renderCmd
@@ -22291,7 +22642,7 @@ function adrPanelPayload(runDir, adrId) {
 var err2 = (exitCode, errors, phases) => ({ exitCode, written: [], notices: [], errors, phases });
 function orchestrateRun(runDir, engineAbs, opts = {}) {
   const run2 = resolve5(runDir);
-  if (!existsSync17(run2)) {
+  if (!existsSync16(run2)) {
     return err2(2, [`run dir not found: ${run2}`], []);
   }
   const phases = listPhases(run2, engineAbs);
@@ -22330,10 +22681,10 @@ function orchestrateRun(runDir, engineAbs, opts = {}) {
       `phase "adr-judges": not emitted by default (a 3-lens panel over ONE contested ADR) \u2014 emit it explicitly: orchestrate --out ${run2} --phase adr-judges --adr <id> (this run's ADRs: ${adrPhase.ids.join(", ")}).`
     );
   }
-  const orchDir = join34(run2, "orchestration");
-  const agentsDir = join34(orchDir, "agents");
-  mkdirSync8(join34(orchDir, "out"), { recursive: true });
-  mkdirSync8(agentsDir, { recursive: true });
+  const orchDir = join33(run2, "orchestration");
+  const agentsDir = join33(orchDir, "agents");
+  mkdirSync9(join33(orchDir, "out"), { recursive: true });
+  mkdirSync9(agentsDir, { recursive: true });
   const written = [];
   let idea = "";
   try {
@@ -22341,8 +22692,8 @@ function orchestrateRun(runDir, engineAbs, opts = {}) {
   } catch {
   }
   for (const [name2, content] of Object.entries(agentContracts(run2, engineAbs, idea))) {
-    const p = join34(agentsDir, `${name2}.md`);
-    writeFileSync10(p, content);
+    const p = join33(agentsDir, `${name2}.md`);
+    writeFileSync11(p, content);
     written.push(p);
   }
   if (!opts.eco) {
@@ -22355,37 +22706,20 @@ function orchestrateRun(runDir, engineAbs, opts = {}) {
       if (ph.name !== "adr-judges" && units.length <= SMALL_WORKLIST) {
         notices.push(`phase "${ph.name}": only ${units.length} unit(s) \u2014 the sequential --eco path is equivalent and cheaper.`);
       }
-      const p = join34(orchDir, `${ph.name}.workflow.mjs`);
-      writeFileSync10(p, phaseWorkflowScript(ph, run2, engineAbs, units, adrPayload));
+      const p = join33(orchDir, `${ph.name}.workflow.mjs`);
+      writeFileSync11(p, phaseWorkflowScript(ph, run2, engineAbs, units, adrPayload));
       written.push(p);
     }
   }
-  const rb = join34(orchDir, "RUNBOOK.md");
-  writeFileSync10(rb, runbookMd(phases, run2, engineAbs));
+  const rb = join33(orchDir, "RUNBOOK.md");
+  writeFileSync11(rb, runbookMd(phases, run2, engineAbs));
   written.push(rb);
   return { exitCode: 0, written, notices, errors: [], phases };
 }
 
 // src/mcp/handlers.ts
-import { existsSync as existsSync18, readFileSync as readFileSync19, realpathSync as realpathSync3, statSync as statSync7 } from "fs";
-import { isAbsolute as isAbsolute3, join as join35, resolve as resolve6, sep as sep4 } from "path";
-
-// src/run-lock.ts
-var chains = /* @__PURE__ */ new Map();
-function withRunLock(dir, fn) {
-  const prev = chains.get(dir) ?? Promise.resolve();
-  const next = prev.then(fn, fn);
-  const tail = next.then(noop, noop);
-  chains.set(dir, tail);
-  tail.then(() => {
-    if (chains.get(dir) === tail) chains.delete(dir);
-  }, noop);
-  return next;
-}
-function noop() {
-}
-
-// src/mcp/handlers.ts
+import { existsSync as existsSync17, readFileSync as readFileSync19, realpathSync as realpathSync3, statSync as statSync7 } from "fs";
+import { isAbsolute as isAbsolute3, join as join34, resolve as resolve6, sep as sep4 } from "path";
 var MAX_READ_LINES = 2e3;
 var MAX_READ_BYTES = 8 * 1024 * 1024;
 var DEFAULT_ANGLES = ["market", "oss", "tech"];
@@ -22421,7 +22755,7 @@ function requiredRun(args2, defaults) {
   if (!run2) throw new ToolError("`run` is required: the run folder holding the brief, evidence and SRD.");
   if (!isAbsolute3(run2)) throw new ToolError("`run` must be an absolute path.");
   const abs = resolve6(run2);
-  if (!existsSync18(join35(abs, "brief.json"))) {
+  if (!existsSync17(join34(abs, "brief.json"))) {
     throw new ToolError(`no run at ${abs} \u2014 scaffold one first with construct_init (it creates the folder and its brief).`);
   }
   return abs;
@@ -22506,7 +22840,7 @@ function handleInit(args2) {
   };
 }
 function handleStatus(run2) {
-  const has = (rel2) => existsSync18(join35(run2, rel2));
+  const has = (rel2) => existsSync17(join34(run2, rel2));
   return {
     run: run2,
     brief: has("brief.json"),
@@ -22570,7 +22904,7 @@ function handleRender(args2, run2) {
     throw new ToolError(`\`level\` must be one of: light, complex (got "${level}")`);
   }
   const res = renderFromSRD(run2, { merge: bool(args2.merge), prd: bool(args2.prd) });
-  return { run: run2, srd_md: join35(run2, "SRD.md"), ...res, next: "construct_check to gate it, then construct_review to adjudicate the claims." };
+  return { run: run2, srd_md: join34(run2, "SRD.md"), ...res, next: "construct_check to gate it, then construct_review to adjudicate the claims." };
 }
 function handleCheck(args2, run2) {
   const minGrounding = num2(args2.min_grounding);
@@ -22595,13 +22929,13 @@ function handleReview(args2, run2) {
 function handleVerify(args2, run2) {
   const app = str2(args2.app);
   if (app !== void 0 && !isAbsolute3(app)) throw new ToolError("`app` must be an absolute path.");
-  if (app && !existsSync18(app)) throw new ToolError(`app not found: ${app}`);
+  if (app && !existsSync17(app)) throw new ToolError(`app not found: ${app}`);
   const res = verifyRun(run2, { appDir: app, runTests: bool(args2.run_tests), strict: bool(args2.strict) });
   return { ...res, run: run2 };
 }
 function handleRead(args2, run2) {
   const raw = requiredStr(args2, "path", "a path relative to the run folder, or an absolute path inside it.");
-  const target = isAbsolute3(raw) ? raw : join35(run2, raw);
+  const target = isAbsolute3(raw) ? raw : join34(run2, raw);
   let real;
   try {
     real = realpathSync3(target);
@@ -22828,14 +23162,14 @@ function toolsFor2(protocolVersion, opts = {}) {
     return decl;
   });
 }
-function applyDefaultRun(schema, defaultRun) {
+function applyDefaultRun(schema, defaultRun2) {
   const existing = schema.properties.run;
-  if (!defaultRun || !existing) return schema;
+  if (!defaultRun2 || !existing) return schema;
   return {
     type: "object",
     properties: {
       ...schema.properties,
-      run: { ...existing, description: `${existing.description} Optional \u2014 defaults to ${defaultRun}.` }
+      run: { ...existing, description: `${existing.description} Optional \u2014 defaults to ${defaultRun2}.` }
     },
     required: schema.required.filter((r) => r !== "run")
   };
@@ -23357,7 +23691,7 @@ async function main() {
       const c2 = brainstormCounts(b);
       process.stderr.write(
         [
-          `construct: brainstorm board at ${join36(out2, "BRAINSTORM.md")}`,
+          `construct: brainstorm board at ${join35(out2, "BRAINSTORM.md")}`,
           `  ideas:  ${b.ideas.length} (${c2.kept} kept \xB7 ${c2.parked} parked \xB7 ${c2.proposed} proposed \xB7 ${c2.rejected} rejected)`,
           `  next:   generate ideas WITH the user (references/brainstorm-playbook.md), mark statuses in`,
           `          brainstorm.json, then: construct brainstorm --out ${out2} --merge`
@@ -23426,7 +23760,7 @@ async function main() {
         const r2 = renderFromSRD(out2, { merge: p.bools.has("merge"), prd: p.bools.has("prd"), noPrd: p.bools.has("no-prd") });
         process.stderr.write(
           [
-            `construct: re-emitted the SRD tree from ${join36(out2, "SRD.json")}`,
+            `construct: re-emitted the SRD tree from ${join35(out2, "SRD.json")}`,
             `  files:    ${r2.files.length} (${r2.srd.functional.length} FR \xB7 ${r2.srd.nonFunctional.length} NFR \xB7 ${r2.srd.architecture.adrs.length} ADR)`,
             `  next:     construct check --out ${out2}`
           ].join("\n") + "\n"
@@ -23454,7 +23788,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
           `construct: rendered the ${level} SRD for "${brief.idea}"`,
           `  files:    ${r.files.length} (${r.srd.functional.length} FR \xB7 ${r.srd.nonFunctional.length} NFR \xB7 ${r.srd.architecture.adrs.length} ADR)`,
           ...design ? [`  design:   ${design.components.length} components \xB7 ${design.tokens.length} tokens \xB7 a11y ${design.accessibility.standard}`] : [],
-          `  manifest: ${join36(out2, "SRD.json")}`,
+          `  manifest: ${join35(out2, "SRD.json")}`,
           `  next:     construct check --out ${out2}`
         ].join("\n") + "\n"
       );
@@ -23537,7 +23871,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
         process.stdout.write(JSON.stringify(plan ? readyFrontier(plan) : null, null, 2) + "\n");
         return;
       }
-      const has = (rel2) => existsSync19(join36(out2, rel2)) ? "\u2713" : "\xB7";
+      const has = (rel2) => existsSync18(join35(out2, rel2)) ? "\u2713" : "\xB7";
       const planLine = plan ? `  \u2713 BUILD-PLAN.json (build: ${plan.tasks.filter((t) => t.status === "done").length}/${plan.tasks.length} tasks done)` : `  \xB7 BUILD-PLAN.json (build plan)`;
       const bs = loadBrainstorm(out2);
       const bsLine = bs ? (() => {
@@ -23566,9 +23900,9 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
         process.exit(2);
       }
       const runDir = resolve7(rawOut);
-      const engineAbs = realpathSync4(fileURLToPath4(import.meta.url));
+      const engineAbs = realpathSync4(fileURLToPath3(import.meta.url));
       if (p.bools.has("list")) {
-        if (!existsSync19(runDir)) {
+        if (!existsSync18(runDir)) {
           process.stderr.write(`construct orchestrate: run dir not found: ${runDir}.
 `);
           process.exit(2);
@@ -23600,7 +23934,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
           "Then fold the returned fragments in yourself and run the fold command named at the tail of each workflow (you stay the sole writer).\n"
         );
       } else {
-        process.stderr.write(`Follow ${join36(runDir, "orchestration", "RUNBOOK.md")} sequentially (the eco path).
+        process.stderr.write(`Follow ${join35(runDir, "orchestration", "RUNBOOK.md")} sequentially (the eco path).
 `);
       }
       return;
@@ -23608,7 +23942,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
     case "semantic":
     case "firecrawl": {
       const action = p.positional[0] ?? "status";
-      const r = stackControl(p.command, action);
+      const r = stackCommand(p.command, action);
       process.stdout.write(r.message + "\n");
       if (r.code !== 0) process.exit(r.code);
       return;
@@ -23693,7 +24027,7 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
   }
 }
 function nextCommand(out2, plan) {
-  const has = (rel2) => existsSync19(join36(out2, rel2));
+  const has = (rel2) => existsSync18(join35(out2, rel2));
   if (!has("brief.json")) return `construct init --idea "<one-liner>" --out ${out2}   (then fill brief.json via the interview)`;
   if (!has("evidence/evidence.json")) return `construct research --out ${out2} --angles market,oss,tech`;
   if (!has("SRD.json")) return `construct render --out ${out2} --level complex`;
@@ -23706,8 +24040,8 @@ function nextCommand(out2, plan) {
   return `construct check --out ${out2} --semantic`;
 }
 function loadEvidence4(runDir) {
-  const path = join36(runDir, "evidence", "evidence.json");
-  if (!existsSync19(path)) return [];
+  const path = join35(runDir, "evidence", "evidence.json");
+  if (!existsSync18(path)) return [];
   try {
     const data = JSON.parse(readFileSync20(path, "utf8"));
     return Array.isArray(data) ? data.filter(isEvidenceItem) : [];
@@ -23721,7 +24055,7 @@ function isEvidenceItem(e) {
 function isInvokedDirectly() {
   const argv1 = process.argv[1];
   if (argv1 === void 0) return false;
-  const modulePath = fileURLToPath4(import.meta.url);
+  const modulePath = fileURLToPath3(import.meta.url);
   try {
     if (realpathSync4(argv1) === realpathSync4(modulePath)) return true;
   } catch {

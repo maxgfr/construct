@@ -7,7 +7,7 @@
 // page yields nothing at all, because the prose is never in the HTML.
 //
 // Firecrawl fetches the page with a real browser and returns main-content
-// markdown. Run locally (docker compose --profile extract) it is fully KEYLESS:
+// markdown. Run locally (`construct firecrawl up`) it is fully KEYLESS:
 // `USE_DB_AUTHENTICATION=false` disables auth, so no Authorization header is
 // sent. `construct firecrawl up` brings it up; when it is not running every
 // path here returns null and the caller keeps the built-in extractor.

@@ -23,7 +23,7 @@ import { verifyRun, formatVerifyReport } from "./verify.js";
 import { runReview, applyVerdicts, formatReviewReport } from "./review.js";
 import { loadPlan, readyFrontier } from "./plan.js";
 import { listPhases, orchestrateRun } from "./orchestrate.js";
-import { stackControl } from "./research/semantic.js";
+import { stackCommand } from "./research/semantic.js";
 import { configureFirecrawl } from "./research/firecrawl.js";
 import { runStdioServer, startHttpServer } from "./engine.js";
 import { constructAdapter } from "./mcp/adapter.js";
@@ -728,7 +728,7 @@ async function main(): Promise<void> {
     case "semantic":
     case "firecrawl": {
       const action = p.positional[0] ?? "status";
-      const r = stackControl(p.command, action);
+      const r = stackCommand(p.command, action);
       process.stdout.write(r.message + "\n");
       if (r.code !== 0) process.exit(r.code);
       return;

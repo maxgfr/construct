@@ -45,7 +45,7 @@ required.
 
 The optional extraction layer is an API too, and it is keyless for the same
 reason the rest of this page is: it runs on your machine.
-`USE_DB_AUTHENTICATION=false` (in `docker/firecrawl/firecrawl.env`) disables
+`USE_DB_AUTHENTICATION=false` (in the engine's embedded Firecrawl env) disables
 auth, so **no `Authorization` header is sent at all**. `POST /v2/scrape` cleans
 one page (the client falls back to `/v1` on a 404, once per process); `POST
 /v2/search` is keyless too — it delegates to the `searxng` container and then to
