@@ -937,8 +937,11 @@ LOGGING_LEVEL=info
 function renderAsset(template) {
   return template.replaceAll("{{CLI}}", brand().cli);
 }
+function cacheRoot() {
+  return env("CACHE_DIR") ?? brand().cacheDir ?? join2(tmpdir2(), brand().name);
+}
 function ensureComposeMaterialized() {
-  const base = join2(brand().cacheDir ?? join2(tmpdir2(), brand().name), "compose");
+  const base = join2(cacheRoot(), "compose");
   const composePath = join2(base, "docker-compose.yml");
   const settingsPath = join2(base, "docker", "searxng", "settings.yml");
   const firecrawlEnvPath = join2(base, "docker", "firecrawl", "firecrawl.env");
@@ -3248,7 +3251,7 @@ async function marketAngle(ctx) {
 import { existsSync as existsSync7, statSync as statSync3, mkdirSync as mkdirSync5, readdirSync as readdirSync3, rmSync as rmSync3 } from "fs";
 import { resolve as resolve2, join as join7, basename as basename2 } from "path";
 import { tmpdir as tmpdir3 } from "os";
-function cacheRoot() {
+function cacheRoot2() {
   return join7(tmpdir3(), "construct");
 }
 function resolveRepo(raw) {
@@ -3304,7 +3307,7 @@ function resolveRepo(raw) {
 }
 async function ensureClone(ref, opts = {}) {
   if (ref.isLocal) return resolve2(ref.raw);
-  const dir = join7(cacheRoot(), ref.slug);
+  const dir = join7(cacheRoot2(), ref.slug);
   const alreadyCloned = existsSync7(join7(dir, ".git"));
   if (alreadyCloned && !opts.refresh) return dir;
   if (alreadyCloned && opts.refresh) {
@@ -3312,7 +3315,7 @@ async function ensureClone(ref, opts = {}) {
     await shAsync("git", ["-C", dir, "reset", "--hard", "FETCH_HEAD"], { timeoutMs: GIT_RESET_TIMEOUT_MS });
     return dir;
   }
-  mkdirSync5(cacheRoot(), { recursive: true });
+  mkdirSync5(cacheRoot2(), { recursive: true });
   const args2 = ["clone", "--depth", "1", "--filter=blob:none"];
   if (opts.branch) args2.push("--branch", opts.branch);
   args2.push(ref.cloneUrl, dir);

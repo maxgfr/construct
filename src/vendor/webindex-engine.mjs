@@ -1,5 +1,5 @@
 // src/version.ts
-var ENGINE_VERSION = "1.12.0";
+var ENGINE_VERSION = "1.12.1";
 
 // src/brand.ts
 var DEFAULT_BRAND = {
@@ -1914,8 +1914,11 @@ LOGGING_LEVEL=info
 function renderAsset(template) {
   return template.replaceAll("{{CLI}}", brand().cli);
 }
+function cacheRoot() {
+  return env("CACHE_DIR") ?? brand().cacheDir ?? join2(tmpdir2(), brand().name);
+}
 function ensureComposeMaterialized() {
-  const base = join2(brand().cacheDir ?? join2(tmpdir2(), brand().name), "compose");
+  const base = join2(cacheRoot(), "compose");
   const composePath = join2(base, "docker-compose.yml");
   const settingsPath = join2(base, "docker", "searxng", "settings.yml");
   const firecrawlEnvPath = join2(base, "docker", "firecrawl", "firecrawl.env");
