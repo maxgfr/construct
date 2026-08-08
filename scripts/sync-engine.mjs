@@ -43,7 +43,7 @@ const ENGINES = {
   },
   webindex: {
     repo: "maxgfr/webindex",
-    minRef: "v1.3.0",
+    minRef: "v1.6.0",
     meta: "webindex.meta.json",
     files: [
       { remote: "scripts/engine.mjs", local: "webindex-engine.mjs" },
