@@ -60,22 +60,12 @@ export interface IdLedger {
   assigned: Record<string, string>; // contentKey -> "E7"
 }
 
-// Where an OSS repo lives and how to reach it (used by the `oss` angle).
-// Produced by resolveRepo(); the slug keys the on-disk cache at /tmp/construct.
-export interface RepoRef {
-  raw: string;
-  host: string; // github.com | gitlab.com | "local" | "generic"
-  owner?: string;
-  repo?: string;
-  cloneUrl?: string;
-  webUrl?: string;
-  isLocal: boolean;
-  slug: string;
-}
+// The repository reference is the ENGINE's type, not a copy: the two were
+// field-for-field identical, which is what a shared definition looks like just
+// before it drifts.
+export type { RepoRef } from "./engine.js";
+import type { RepoRef } from "./engine.js";
 
-// What a research angle returns: ranked evidence (ids assigned later by the
-// dossier) plus notes surfaced honestly in EVIDENCE.md (e.g. "SearXNG
-// unreachable", "no issues API for this host").
 export interface SourceResult {
   source: SourceKind;
   items: RawItem[];

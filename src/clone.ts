@@ -8,85 +8,15 @@ import { GIT_CLONE_TIMEOUT_MS, GIT_FETCH_TIMEOUT_MS, GIT_RESET_TIMEOUT_MS } from
 // Root of the on-disk clone/index cache. Everything construct writes for a repo
 // lives under /tmp/construct/<slug>/ so repeated questions reuse the clone and
 // the index instead of re-fetching.
+// Adopted from webindex v1.13: the engine's resolveRepo is a strict superset,
+// parsing ssh://, git:// and file:// URLs plus userinfo and ports. ensureClone
+// stays below — it keys clones under THIS repo's cacheRoot(), which the rest of
+// the file and the cache commands read, and the engine keys them elsewhere.
+export { resolveRepo } from "./engine.js";
+import { resolveRepo } from "./engine.js";
+
 export function cacheRoot(): string {
   return join(tmpdir(), "construct");
-}
-
-// Parse any repo identifier into a RepoRef. Accepts:
-//   - a local directory path (absolute or relative, existing)
-//   - https://host/owner/repo(.git)
-//   - git@host:owner/repo.git
-//   - host/owner/repo
-//   - owner/repo            (shorthand → github.com)
-// GitLab subgroups are preserved: owner holds the full namespace
-// ("group/subgroup"), repo holds the final segment.
-export function resolveRepo(raw: string): RepoRef {
-  const trimmed = raw.trim();
-
-  // Local directory takes precedence — lets you point construct at a checkout
-  // you already have, with no network. Require a non-empty string so an empty
-  // seed never silently resolves to the current working directory.
-  if (trimmed) {
-    const asPath = resolve(trimmed);
-    if (existsSync(asPath) && statSync(asPath).isDirectory()) {
-      return {
-        raw: trimmed,
-        host: "local",
-        isLocal: true,
-        slug: "local-" + slugify(basename(asPath) + "-" + asPath),
-      };
-    }
-  }
-
-  let host: string;
-  let path: string; // owner(/subgroups)/repo, no host, no .git
-
-  const scp = /^git@([^:]+):(.+)$/.exec(trimmed); // git@github.com:owner/repo.git
-  // Any URL scheme (http(s)/ssh/git), case-insensitive, stripping userinfo+port.
-  const url = /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/]+@)?([^/:]+)(?::\d+)?\/(.+)$/i.exec(trimmed);
-  const hostPath = /^([a-z0-9.-]+\.[a-z]{2,})\/(.+)$/i.exec(trimmed); // host/owner/repo
-
-  if (scp) {
-    host = scp[1]!;
-    path = scp[2]!;
-  } else if (url) {
-    host = url[1]!;
-    path = url[2]!;
-  } else if (hostPath) {
-    host = hostPath[1]!;
-    path = hostPath[2]!;
-  } else if (/^[\w.-]+\/[\w.-]+$/.test(trimmed)) {
-    // bare "owner/repo" shorthand → github
-    host = "github.com";
-    path = trimmed;
-  } else {
-    // Unrecognisable seed (free text, a bare relative path, empty). Return a
-    // non-cloneable generic ref with no synthesised URL so callers fall back to
-    // the raw text rather than minting a malformed github.com URL.
-    return { raw: trimmed, host: "generic", isLocal: false, slug: slugify(trimmed) || "seed" };
-  }
-
-  host = host.toLowerCase();
-  path = path.replace(/\.git$/, "").replace(/\/+$/, "");
-  const segments = path.split("/").filter(Boolean);
-  const repo = segments.length ? segments[segments.length - 1] : undefined;
-  const owner = segments.length > 1 ? segments.slice(0, -1).join("/") : undefined;
-
-  // Strip a trailing slash before the .git-suffix logic below, so a URL pasted
-  // as ".../repo/" yields ".../repo.git", not the un-cloneable ".../repo/.git".
-  const cloneUrl = /^https?:\/\//i.test(trimmed) || scp ? trimmed.replace(/\/+$/, "") : `https://${host}/${path}.git`;
-  const webUrl = `https://${host}/${path}`;
-
-  return {
-    raw: trimmed,
-    host,
-    owner,
-    repo,
-    cloneUrl: cloneUrl.endsWith(".git") ? cloneUrl : `${cloneUrl}.git`,
-    webUrl,
-    isLocal: false,
-    slug: slugify(`${host}/${path}`),
-  };
 }
 
 // Ensure a working tree exists on disk for `ref`, returning its absolute path.
