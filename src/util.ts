@@ -85,19 +85,6 @@ export function have(cmd: string): boolean {
   return found;
 }
 
-// Turn an arbitrary repo identifier into a filesystem-safe cache slug, e.g.
-// "github.com/expressjs/express" -> "github.com-expressjs-express".
-export function slugify(input: string): string {
-  return input
-    .toLowerCase()
-    .replace(/^https?:\/\//, "")
-    .replace(/^git@/, "")
-    .replace(/\.git$/, "")
-    .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 120);
-}
-
 // Pull the meaningful keywords out of a natural-language question: lowercase,
 // split on non-word chars, drop stopwords and very short tokens, dedupe. Used
 // to drive lexical search and symbol ranking deterministically (no LLM).
@@ -105,4 +92,7 @@ export function slugify(input: string): string {
 // is Unicode-aware where this copy was ASCII-only, so an accented term survives
 // as one keyword instead of splitting at the accent — and its stopword list
 // covers French question scaffolding, which this product is written in.
-export { keywords, rankedKeywords, isStopword } from "./engine.js";
+// Adopted with webindex v1.13: `slugify` was one of three copies that disagreed
+// about length and normalisation — which for an on-disk cache key means one
+// repository under three different names.
+export { keywords, rankedKeywords, isStopword, slugify } from "./engine.js";

@@ -122,10 +122,11 @@ for (const f of files) {
 // Raise this when a layer lands. Never lower it to make a red run pass — a drop
 // means a layer stopped being used, which is a decision, not a detail.
 //
-// 48 against a real 50. It was 38 while the counter could not see `./engine.js`,
-// which left the run-lock shim and the keyword block in src/util.ts unprotected
-// — both could have been re-forked with the gate still green.
-const FLOOR = Number(process.env.ENGINE_USAGE_FLOOR ?? 48);
+// 50 against a real 51, after adopting slugify from v1.13.
+//
+// It was 38 while the counter could not see `./engine.js` — which left the
+// run-lock shim and the keyword block unprotected.
+const FLOOR = Number(process.env.ENGINE_USAGE_FLOOR ?? 50);
 
 let ok = true;
 

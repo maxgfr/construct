@@ -23,7 +23,7 @@ var DESIGN_TOKENS_SEEDED_BANNER = "Seeded defaults \u2014 replace these with the
 var BUILD_PLAN_SCHEMA_VERSION = 1;
 
 // src/util.ts
-import { execFile, spawnSync as spawnSync2 } from "child_process";
+import { execFile, spawnSync } from "child_process";
 
 // src/config.ts
 var HTTP_GET_TIMEOUT_MS = 2e4;
@@ -57,12 +57,12 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "fs
 import { join } from "path";
 import { tmpdir } from "os";
 import { spawn } from "child_process";
-import { spawnSync } from "child_process";
-import { existsSync as existsSync2, mkdirSync, readFileSync as readFileSync2, writeFileSync as writeFileSync2 } from "fs";
-import { tmpdir as tmpdir2 } from "os";
-import { dirname, join as join2 } from "path";
-import { existsSync as existsSync4, readdirSync, readFileSync as readFileSync4, realpathSync, statSync } from "fs";
-import { basename, dirname as dirname2, join as join4, resolve, sep } from "path";
+import { spawnSync as spawnSync2 } from "child_process";
+import { existsSync as existsSync3, mkdirSync as mkdirSync2, readFileSync as readFileSync2, writeFileSync as writeFileSync2 } from "fs";
+import { tmpdir as tmpdir3 } from "os";
+import { dirname, join as join3 } from "path";
+import { existsSync as existsSync5, readdirSync as readdirSync3, readFileSync as readFileSync4, realpathSync, statSync as statSync3 } from "fs";
+import { basename as basename2, dirname as dirname2, join as join5, resolve as resolve2, sep } from "path";
 import { fileURLToPath } from "url";
 import { createInterface } from "readline";
 import { createServer as createHttpServer } from "http";
@@ -248,12 +248,12 @@ function binaryName(name2) {
   return process.platform === "win32" && name2 === "npx" ? "npx.cmd" : name2;
 }
 function runWithInput(cmd, args2, input, timeoutMs) {
-  return new Promise((resolve23) => {
+  return new Promise((resolve32) => {
     let child;
     try {
       child = spawn(binaryName(cmd), args2, { stdio: ["pipe", "pipe", "pipe"] });
     } catch (e) {
-      resolve23({ ok: false, stdout: "", error: e.message });
+      resolve32({ ok: false, stdout: "", error: e.message });
       return;
     }
     const chunks = [];
@@ -263,7 +263,7 @@ function runWithInput(cmd, args2, input, timeoutMs) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve23(r);
+      resolve32(r);
     };
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
@@ -674,10 +674,15 @@ var BASE_OF = /* @__PURE__ */ new Map();
 for (const [base, cls] of Object.entries(ACCENT_CLASSES)) {
   for (const ch of cls) BASE_OF.set(ch, base);
 }
+function slugify(input, opts = {}) {
+  const s = input.toLowerCase().replace(/^https?:\/\//, "").replace(/^git@/, "").replace(/\.git$/, "").replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, opts.max ?? 120);
+  return s || (opts.fallback ?? "");
+}
 var SCRAPE_MAX_AGE_MS = 24 * 60 * 60 * 1e3;
 var PDF_FETCH_OPTS = { accept: "application/pdf,*/*", binary: true, maxBytes: 16 * 1024 * 1024 };
 var DOC_FETCH_OPTS = { accept: "*/*", binary: true, maxBytes: 16 * 1024 * 1024 };
 var MASK64 = (1n << 64n) - 1n;
+var STDOUT_CAP = 24 * 1024 * 1024;
 var COMPOSE_YAML = `# Optional, fully-local, no-API-key stack for a semantic mode, web
 # search and content extraction. Start it with \`{{CLI}} semantic up\` (or
 # \`docker compose --profile all up -d\`). The published bundle stays
@@ -938,13 +943,13 @@ function renderAsset(template) {
   return template.replaceAll("{{CLI}}", brand().cli);
 }
 function cacheRoot() {
-  return env("CACHE_DIR") ?? brand().cacheDir ?? join2(tmpdir2(), brand().name);
+  return env("CACHE_DIR") ?? brand().cacheDir ?? join3(tmpdir3(), brand().name);
 }
 function ensureComposeMaterialized() {
-  const base = join2(cacheRoot(), "compose");
-  const composePath = join2(base, "docker-compose.yml");
-  const settingsPath = join2(base, "docker", "searxng", "settings.yml");
-  const firecrawlEnvPath = join2(base, "docker", "firecrawl", "firecrawl.env");
+  const base = join3(cacheRoot(), "compose");
+  const composePath = join3(base, "docker-compose.yml");
+  const settingsPath = join3(base, "docker", "searxng", "settings.yml");
+  const firecrawlEnvPath = join3(base, "docker", "firecrawl", "firecrawl.env");
   writeIfChanged(composePath, renderAsset(COMPOSE_YAML));
   writeIfChanged(settingsPath, renderAsset(SEARXNG_SETTINGS_YAML));
   writeIfChanged(firecrawlEnvPath, renderAsset(FIRECRAWL_ENV));
@@ -952,8 +957,8 @@ function ensureComposeMaterialized() {
 }
 function writeIfChanged(path, content) {
   try {
-    if (existsSync2(path) && readFileSync2(path, "utf8") === content) return;
-    mkdirSync(dirname(path), { recursive: true });
+    if (existsSync3(path) && readFileSync2(path, "utf8") === content) return;
+    mkdirSync2(dirname(path), { recursive: true });
     writeFileSync2(path, content);
   } catch {
   }
@@ -970,7 +975,7 @@ function embedModel() {
   return env("EMBED_MODEL") ?? "nomic-embed-text";
 }
 function defaultRun(cmd, args2, opts) {
-  const res = spawnSync(cmd, args2, {
+  const res = spawnSync2(cmd, args2, {
     encoding: "utf8",
     timeout: opts.timeoutMs,
     maxBuffer: 64 * 1024 * 1024,
@@ -1171,18 +1176,18 @@ var URI_SCHEME = "skill://";
 function resolveSkillRoot(moduleDir) {
   const here = moduleDir ?? dirname2(fileURLToPath(import.meta.url));
   const name2 = brand().name;
-  const candidates = [resolve(here, ".."), resolve(here, "..", "skills", name2), resolve(here, "..", "..", "skills", name2)];
-  return candidates.find((dir) => existsSync4(join4(dir, "SKILL.md")));
+  const candidates = [resolve2(here, ".."), resolve2(here, "..", "skills", name2), resolve2(here, "..", "..", "skills", name2)];
+  return candidates.find((dir) => existsSync5(join5(dir, "SKILL.md")));
 }
 function listResources(moduleDir) {
   const root = resolveSkillRoot(moduleDir);
   if (!root) return [];
   const out2 = [describe(root, "SKILL.md", `${skillName()}: the skill`)];
-  const refDir = join4(root, "references");
-  if (!existsSync4(refDir)) return out2;
-  for (const file of readdirSync(refDir).sort()) {
+  const refDir = join5(root, "references");
+  if (!existsSync5(refDir)) return out2;
+  for (const file of readdirSync3(refDir).sort()) {
     if (!file.endsWith(".md")) continue;
-    out2.push(describe(root, join4("references", file), `${skillName()} reference: ${basename(file, ".md")}`));
+    out2.push(describe(root, join5("references", file), `${skillName()} reference: ${basename2(file, ".md")}`));
   }
   return out2;
 }
@@ -1194,7 +1199,7 @@ function readResource(uri, moduleDir) {
   if (!root) throw new ResourceError("no skill payload found next to this build \u2014 nothing to read");
   const rel2 = uri.slice(URI_SCHEME.length);
   if (!rel2) throw new ResourceError("empty resource path");
-  const target = resolve(root, rel2);
+  const target = resolve2(root, rel2);
   const rootReal = realpathSync(root);
   let targetReal;
   try {
@@ -1205,7 +1210,7 @@ function readResource(uri, moduleDir) {
   if (targetReal !== rootReal && !targetReal.startsWith(rootReal + sep)) {
     throw new ResourceError(`resource path escapes the skill root: ${uri}`);
   }
-  if (!statSync(targetReal).isFile()) throw new ResourceError(`not a file: ${uri}`);
+  if (!statSync3(targetReal).isFile()) throw new ResourceError(`not a file: ${uri}`);
   return { uri, mimeType: "text/markdown", text: readFileSync4(targetReal, "utf8") };
 }
 var ResourceError = class extends Error {
@@ -1217,7 +1222,7 @@ function describe(root, rel2, fallbackTitle) {
     title: fallbackTitle,
     mimeType: "text/markdown"
   };
-  const summary = firstProse(join4(root, rel2));
+  const summary = firstProse(join5(root, rel2));
   if (summary) decl.description = summary;
   return decl;
 }
@@ -1474,14 +1479,14 @@ function startHttpServer(adapter, opts = {}) {
   server.requestTimeout = 0;
   server.headersTimeout = 6e4;
   server.keepAliveTimeout = 12e4;
-  return new Promise((resolve23, reject) => {
+  return new Promise((resolve32, reject) => {
     server.once("error", reject);
     server.listen(opts.port ?? 0, bind, () => {
       server.removeListener("error", reject);
       const addr2 = server.address();
       const port = typeof addr2 === "object" && addr2 ? addr2.port : opts.port ?? 0;
       const host = bind.includes(":") ? `[${bind}]` : bind;
-      resolve23({
+      resolve32({
         server,
         port,
         url: `http://${host}:${port}${MCP_PATH}`,
@@ -1590,7 +1595,7 @@ function sendJson(res, status, body2, origin, extra = {}) {
 }
 var DRAIN_LIMIT = MAX_BODY_BYTES * 8;
 function readBody(req) {
-  return new Promise((resolve23, reject) => {
+  return new Promise((resolve32, reject) => {
     const chunks = [];
     let size = 0;
     let over = false;
@@ -1614,7 +1619,7 @@ function readBody(req) {
     });
     req.on("end", () => {
       if (over) reject(new Error("too large"));
-      else resolve23(Buffer.concat(chunks).toString("utf8"));
+      else resolve32(Buffer.concat(chunks).toString("utf8"));
     });
     req.on("error", reject);
     req.on("aborted", () => reject(new Error("client aborted the request")));
@@ -1631,7 +1636,7 @@ configure({
 
 // src/util.ts
 function sh(cmd, args2, opts = {}) {
-  const res = spawnSync2(cmd, args2, {
+  const res = spawnSync(cmd, args2, {
     cwd: opts.cwd,
     input: opts.input,
     encoding: "utf8",
@@ -1678,15 +1683,12 @@ function have(cmd) {
   whichCache.set(cmd, found);
   return found;
 }
-function slugify(input) {
-  return input.toLowerCase().replace(/^https?:\/\//, "").replace(/^git@/, "").replace(/\.git$/, "").replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 120);
-}
 
 // src/brief.ts
-import { existsSync as existsSync3, readFileSync as readFileSync3, writeFileSync as writeFileSync3, mkdirSync as mkdirSync2 } from "fs";
-import { join as join3 } from "path";
+import { existsSync as existsSync2, readFileSync as readFileSync3, writeFileSync as writeFileSync3, mkdirSync } from "fs";
+import { join as join2 } from "path";
 function briefPath(runDir) {
-  return join3(runDir, "brief.json");
+  return join2(runDir, "brief.json");
 }
 function initBrief(idea, now) {
   return {
@@ -1706,7 +1708,7 @@ function initBrief(idea, now) {
   };
 }
 function saveBrief(runDir, brief) {
-  mkdirSync2(runDir, { recursive: true });
+  mkdirSync(runDir, { recursive: true });
   const path = briefPath(runDir);
   writeFileSync3(path, JSON.stringify(brief, null, 2));
   return path;
@@ -1714,7 +1716,7 @@ function saveBrief(runDir, brief) {
 function loadBrief(runDir, warn = () => {
 }) {
   const path = briefPath(runDir);
-  if (!existsSync3(path)) {
+  if (!existsSync2(path)) {
     throw new Error(`No brief.json in ${runDir} \u2014 run \`construct init --idea "..." --out ${runDir}\` first.`);
   }
   const raw = readFileSync3(path, "utf8");
@@ -1917,8 +1919,8 @@ function validateBrief(brief) {
 }
 
 // src/brainstorm.ts
-import { existsSync as existsSync5, readFileSync as readFileSync5, writeFileSync as writeFileSync4, mkdirSync as mkdirSync3 } from "fs";
-import { join as join5 } from "path";
+import { existsSync as existsSync4, readFileSync as readFileSync5, writeFileSync as writeFileSync4, mkdirSync as mkdirSync3 } from "fs";
+import { join as join4 } from "path";
 
 // src/templates.ts
 var BRAINSTORM_ANGLE_ORDER = [
@@ -2414,7 +2416,7 @@ var ANGLES = ["reframe", "segment", "feature", "differentiator", "anti-goal", "w
 var STATUSES = ["proposed", "kept", "parked", "rejected"];
 var TARGETS = ["featureWishlist", "competitors", "nonGoals", "goals", "candidateTech", "openQuestions"];
 function brainstormPath(runDir) {
-  return join5(runDir, "brainstorm.json");
+  return join4(runDir, "brainstorm.json");
 }
 function initBrainstorm(idea, now) {
   return { schemaVersion: BRAINSTORM_SCHEMA_VERSION, idea: idea.trim(), createdAt: now, ideas: [] };
@@ -2427,7 +2429,7 @@ function saveBrainstorm(runDir, b) {
 }
 function writeBrainstormMd(runDir, b) {
   mkdirSync3(runDir, { recursive: true });
-  const path = join5(runDir, "BRAINSTORM.md");
+  const path = join4(runDir, "BRAINSTORM.md");
   const md = renderBrainstormMd(b);
   writeFileSync4(path, md.endsWith("\n") ? md : md + "\n");
   return path;
@@ -2441,7 +2443,7 @@ var line = (v) => typeof v === "string" ? v.replace(/\s+/g, " ").trim() : void 0
 function loadBrainstorm(runDir, warn = () => {
 }) {
   const path = brainstormPath(runDir);
-  if (!existsSync5(path)) return void 0;
+  if (!existsSync4(path)) return void 0;
   let data;
   try {
     data = JSON.parse(readFileSync5(path, "utf8"));
@@ -2601,7 +2603,7 @@ async function timeAngle(angle, sink, fn) {
 
 // src/research/cache.ts
 import { createHash } from "crypto";
-import { existsSync as existsSync6, mkdirSync as mkdirSync4, readFileSync as readFileSync6, readdirSync as readdirSync2, rmSync as rmSync2, statSync as statSync2, writeFileSync as writeFileSync5 } from "fs";
+import { existsSync as existsSync6, mkdirSync as mkdirSync4, readFileSync as readFileSync6, readdirSync, rmSync as rmSync2, statSync, writeFileSync as writeFileSync5 } from "fs";
 import { homedir } from "os";
 import { join as join6 } from "path";
 function extractorOf(entry) {
@@ -2673,10 +2675,10 @@ function stats(now = Date.now()) {
   if (!existsSync6(dir)) return out2;
   let oldest = Number.POSITIVE_INFINITY;
   let newest = 0;
-  for (const name2 of readdirSync2(dir)) {
+  for (const name2 of readdirSync(dir)) {
     const abs = join6(dir, name2);
     try {
-      out2.bytes += statSync2(abs).size;
+      out2.bytes += statSync(abs).size;
     } catch {
       continue;
     }
@@ -2701,7 +2703,7 @@ function clean(all, now = Date.now()) {
   const dir = cacheDir();
   if (!existsSync6(dir)) return 0;
   let removed = 0;
-  for (const name2 of readdirSync2(dir)) {
+  for (const name2 of readdirSync(dir)) {
     if (!name2.endsWith(".json")) continue;
     const meta = join6(dir, name2);
     let drop = all;
@@ -3248,22 +3250,22 @@ async function marketAngle(ctx) {
 }
 
 // src/clone.ts
-import { existsSync as existsSync7, statSync as statSync3, mkdirSync as mkdirSync5, readdirSync as readdirSync3, rmSync as rmSync3 } from "fs";
-import { resolve as resolve2, join as join7, basename as basename2 } from "path";
-import { tmpdir as tmpdir3 } from "os";
+import { existsSync as existsSync7, statSync as statSync2, mkdirSync as mkdirSync5, readdirSync as readdirSync2, rmSync as rmSync3 } from "fs";
+import { resolve, join as join7, basename } from "path";
+import { tmpdir as tmpdir2 } from "os";
 function cacheRoot2() {
-  return join7(tmpdir3(), "construct");
+  return join7(tmpdir2(), "construct");
 }
 function resolveRepo(raw) {
   const trimmed = raw.trim();
   if (trimmed) {
-    const asPath = resolve2(trimmed);
-    if (existsSync7(asPath) && statSync3(asPath).isDirectory()) {
+    const asPath = resolve(trimmed);
+    if (existsSync7(asPath) && statSync2(asPath).isDirectory()) {
       return {
         raw: trimmed,
         host: "local",
         isLocal: true,
-        slug: "local-" + slugify(basename2(asPath) + "-" + asPath)
+        slug: "local-" + slugify(basename(asPath) + "-" + asPath)
       };
     }
   }
@@ -3306,7 +3308,7 @@ function resolveRepo(raw) {
   };
 }
 async function ensureClone(ref, opts = {}) {
-  if (ref.isLocal) return resolve2(ref.raw);
+  if (ref.isLocal) return resolve(ref.raw);
   const dir = join7(cacheRoot2(), ref.slug);
   const alreadyCloned = existsSync7(join7(dir, ".git"));
   if (alreadyCloned && !opts.refresh) return dir;
@@ -3344,7 +3346,7 @@ async function ensureClone(ref, opts = {}) {
       );
     }
   }
-  if (!existsSync7(dir) || readdirSync3(dir).length === 0) {
+  if (!existsSync7(dir) || readdirSync2(dir).length === 0) {
     throw new Error(`clone produced an empty tree at ${dir}`);
   }
   return dir;
