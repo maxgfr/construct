@@ -1,6 +1,6 @@
 import type { RawItem, SourceKind, WebEngine } from "../types.js";
 import { SEARXNG_TIMEOUT_MS, DDG_TIMEOUT_MS, FETCH_CONCURRENCY } from "../config.js";
-import { httpGet, fetchAndExtract, excerptsFromText } from "./fetch.js";
+import { httpGet, cachedFetchAndExtract, excerptsFromText } from "./fetch.js";
 import { firecrawlBase, resetFirecrawlProbe, searchViaFirecrawl } from "./firecrawl.js";
 import { pool } from "./pool.js";
 
@@ -89,7 +89,11 @@ export async function discover(query: string, engine: WebEngine, n: number): Pro
   // heavy `extract` profile; probing it in `auto` would make the default path pay
   // for a container almost nobody has running.
   if (engine === "firecrawl") {
-    const f = firecrawlDown ? null : await searchViaFirecrawl(query, n);
+    // The engine's client answers `{ hits }` or `{ why }` rather than a bare
+    // list-or-null, so "reachable but empty" and "not reachable" stop being the
+    // same value — and the reason it gives is better than the one guessed here.
+    const attempt = firecrawlDown ? undefined : await searchViaFirecrawl(query, n);
+    const f = attempt?.hits ? attempt.hits.map((h) => h.url).slice(0, n) : null;
     if (f === null) firecrawlDown = true;
     if (f?.length) return { urls: f, via: "firecrawl", notes };
     const base = firecrawlBase();
@@ -153,10 +157,15 @@ export async function webFetchUrls(
   // at a time made page latency additive and dominated the whole run.
   const fetched = await pool(toFetch, concurrency, async (url) => {
     try {
-      return { url, ...(await fetchAndExtract(url)) };
+      // The cache is not optional here and neither is consent-stripping: this
+      // skill's loop re-runs the same research constantly, and a banner line is
+      // exactly what gets picked as the excerpt on a low-keyword page. Both are
+      // passed explicitly rather than hidden in a wrapper, so the one call site
+      // that fetches pages says what it is asking for.
+      return { url, metaDescription: undefined, ...(await cachedFetchAndExtract(url, { stripConsent: true }, true)) };
     } catch (e) {
       // One unreachable page must never abort the angle.
-      return { url, text: "", note: `Could not fetch ${url}: ${(e as Error).message}` };
+      return { url, text: "", note: `Could not fetch ${url}: ${(e as Error).message}`, metaDescription: undefined };
     }
   });
 

@@ -18,7 +18,7 @@ import {
   scrapeViaFirecrawl,
   searchViaFirecrawl,
 } from "../src/research/firecrawl.js";
-import { fetchAndExtract, stripConsentBoilerplate } from "../src/research/fetch.js";
+import { cachedFetchAndExtract, fetchAndExtract, stripConsentBoilerplate } from "../src/research/fetch.js";
 import { discover, resetDiscoveryProbes } from "../src/research/web.js";
 import * as cache from "../src/research/cache.js";
 
@@ -36,6 +36,9 @@ function res(body: string, opts: { ok?: boolean; status?: number; contentType?: 
 }
 
 const json = (data: unknown, opts: { ok?: boolean; status?: number } = {}) => res(JSON.stringify(data), { contentType: "application/json", ...opts });
+
+// What research/web.ts asks for at its one call site, spelled the same way.
+const fetchPage = (url: string) => cachedFetchAndExtract(url, { stripConsent: true }, true);
 
 // A local instance that is not running: the connection is refused, which the
 // fetch layer reports as status 0.
@@ -123,8 +126,8 @@ describe("probeFirecrawl", () => {
   it("treats any HTTP answer as up, and probes only once per process", async () => {
     const net = vi.fn(async () => json({ message: "Firecrawl API" }));
     vi.stubGlobal("fetch", net);
-    expect(await probeFirecrawl()).toBe(true);
-    expect(await probeFirecrawl()).toBe(true);
+    expect(await probeFirecrawl(firecrawlBase()!)).toBe(true);
+    expect(await probeFirecrawl(firecrawlBase()!)).toBe(true);
     expect(net).toHaveBeenCalledTimes(1);
   });
 
@@ -135,12 +138,12 @@ describe("probeFirecrawl", () => {
       "fetch",
       vi.fn(async () => json({}, { ok: false, status: 500 })),
     );
-    expect(await probeFirecrawl()).toBe(true);
+    expect(await probeFirecrawl(firecrawlBase()!)).toBe(true);
     resetFirecrawlProbe();
     const net = vi.fn(refused);
     vi.stubGlobal("fetch", net);
-    expect(await probeFirecrawl()).toBe(false);
-    expect(await probeFirecrawl()).toBe(false);
+    expect(await probeFirecrawl(firecrawlBase()!)).toBe(false);
+    expect(await probeFirecrawl(firecrawlBase()!)).toBe(false);
     expect(net).toHaveBeenCalledTimes(1);
   });
 
@@ -148,7 +151,11 @@ describe("probeFirecrawl", () => {
     process.env.CONSTRUCT_FIRECRAWL = "off";
     const net = vi.fn(async () => json({}));
     vi.stubGlobal("fetch", net);
-    expect(await probeFirecrawl()).toBe(false);
+    // `off` resolves to no base at all, which is what short-circuits every
+    // caller before a probe is even considered — the reason a machine without
+    // the stack pays nothing for it.
+    expect(firecrawlBase()).toBeNull();
+    expect((await scrapeViaFirecrawl("https://x.example")).data).toBeUndefined();
     expect(net).not.toHaveBeenCalled();
   });
 });
@@ -165,7 +172,7 @@ describe("scrapeViaFirecrawl", () => {
       }),
     );
     const r = await scrapeViaFirecrawl("https://expressjs.com/en/guide/migrating-5.html");
-    expect(r?.markdown).toMatch(/Express 5 requires Node/);
+    expect(r.data?.markdown).toMatch(/Express 5 requires Node/);
     const scrape = calls.find((c) => c.url.endsWith("/scrape"))!;
     expect(scrape.url).toBe("http://localhost:3002/v2/scrape");
     expect(scrape.body).toMatchObject({ formats: ["markdown"], onlyMainContent: true, blockAds: true, removeBase64Images: true });
@@ -200,15 +207,15 @@ describe("scrapeViaFirecrawl", () => {
         return json(SCRAPE_FIXTURE);
       }),
     );
-    expect((await scrapeViaFirecrawl("https://a.example"))?.markdown).toBeTruthy();
-    expect((await scrapeViaFirecrawl("https://b.example"))?.markdown).toBeTruthy();
+    expect((await scrapeViaFirecrawl("https://a.example")).data?.markdown).toBeTruthy();
+    expect((await scrapeViaFirecrawl("https://b.example")).data?.markdown).toBeTruthy();
     // v2 probed once, then never again — not once per page.
     expect(paths).toEqual(["/v2/scrape", "/v1/scrape", "/v1/scrape"]);
   });
 
   it("returns null (never throws) when the instance is not running", async () => {
     vi.stubGlobal("fetch", vi.fn(refused));
-    expect(await scrapeViaFirecrawl("https://x.example")).toBeNull();
+    expect((await scrapeViaFirecrawl("https://x.example")).data).toBeUndefined();
   });
 });
 
@@ -222,7 +229,8 @@ describe("searchViaFirecrawl", () => {
         return json({ message: "Firecrawl API" });
       }),
     );
-    expect(await searchViaFirecrawl("read later app", 5)).toEqual(["https://one.example", "https://two.example"]);
+    const r = await searchViaFirecrawl("read later app", 5);
+    expect(r.hits?.map((h) => h.url)).toEqual(["https://one.example", "https://two.example"]);
   });
 
   // The three-way contract discover() relies on: [] is "reachable, nothing
@@ -233,10 +241,14 @@ describe("searchViaFirecrawl", () => {
       "fetch",
       vi.fn(async (url: string) => (String(url).endsWith("/search") ? json({ success: true, data: { web: [] } }) : json({ message: "ok" }))),
     );
-    expect(await searchViaFirecrawl("q", 5)).toEqual([]);
+    // Reachable but empty: hits is a list, and it is empty.
+    expect(await searchViaFirecrawl("q", 5)).toEqual({ hits: [] });
     resetFirecrawlProbe();
     vi.stubGlobal("fetch", vi.fn(refused));
-    expect(await searchViaFirecrawl("q", 5)).toBeNull();
+    // Unusable: no hits at all, and a reason the caller can show.
+    const down = await searchViaFirecrawl("q", 5);
+    expect(down.hits).toBeUndefined();
+    expect(down.why).toBeTruthy();
   });
 });
 
@@ -310,7 +322,12 @@ describe("fetchAndExtract — the extraction seam", () => {
     expect(seen.some((u) => u.includes("expressjs.com"))).toBe(false);
   });
 
-  it("uses the built-in extractor, silently, when the stack is not running", async () => {
+  it("uses the built-in extractor, silently, when the stack was never started", async () => {
+    // No CONSTRUCT_FIRECRAWL: the base is the localhost DEFAULT, i.e. nobody
+    // asked for it. A stack the user never started is not an event worth a note
+    // on every page of every run.
+    delete process.env.CONSTRUCT_FIRECRAWL;
+    resetFirecrawlProbe();
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {
@@ -320,8 +337,23 @@ describe("fetchAndExtract — the extraction seam", () => {
     );
     const { text, note } = await fetchAndExtract("https://down.example/page");
     expect(text).toMatch(/Native extraction of the page body/);
-    // A stack the user never started is not an event worth a note on every page.
     expect(note).toBeUndefined();
+  });
+
+  it("does say so when the user PINNED an instance and did not get it", async () => {
+    // The distinction the engine added, and the reason the case above had to
+    // stop pinning the env var to make its point: asking for a specific
+    // instance and silently not getting it is how a run produces worse text
+    // than the operator thinks they configured.
+    process.env.CONSTRUCT_FIRECRAWL = "http://pinned.example:3002";
+    resetFirecrawlProbe();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => (String(url).includes("pinned.example") ? refused() : res(page, { contentType: "text/html" }))),
+    );
+    const { text, note } = await fetchAndExtract("https://down.example/page");
+    expect(text).toMatch(/Native extraction of the page body/);
+    expect(note).toMatch(/not reachable at http:\/\/pinned\.example:3002/);
   });
 
   it("falls back to the built-in extractor WITH a note when a page cannot be scraped", async () => {
@@ -336,7 +368,7 @@ describe("fetchAndExtract — the extraction seam", () => {
     );
     const { text, note } = await fetchAndExtract("https://hard.example/page");
     expect(text).toMatch(/Native extraction of the page body/);
-    expect(note).toMatch(/Firecrawl could not extract https:\/\/hard\.example\/page; used the built-in extractor/);
+    expect(note).toMatch(/Firecrawl returned no markdown for https:\/\/hard\.example\/page/);
   });
 
   // Firecrawl will happily hand back the markdown of a "Page not found" body.
@@ -379,23 +411,23 @@ describe("fetchAndExtract — the extraction seam", () => {
     expect(stripped).not.toMatch(/## Cookies/);
   });
 
-  it("records the extractor and a markdown content type in the cache", async () => {
+  it("reports which extractor produced the text", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => (String(url).endsWith("/scrape") ? json(SCRAPE_FIXTURE) : json({ message: "ok" }))),
     );
-    await fetchAndExtract("https://cached.example/page");
-    const entry = cache.read("https://cached.example/page")!.entry;
-    expect(cache.extractorOf(entry)).toBe("firecrawl");
-    expect(entry.contentType).toBe("text/markdown");
+    // Not decoration: the extractor id is part of the cache key, which is what
+    // stops a body one reader produced being served to a run configured for the
+    // other. The key layout itself is the engine's and is tested there.
+    expect((await fetchPage("https://cached.example/page")).extractor).toBe("firecrawl");
   });
 
   it("answers a repeat fetch from the cache without re-scraping", async () => {
     const net = vi.fn(async (url: string) => (String(url).endsWith("/scrape") ? json(SCRAPE_FIXTURE) : json({ message: "ok" })));
     vi.stubGlobal("fetch", net);
-    await fetchAndExtract("https://repeat.example/page");
+    await fetchPage("https://repeat.example/page");
     const after = net.mock.calls.length;
-    const again = await fetchAndExtract("https://repeat.example/page");
+    const again = await fetchPage("https://repeat.example/page");
     expect(net.mock.calls.length).toBe(after);
     expect(again.text).toMatch(/Upgrade to Express v5/);
   });
@@ -404,60 +436,58 @@ describe("fetchAndExtract — the extraction seam", () => {
 describe("the page cache keys on extractor identity", () => {
   const url = "https://mismatch.example/page";
   const page = "<html><body><p>Native extraction of the page body.</p></body></html>";
+  const withStack = () =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (u: string) => (String(u).endsWith("/scrape") ? json(SCRAPE_FIXTURE) : json({ message: "ok" }))),
+    );
+  const withoutStack = () =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (u: string) => (String(u).includes("3002") ? refused() : res(page, { contentType: "text/html" }))),
+    );
+
+  // Driven end to end rather than by writing entries by hand: the storage layout
+  // is the engine's now, and a test that pokes it would be asserting against
+  // vendored internals instead of against what a user experiences.
 
   // Without this, a native body written while the stack was down would shadow
   // Firecrawl for the whole TTL — a week, by default. The user starts the stack,
   // re-runs, and gets exactly the text they were trying to improve on.
   it("re-fetches through Firecrawl instead of serving a fresh native entry", async () => {
-    cache.write(url, { status: 200, contentType: "text/html", extractor: "native" }, page);
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (u: string) => (String(u).endsWith("/scrape") ? json(SCRAPE_FIXTURE) : json({ message: "ok" }))),
-    );
-    const { text } = await fetchAndExtract(url);
-    expect(text).toMatch(/# Upgrade to Express v5/);
+    withoutStack();
+    expect((await fetchPage(url)).text).toMatch(/Native extraction of the page body/);
+
+    resetFirecrawlProbe();
+    withStack();
+    expect((await fetchPage(url)).text).toMatch(/# Upgrade to Express v5/);
   });
 
   it("re-fetches natively instead of serving a fresh Firecrawl entry", async () => {
-    cache.write(url, { status: 200, contentType: "text/markdown", extractor: "firecrawl" }, "# markdown from firecrawl");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (u: string) => {
-        if (String(u).includes("3002")) return refused();
-        return res(page, { contentType: "text/html" });
-      }),
-    );
-    const { text } = await fetchAndExtract(url);
+    withStack();
+    expect((await fetchPage(url)).text).toMatch(/Upgrade to Express v5/);
+
+    resetFirecrawlProbe();
+    withoutStack();
+    const { text } = await fetchPage(url);
     expect(text).toMatch(/Native extraction of the page body/);
-    expect(text).not.toMatch(/markdown from firecrawl/);
+    expect(text).not.toMatch(/Upgrade to Express v5/);
   });
 
-  it("serves whatever it has under --offline, extractor or not (a miss would be a hole)", async () => {
-    cache.write(url, { status: 200, contentType: "text/markdown", extractor: "firecrawl" }, "# markdown from firecrawl");
+  it("serves whatever it has under --offline, whichever extractor wrote it", async () => {
+    withStack();
+    await fetchPage(url);
+
     cache.configureCache({ offline: true });
     const net = vi.fn(async () => json({}));
     vi.stubGlobal("fetch", net);
     try {
-      const { text } = await fetchAndExtract(url);
-      expect(text).toMatch(/markdown from firecrawl/);
-      expect(net).not.toHaveBeenCalled(); // offline never probes, either
+      // A miss would be a hole in the dossier, and offline cannot probe to find
+      // out which namespace to look in — so it looks in all of them.
+      expect((await fetchPage(url)).text).toMatch(/Upgrade to Express v5/);
+      expect(net).not.toHaveBeenCalled();
     } finally {
       cache.configureCache({ offline: false });
     }
-  });
-
-  it("keeps the extractor across a 304 revalidation", () => {
-    cache.write(url, { status: 200, contentType: "text/markdown", extractor: "firecrawl" }, "# md", 1_000);
-    cache.touch(url, 9_000_000);
-    const entry = cache.read(url)!.entry;
-    expect(entry.fetchedAt).toBe(9_000_000);
-    expect(cache.extractorOf(entry)).toBe("firecrawl");
-  });
-
-  it("reads a pre-Firecrawl sidecar (no extractor field) as native", () => {
-    cache.write(url, { status: 200, contentType: "text/html" }, page);
-    const metaFile = readdirSync(cacheDir).find((f) => f.endsWith(".json"))!;
-    expect(JSON.parse(readFileSync(join(cacheDir, metaFile), "utf8")).extractor).toBeUndefined();
-    expect(cache.extractorOf(cache.read(url)!.entry)).toBe("native");
   });
 });

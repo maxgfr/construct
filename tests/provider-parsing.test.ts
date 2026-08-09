@@ -13,9 +13,32 @@ const httpGet = vi.fn();
 vi.mock("../src/research/fetch.js", () => ({ httpGet: (...a: unknown[]) => httpGet(...a) }));
 
 // Import AFTER the mocks are registered.
+import { resetCanonicalRepoCache } from "../src/engine.js";
 import { toItems, github } from "../src/providers/github.js";
 import { gitlab } from "../src/providers/gitlab.js";
 import type { RepoRef } from "../src/types.js";
+
+// The rename lookup moved into the engine with webindex v1.14.0, so it no longer
+// passes through this file's `httpGet` mock — it goes out through the engine's
+// own httpJson, i.e. `globalThis.fetch`. Stub that too: without it these cases
+// would reach api.github.com for real, and quietly fall back to the un-renamed
+// name whenever the network said no.
+let canonicalFullName = "o/r";
+function stubEngineFetch(): void {
+  vi.stubGlobal("fetch", async (input: unknown) => {
+    const url = String(input);
+    const body = url.includes("/repos/") ? JSON.stringify({ full_name: canonicalFullName }) : "{}";
+    return {
+      ok: true,
+      status: 200,
+      url,
+      headers: { get: (k: string) => (k.toLowerCase() === "content-type" ? "application/json" : null) },
+      async text() {
+        return body;
+      },
+    } as unknown as Response;
+  });
+}
 
 const ref = (over: Partial<RepoRef> = {}): RepoRef => ({
   raw: "o/r",
@@ -43,8 +66,18 @@ const qOf = (url: unknown): string => {
 const searchQueries = () => httpGet.mock.calls.map(([u]) => qOf(u)).filter((q) => q.includes("type:"));
 const termCountOf = (q: string) => (q.split(/type:\w+\s+/)[1] ?? "").split(/\s+/).filter(Boolean).length;
 
-beforeEach(() => httpGet.mockReset());
-afterEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  httpGet.mockReset();
+  canonicalFullName = "o/r";
+  stubEngineFetch();
+  // Resolved once per repository and remembered for the process — right for a
+  // run, wrong across cases.
+  resetCanonicalRepoCache();
+});
+afterEach(() => {
+  vi.clearAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe("github toItems parsing", () => {
   it("accepts labels as strings or objects, and honours the draft flag", () => {
@@ -99,7 +132,6 @@ describe("github search query strategy", () => {
     // then keeps the on-topic item.
     httpGet.mockImplementation(async (url: unknown) => {
       const u = typeof url === "string" ? url : "";
-      if (u.includes("/repos/")) return json({ full_name: "o/r" });
       if (termCountOf(qOf(u)) >= 2) return json({ items: [] });
       return json({ items: [{ number: 5, title: "cookieless tracking", state: "open", body: "adds cookieless consent", html_url: "u5" }] });
     });
@@ -115,9 +147,9 @@ describe("github search query strategy", () => {
   it("recovers from a rename by searching the canonical full_name (no 422)", async () => {
     // The repos API 301-follows the rename old/old → new/new. Searches against
     // the OLD name 422; against the canonical name they succeed.
+    canonicalFullName = "newowner/newrepo";
     httpGet.mockImplementation(async (url: unknown) => {
       const u = typeof url === "string" ? url : "";
-      if (u.includes("/repos/")) return json({ full_name: "newowner/newrepo" });
       if (qOf(u).includes("old/old")) return { ok: false, status: 422, body: "", contentType: "" };
       return json({ items: [{ number: 3, title: "renamed hit", state: "open", body: "x", html_url: "u3" }] });
     });

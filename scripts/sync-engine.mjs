@@ -48,7 +48,13 @@ const ENGINES = {
     // asserts the engine writes the compose out under CONSTRUCT_CACHE_DIR —
     // that is the v1.12.1 fix. It sat at v1.6.0 while the pin was v1.12.1, so
     // the STALE check had six releases of slack.
-    minRef: "v1.12.1",
+    // v1.14.0: this repo has NO webindex forks left (scripts/engine-forks.json
+    // is empty), and every one of them was retired against something that
+    // release added — Brand.repoDir / cacheTtlMs / defaultUa / onFetch, a cache
+    // body stored beside its metadata, offline+refresh, apiBase on a bare host,
+    // canonicalRepoRef, excerptWindows. Vendoring anything older typechecks
+    // against the old declarations and then fails on names that are not there.
+    minRef: "v1.14.0",
     meta: "webindex.meta.json",
     files: [
       { remote: "scripts/engine.mjs", local: "webindex-engine.mjs" },

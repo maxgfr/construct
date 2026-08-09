@@ -1,19 +1,19 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { describe, it, expect } from "vitest";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { resolveRepo, ensureClone, cacheRoot } from "../src/clone.js";
-import { shAsync } from "../src/util.js";
 
-const okSh = { ok: true, status: 0, stdout: "", stderr: "", missing: false } as const;
-
-// ensureClone shells out through util.ts::shAsync — mock it (keep the rest real).
-vi.mock("../src/util.js", async (importActual) => {
-  const real = await importActual<typeof import("../src/util.js")>();
-  return { ...real, shAsync: vi.fn() };
-});
-
-afterEach(() => vi.clearAllMocks());
+// src/clone.ts is now a shim over the vendored engine, so what is left to assert
+// here is the WIRING, not the algorithm: that this repo still resolves seeds the
+// way it did, and that clones still land where /tmp/construct has always been.
+//
+// The clone algorithm itself — the two labelled attempts, the partial-directory
+// cleanup, the missing-git message, refresh, branches, reuse — is tested against
+// a real local repository in webindex's own suite, which is where the code is.
+// It used to be tested here by mocking `shAsync`, a seam the engine's internals
+// do not pass through; keeping those cases would have meant asserting against a
+// mock nothing calls.
 
 describe("resolveRepo", () => {
   it("parses ssh:// and uppercase-scheme URLs without garbling the owner", () => {
@@ -55,111 +55,34 @@ describe("resolveRepo", () => {
   });
 });
 
-describe("ensureClone failure reporting", () => {
-  const shResult = (over: Partial<Awaited<ReturnType<typeof shAsync>>>) => ({ ok: false, status: 128, stdout: "", stderr: "", missing: false, ...over });
-
-  it("names a missing git binary instead of a confusing clone failure", async () => {
-    vi.mocked(shAsync).mockResolvedValue(shResult({ missing: true, status: null, stderr: "spawn git ENOENT" }));
-    await expect(() => ensureClone(resolveRepo("owner/repo"))).rejects.toThrow(/git is not installed or not on PATH/);
-    expect(vi.mocked(shAsync)).toHaveBeenCalledTimes(1); // no pointless fallback attempt
+describe("where clones land", () => {
+  it("still keys them under /tmp/construct, so an existing cache is not orphaned", () => {
+    // The whole reason `ensureClone` was forked for so long. The engine takes
+    // the directory from the brand now (src/engine.ts), and this is the
+    // assertion that says adopting it did not quietly move anybody's clones.
+    expect(cacheRoot()).toBe(join(tmpdir(), "construct"));
   });
 
-  it("reports both labeled attempts when the clone and its fallback fail differently", async () => {
-    vi.mocked(shAsync)
-      .mockResolvedValueOnce(shResult({ stderr: "fatal: filter not supported" }))
-      .mockResolvedValueOnce(shResult({ stderr: "fatal: repository not found" }));
-    let msg = "";
-    try {
-      await ensureClone(resolveRepo("owner/repo"));
-    } catch (e) {
-      msg = (e as Error).message;
-    }
-    expect(msg).toMatch(/attempt 1 \(--filter=blob:none\): fatal: filter not supported/);
-    expect(msg).toMatch(/attempt 2 \(no filter\): *fatal: repository not found/);
-  });
-
-  it("falls back to the exit code when an attempt produced no stderr", async () => {
-    vi.mocked(shAsync).mockResolvedValue(shResult({ status: 130, stderr: "" }));
-    await expect(() => ensureClone(resolveRepo("owner/repo"))).rejects.toThrow(/exit 130/);
-  });
-});
-
-describe("ensureClone caching + success paths", () => {
-  // Each test uses a distinct fixture slug so a leftover cache dir can't leak
-  // across tests; every dir is removed in a finally.
-  async function withCacheDir(seed: string, setup: (dir: string) => void, run: (dir: string) => Promise<void> | void): Promise<void> {
-    const ref = resolveRepo(seed);
-    const dir = join(cacheRoot(), ref.slug);
-    rmSync(dir, { recursive: true, force: true });
-    setup(dir);
-    try {
-      await run(dir);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  }
-
-  it("uses a local checkout in place, never shelling out", async () => {
+  it("uses a local checkout in place rather than cloning it", async () => {
     const local = mkdtempSync(join(tmpdir(), "construct-local-"));
     try {
       expect(await ensureClone(resolveRepo(local))).toBe(resolve(local));
-      expect(vi.mocked(shAsync)).not.toHaveBeenCalled();
     } finally {
       rmSync(local, { recursive: true, force: true });
     }
   });
 
-  it("reuses an already-cloned repo without fetching when not refreshing", async () => {
-    await withCacheDir(
-      "owner/reuse-fixture",
-      (dir) => mkdirSync(join(dir, ".git"), { recursive: true }),
-      async (dir) => {
-        expect(await ensureClone(resolveRepo("owner/reuse-fixture"))).toBe(dir);
-        expect(vi.mocked(shAsync)).not.toHaveBeenCalled();
-      },
-    );
-  });
-
-  it("fetches + hard-resets an existing clone under --refresh instead of re-cloning", async () => {
-    await withCacheDir(
-      "owner/refresh-fixture",
-      (dir) => mkdirSync(join(dir, ".git"), { recursive: true }),
-      async (dir) => {
-        vi.mocked(shAsync).mockResolvedValue({ ...okSh });
-        expect(await ensureClone(resolveRepo("owner/refresh-fixture"), { refresh: true })).toBe(dir);
-        const args = vi.mocked(shAsync).mock.calls.map((c) => c[1]);
-        expect(args[0]).toEqual(expect.arrayContaining(["fetch", "--depth", "1"]));
-        expect(args[1]).toEqual(expect.arrayContaining(["reset", "--hard", "FETCH_HEAD"]));
-      },
-    );
-  });
-
-  it("throws when a 'successful' clone leaves an empty tree", async () => {
-    await withCacheDir(
-      "owner/empty-fixture",
-      () => {},
-      async () => {
-        vi.mocked(shAsync).mockResolvedValue({ ...okSh });
-        await expect(() => ensureClone(resolveRepo("owner/empty-fixture"))).rejects.toThrow(/empty tree/);
-      },
-    );
-  });
-
-  it("removes a partial clone before the no-filter retry", async () => {
-    await withCacheDir(
-      "owner/partial-fixture",
-      async (dir) => {
-        mkdirSync(dir, { recursive: true });
-        writeFileSync(join(dir, "partial"), "x"); // a non-empty leftover from attempt 1
-      },
-      async () => {
-        vi.mocked(shAsync)
-          .mockResolvedValueOnce({ ok: false, status: 128, stdout: "", stderr: "filter unsupported", missing: false })
-          .mockResolvedValueOnce({ ...okSh }); // fallback "succeeds" but writes nothing → empty tree
-        await expect(() => ensureClone(resolveRepo("owner/partial-fixture"))).rejects.toThrow(/empty tree/);
-        // the retry drops the partial-clone filter
-        expect(vi.mocked(shAsync).mock.calls[1]![1]).not.toContain("--filter=blob:none");
-      },
-    );
+  it("reuses an already-cloned repo instead of fetching it again", async () => {
+    const ref = resolveRepo("owner/reuse-fixture");
+    const dir = join(cacheRoot(), ref.slug);
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(join(dir, ".git"), { recursive: true });
+    try {
+      // No network and no `git`: a clone that is already there is answered from
+      // disk, which is what makes a re-run of the same research cheap.
+      expect(await ensureClone(ref)).toBe(dir);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

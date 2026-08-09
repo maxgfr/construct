@@ -809,7 +809,9 @@ async function main(): Promise<void> {
           `HTTP cache: ${st.dir}`,
           `  entries:  ${st.entries} (${st.fresh} fresh · ${st.stale} stale)`,
           `  size:     ${mb} MB`,
-          `  ttl:      ${st.ttlHours} h (CONSTRUCT_CACHE_TTL_HOURS)`,
+          // The engine reports the TTL in milliseconds; hours is what the
+          // variable that sets it is named in, so that is what is shown.
+          `  ttl:      ${st.ttlMs / 3600_000} h (CONSTRUCT_CACHE_TTL_HOURS)`,
           ...(st.entries ? [`  oldest:   ${st.oldest}`, `  newest:   ${st.newest}`] : []),
           "",
           "  A cached page makes a `research` re-run free — which is what the",

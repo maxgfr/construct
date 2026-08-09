@@ -122,11 +122,15 @@ for (const f of files) {
 // Raise this when a layer lands. Never lower it to make a red run pass — a drop
 // means a layer stopped being used, which is a decision, not a detail.
 //
-// 50 against a real 51, after adopting slugify from v1.13.
+// 90 against a real 91, after v1.14.0 took the last four forks: the shell layer,
+// the clone, the forge signatures, and the fetch/cache/firecrawl stack. It was
+// 50 against 51 before that, and 38 while the counter could not see
+// `./engine.js` — which left the run-lock shim and the keyword block unprotected.
 //
-// It was 38 while the counter could not see `./engine.js` — which left the
-// run-lock shim and the keyword block unprotected.
-const FLOOR = Number(process.env.ENGINE_USAGE_FLOOR ?? 50);
+// engine-forks.json is now EMPTY. That is the state to defend: this floor and
+// that empty object say the same thing from two directions, and the first one
+// to move is the warning.
+const FLOOR = Number(process.env.ENGINE_USAGE_FLOOR ?? 90);
 
 let ok = true;
 
