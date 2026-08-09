@@ -31,6 +31,39 @@ Thin deterministic engine + thick agent playbook. See
 The agent-facing guidance lives in `SKILL.md` + `references/*.md` — markdown, no
 code. Prefer teaching the agent there over hard-coding behaviour in the engine.
 
+## The vendored engines
+
+Two engines are vendored under `src/vendor/`, each pinned by tag and SHA-256 and
+inlined by tsup so the skill still ships as one file with no install:
+
+- **codeindex** — the code you have locally.
+- **webindex** — the web: HTTP, extraction, the PDF and office ladders, ranking,
+  forges and package registries, the container stack, and the whole MCP protocol.
+
+**Everything in `src/` reaches webindex through `src/engine.ts` — never
+`src/vendor/*` directly.** That module calls `configure()` once, so you cannot
+obtain an engine function without first importing the module that configured it.
+
+Three scripts keep it honest, all wired into `check:build`:
+
+| Script | What it refuses |
+|---|---|
+| `sync-engine.mjs --check` | A **tampered** vendor (bytes differ from the pin) or a **stale** one (pinned below `minRef`). The second matters because tsup inlines the bundle: a stale pin ships old behaviour with every test green. |
+| `verify-engine-usage.mjs` | A local declaration that **shadows** an engine export — exported or not — unless it is argued for in `engine-forks.json`. Also a drop below the usage floor. |
+| `verify-skill-bundle.mjs` | A skill directory that would not install, including a stale `docker/` copy the engine now writes out on demand. |
+
+Two rules that are easy to get wrong:
+
+- **Adopting an engine export and bumping `minRef` happen in the SAME commit.**
+  Deleting a local copy while pinned to a release that lacks its replacement
+  builds green and ships broken.
+- **`engine-forks.json` is a ratchet.** Entries may leave, never arrive — each
+  one carries the argument for why that fork still exists. A fork that no longer
+  matches anything also fails, so the list cannot rot.
+
+To pull a new engine release: `node scripts/sync-engine.mjs --ref vX.Y.Z`, then
+`pnpm run check:build`.
+
 ## Tests (TDD)
 
 Write a failing test first. The deterministic core (`brief`, `srd`, `render`,

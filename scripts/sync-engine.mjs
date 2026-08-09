@@ -16,8 +16,8 @@
 // re-pinning one never disturbs the other's recorded hashes, and --check
 // re-hashes every vendored file against them.
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -43,11 +43,23 @@ const ENGINES = {
   },
   webindex: {
     repo: "maxgfr/webindex",
-    minRef: "v1.6.0",
+    // v1.12.1: src/research/semantic.ts drives the stack through the engine's
+    // stackControl with a service ARRAY (the v1.12.0 folded call), and ci.yml
+    // asserts the engine writes the compose out under CONSTRUCT_CACHE_DIR —
+    // that is the v1.12.1 fix. It sat at v1.6.0 while the pin was v1.12.1, so
+    // the STALE check had six releases of slack.
+    minRef: "v1.12.1",
     meta: "webindex.meta.json",
     files: [
       { remote: "scripts/engine.mjs", local: "webindex-engine.mjs" },
       { remote: "scripts/engine.d.mts", local: "webindex-engine.d.mts" },
+      // The engine's own reference docs, pinned by the same sha256 as its code
+      // and landing beside the skill rather than in src/vendor/ — an agent reads
+      // these, a bundler does not. Before this, `web-discovery.md` and
+      // `provider-apis.md` existed in two skills with different bytes, both
+      // describing one engine.
+      { remote: "references/web-discovery.md", local: "web-discovery.md", dest: "skills/construct/references/web-discovery.md" },
+      { remote: "references/provider-apis.md", local: "provider-apis.md", dest: "skills/construct/references/provider-apis.md" },
     ],
   },
 };
@@ -92,6 +104,19 @@ function selected() {
   return [name];
 }
 
+/**
+ * Where a synced file lands.
+ *
+ * The engine bundle goes to src/vendor/ because a bundler inlines it. The
+ * engine's REFERENCE DOCS do not: they are read by an agent, so they belong
+ * beside the skill that ships them. Both are pinned by the same sha256, for the
+ * same reason — `references/web-discovery.md` existed in two skills with
+ * different bytes, describing one engine, and nothing noticed.
+ */
+function destOf(f) {
+  return f.dest ? join(root, f.dest) : join(vendorDir, f.local);
+}
+
 if (args[0] === "--check") {
   let ok = true;
   for (const name of Object.keys(ENGINES)) {
@@ -106,9 +131,22 @@ if (args[0] === "--check") {
     }
     let engineOk = true;
     for (const f of files) {
-      const actual = sha256(readFileSync(join(vendorDir, f.local)));
-      if (actual !== meta.sha256[f.local]) {
-        console.error(`sync-engine: DRIFT in src/vendor/${f.local} — vendored bytes differ from the ${meta.tag} pin`);
+      const path = destOf(f);
+      // A file the current pin never carried is not drift — it is a file added
+      // to the table since. The next `--ref` picks it up and pins it; failing
+      // here would mean a doc could never be added without breaking the build
+      // it is meant to protect.
+      if (meta.sha256[f.local] === undefined) {
+        console.log(`sync-engine: ${f.local} is not in the ${meta.tag} pin yet — re-pin to fetch it`);
+        continue;
+      }
+      if (!existsSync(path)) {
+        console.error(`sync-engine: MISSING ${relative(root, path)} — the ${meta.tag} pin lists it`);
+        engineOk = false;
+        continue;
+      }
+      if (sha256(readFileSync(path)) !== meta.sha256[f.local]) {
+        console.error(`sync-engine: DRIFT in ${relative(root, path)} — bytes differ from the ${meta.tag} pin`);
         engineOk = false;
       }
     }
@@ -142,9 +180,11 @@ for (const name of selected()) {
       process.exit(1);
     }
     const buf = Buffer.from(await res.arrayBuffer());
-    writeFileSync(join(vendorDir, f.local), buf);
+    const path = destOf(f);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, buf);
     sums[f.local] = sha256(buf);
-    console.log(`sync-engine: src/vendor/${f.local} (${buf.length} bytes)`);
+    console.log(`sync-engine: ${relative(root, path)} (${buf.length} bytes)`);
   }
 
   // The bundle embeds its version greppably — refuse a tag/content mismatch.

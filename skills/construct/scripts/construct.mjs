@@ -19871,7 +19871,7 @@ ${it.snippet}`);
   if (failures) notes.push(`${failures} item(s) could not be embedded; ranked last.`);
   return { available: true, results: out2, notes };
 }
-var STACK_SERVICES2 = {
+var SERVICE_GROUPS = {
   semantic: ["semantic", "searxng"],
   firecrawl: ["firecrawl"]
 };
@@ -19880,7 +19880,7 @@ var USE_HINT = {
   firecrawl: "  use:    construct research --out <run>   (pages are cleaned through Firecrawl automatically)"
 };
 function stackCommand(stack, action, deps = {}) {
-  const r = stackControl(STACK_SERVICES2[stack], action, deps);
+  const r = stackControl(SERVICE_GROUPS[stack], action, deps);
   return r.code === 0 && action === "up" ? { ...r, message: `${r.message}
 ${USE_HINT[stack]}` } : r;
 }

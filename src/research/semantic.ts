@@ -127,7 +127,12 @@ export type StackName = "semantic" | "firecrawl";
 // ~3 GB and five containers, and is deliberately not part of it. Asking for
 // `searxng` alongside `semantic` reproduces exactly what compose profile `all`
 // selected before, in one call.
-const STACK_SERVICES: Record<StackName, string[]> = {
+//
+// Named SERVICE_GROUPS, not STACK_SERVICES: the engine exports a STACK_SERVICES
+// of its own (the flat list of service names it knows), and this is a different
+// thing — construct's stack names mapped to the engine services each one pulls
+// in. Two meanings under one name is how a shadow starts.
+const SERVICE_GROUPS: Record<StackName, string[]> = {
   semantic: ["semantic", "searxng"],
   firecrawl: ["firecrawl"],
 };
@@ -142,6 +147,6 @@ const USE_HINT: Record<StackName, string> = {
  * mapping is testable without a daemon; the engine tests the orchestration.
  */
 export function stackCommand(stack: StackName, action: string, deps: StackDeps = {}): { message: string; code: number } {
-  const r = engineStackControl(STACK_SERVICES[stack], action, deps);
+  const r = engineStackControl(SERVICE_GROUPS[stack], action, deps);
   return r.code === 0 && action === "up" ? { ...r, message: `${r.message}\n${USE_HINT[stack]}` } : r;
 }
