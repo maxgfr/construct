@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [3.11.0](https://github.com/maxgfr/construct/compare/v3.10.1...v3.11.0) (2026-08-09)
+
+
+### Features
+
+* **engine:** adopt webindex v1.14.0 and delete the last 24 forks ([df3de84](https://github.com/maxgfr/construct/commit/df3de84291654f7be1124fb97a60ac08ad55a18f))
+
 ## [3.10.1](https://github.com/maxgfr/construct/compare/v3.10.0...v3.10.1) (2026-08-09)
 
 
