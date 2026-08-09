@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+## [3.10.1](https://github.com/maxgfr/construct/compare/v3.10.0...v3.10.1) (2026-08-09)
+
+
+### Bug Fixes
+
+* **gate:** count ./engine.js imports, and see unexported shadows ([571070f](https://github.com/maxgfr/construct/commit/571070fea23080b71219013e7daa1c48d25a20ad))
+
 # [3.10.0](https://github.com/maxgfr/construct/compare/v3.9.0...v3.10.0) (2026-08-08)
 
 
