@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [3.12.0](https://github.com/maxgfr/construct/compare/v3.11.0...v3.12.0) (2026-08-10)
+
+
+### Features
+
+* **engine:** adopt webindex v1.18's harness layer ([32656cf](https://github.com/maxgfr/construct/commit/32656cf791ab783aa62e12bef74f1ef08985bc3d))
+
 # [3.11.0](https://github.com/maxgfr/construct/compare/v3.10.1...v3.11.0) (2026-08-09)
 
 
