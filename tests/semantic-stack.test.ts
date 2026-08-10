@@ -253,10 +253,11 @@ describe("semanticRescore", () => {
       vi.fn(async (url: string, init?: { body?: string }) => {
         const u = String(url);
         if (u.endsWith("/api/tags")) return res("{}", { ok: true });
-        if (u.includes("/api/embeddings")) {
-          const prompt = String(JSON.parse(init!.body!).prompt);
-          const vec = prompt.includes("relevant") ? [1, 0, 0] : [0, 1, 0];
-          return res(JSON.stringify({ embedding: vec }), { ok: true });
+        // The engine posts to /api/embed with `input` (an array), not the
+        // legacy /api/embeddings with `prompt`. Same model, current endpoint.
+        if (u.includes("/api/embed")) {
+          const input = JSON.parse(init!.body!).input as string[];
+          return res(JSON.stringify({ embeddings: input.map((t) => (t.includes("relevant") ? [1, 0, 0] : [0, 1, 0])) }), { ok: true });
         }
         return res("", { ok: false, status: 404 });
       }),
@@ -278,10 +279,10 @@ describe("semanticRescore", () => {
       vi.fn(async (url: string, init?: { body?: string }) => {
         const u = String(url);
         if (u.endsWith("/api/tags")) return res("{}", { ok: true });
-        if (u.includes("/api/embeddings")) {
-          const prompt = String(JSON.parse(init!.body!).prompt);
+        if (u.includes("/api/embed")) {
+          const input = JSON.parse(init!.body!).input as string[];
           // The query embeds fine; the item embedding comes back empty.
-          if (prompt === "q") return res(JSON.stringify({ embedding: [1, 0] }), { ok: true });
+          if (input[0] === "q") return res(JSON.stringify({ embeddings: [[1, 0]] }), { ok: true });
           return res(JSON.stringify({}), { ok: true });
         }
         return res("", { ok: false, status: 404 });

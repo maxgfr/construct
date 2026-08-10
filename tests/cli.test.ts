@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { parseArgs } from "../src/cli.js";
+// `parseCli` is what `parseArgs` used to be: the tables and the exit policy
+// are still this repo's; only the validating loop moved into the engine.
+import { parseCli as parseArgs } from "../src/cli.js";
 
 // parseArgs calls process.exit on help/version/errors; trap it so tests can
 // assert without killing the runner.

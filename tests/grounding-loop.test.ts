@@ -10,7 +10,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { assignIds, contentKey, emptyLedger, loadLedger, writeDossier, fingerprint } from "../src/research/dossier.js";
+import { assignIds, contentKey, emptyLedger, loadLedger, writeDossier, evidenceFingerprint } from "../src/research/dossier.js";
 import { capSource } from "../src/research/registry.js";
 import { renderSRD } from "../src/render.js";
 import { checkRun } from "../src/check.js";
@@ -153,8 +153,8 @@ describe("evidence ids survive a re-research (A1)", () => {
     const base = assignIds([result([item()])], emptyLedger());
     const same = assignIds([result([item()])], emptyLedger());
     const different = assignIds([result([item({ snippet: "different text entirely, longer" })])], emptyLedger());
-    expect(fingerprint(base)).toBe(fingerprint(same));
-    expect(fingerprint(base)).not.toBe(fingerprint(different));
+    expect(evidenceFingerprint(base)).toBe(evidenceFingerprint(same));
+    expect(evidenceFingerprint(base)).not.toBe(evidenceFingerprint(different));
   });
 });
 

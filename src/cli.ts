@@ -22,10 +22,10 @@ import { analyzeRun, formatGapReport } from "./analyze.js";
 import { verifyRun, formatVerifyReport } from "./verify.js";
 import { runReview, applyVerdicts, formatReviewReport } from "./review.js";
 import { loadPlan, readyFrontier } from "./plan.js";
-import { listPhases, orchestrateRun } from "./orchestrate.js";
+import { PHASES, emitOrchestration, listPhasesFor } from "./orchestrate.js";
 import { stackCommand } from "./research/semantic.js";
 import { configureFirecrawl } from "./research/firecrawl.js";
-import { runStdioServer, startHttpServer } from "./engine.js";
+import { runStdioServer, startHttpServer, type CommandArgs, type ParsedArgs, parseArgs, UsageError } from "./engine.js";
 import { constructAdapter } from "./mcp/adapter.js";
 
 const HELP = `construct v${VERSION}
@@ -241,74 +241,34 @@ function oneOf<T extends string>(name: string, value: string, allowed: readonly 
   return value as T;
 }
 
-interface Parsed {
-  command: string;
-  positional: string[];
-  values: Record<string, string>;
-  bools: Set<string>;
-}
+/** One parsed invocation — this repo's name for the engine's CommandArgs. */
+type Parsed = CommandArgs;
 
-export function parseArgs(argv: string[]): Parsed {
-  if (argv.length === 0) {
+/**
+ * Parse this CLI's argv against its own flag tables.
+ *
+ * The validating loop is the engine's as of webindex v1.15.0 — it was the same
+ * code in every skill here. The tables, the help text and the exit policy stay
+ * local; the engine throws UsageError rather than exiting, so the exit code is
+ * decided here alongside the rest of it.
+ */
+export function parseCli(argv: string[]): Parsed {
+  let parsed: ParsedArgs;
+  try {
+    parsed = parseArgs(argv, { commands: COMMANDS, valueFlags: VALUE_FLAGS, boolFlags: BOOL_FLAGS });
+  } catch (e) {
+    if (!(e instanceof UsageError)) throw e;
+    fail(e.message);
+  }
+  if (parsed.kind === "help") {
     process.stdout.write(HELP);
     process.exit(0);
   }
-  if (argv[0] === "-h" || argv[0] === "--help") {
-    process.stdout.write(HELP);
+  if (parsed.kind === "version") {
+    process.stdout.write(`${VERSION}\n`);
     process.exit(0);
   }
-  if (argv[0] === "-v" || argv[0] === "--version") {
-    process.stdout.write(VERSION + "\n");
-    process.exit(0);
-  }
-
-  const command = argv[0]!;
-  if (!COMMANDS.has(command)) {
-    fail(`unknown command: ${command} (run --help for usage)`);
-  }
-
-  const values: Record<string, string> = {};
-  const bools = new Set<string>();
-  const positional: string[] = [];
-
-  for (let i = 1; i < argv.length; i++) {
-    const arg = argv[i]!;
-    if (arg === "-h" || arg === "--help") {
-      process.stdout.write(HELP);
-      process.exit(0);
-    }
-    if (arg === "-v" || arg === "--version") {
-      process.stdout.write(VERSION + "\n");
-      process.exit(0);
-    }
-    if (arg.startsWith("--")) {
-      const eq = arg.indexOf("=");
-      const key = eq !== -1 ? arg.slice(2, eq) : arg.slice(2);
-      if (BOOL_FLAGS.has(key)) {
-        if (eq !== -1) fail(`--${key} is a boolean flag and does not take a value`);
-        bools.add(key);
-        continue;
-      }
-      if (!VALUE_FLAGS.has(key)) {
-        fail(`unknown flag: --${key} (run --help for the supported options)`);
-      }
-      let value: string;
-      if (eq !== -1) {
-        value = arg.slice(eq + 1);
-      } else {
-        const next = argv[i + 1];
-        if (next === undefined || next.startsWith("--")) {
-          fail(`missing value for --${key}`);
-        }
-        value = next;
-        i++;
-      }
-      values[key] = value;
-      continue;
-    }
-    positional.push(arg);
-  }
-  return { command, positional, values, bools };
+  return parsed;
 }
 
 const ALL_ANGLES: Angle[] = ["market", "oss", "tech", "semantic"];
@@ -395,7 +355,7 @@ function printDrill(p: Parsed, results: SourceResult[], idea: string, angles: An
 }
 
 async function main(): Promise<void> {
-  const p = parseArgs(process.argv.slice(2));
+  const p = parseCli(process.argv.slice(2));
 
   switch (p.command) {
     case "init": {
@@ -697,10 +657,10 @@ async function main(): Promise<void> {
           process.stderr.write(`construct orchestrate: run dir not found: ${runDir}.\n`);
           process.exit(2);
         }
-        process.stdout.write(JSON.stringify({ phases: listPhases(runDir, engineAbs) }, null, 2) + "\n");
+        process.stdout.write(JSON.stringify({ phases: listPhasesFor(runDir, engineAbs) }, null, 2) + "\n");
         return;
       }
-      const res = orchestrateRun(runDir, engineAbs, {
+      const res = emitOrchestration(runDir, engineAbs, {
         phase: p.values.phase,
         adr: p.values.adr,
         eco: p.bools.has("eco"),
@@ -864,7 +824,11 @@ function isEvidenceItem(e: unknown): e is EvidenceItem {
 
 // Only run when invoked directly (node scripts/construct.mjs), not when imported
 // by tests. Realpath both sides so a symlinked install path still matches.
-function isInvokedDirectly(): boolean {
+// Deliberately NOT the engine's `isInvokedDirectly`, and renamed so the two
+// cannot be confused: that one matches argv[1]'s basename against the brand,
+// which is right for a binary on PATH. This compares resolved realpaths, which
+// is what keeps a symlinked checkout from auto-running under vitest.
+function invokedAsThisModule(): boolean {
   const argv1 = process.argv[1];
   if (argv1 === undefined) return false;
   const modulePath = fileURLToPath(import.meta.url);
@@ -876,6 +840,6 @@ function isInvokedDirectly(): boolean {
   return import.meta.url === pathToFileURL(argv1).href;
 }
 
-if (isInvokedDirectly()) {
+if (invokedAsThisModule()) {
   main().catch((e) => fail((e as Error).message));
 }

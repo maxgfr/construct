@@ -119,6 +119,9 @@ for (const f of files) {
   }
 }
 
+// 102 against a real 106, after adopting webindex v1.18's harness layer: the
+// CLI parser, cosine + embedding, and the whole orchestration emitter.
+//
 // Raise this when a layer lands. Never lower it to make a red run pass — a drop
 // means a layer stopped being used, which is a decision, not a detail.
 //
@@ -130,7 +133,7 @@ for (const f of files) {
 // engine-forks.json is now EMPTY. That is the state to defend: this floor and
 // that empty object say the same thing from two directions, and the first one
 // to move is the warning.
-const FLOOR = Number(process.env.ENGINE_USAGE_FLOOR ?? 90);
+const FLOOR = Number(process.env.ENGINE_USAGE_FLOOR ?? 102);
 
 let ok = true;
 

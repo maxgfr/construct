@@ -1,7 +1,7 @@
 import type { SourceResult } from "../types.js";
 import { httpJson, httpGet } from "./fetch.js";
 import { pool } from "./pool.js";
-import { stackControl as engineStackControl, type StackDeps } from "../engine.js";
+import { cosine, embedOne, stackControl as engineStackControl, type StackDeps } from "../engine.js";
 import { REACHABLE_TIMEOUT_MS, EMBED_TIMEOUT_MS, EMBED_CONCURRENCY } from "../config.js";
 
 // All endpoints are local and keyless; the heavy compute (embeddings) runs in a
@@ -35,33 +35,23 @@ export function chunkText(rel: string, content: string, isDoc: boolean, opts: { 
   return chunks;
 }
 
-// Cosine similarity of two equal-length vectors. Pure + exported for testing.
-export function cosine(a: number[], b: number[]): number {
-  if (a.length === 0 || a.length !== b.length) return 0;
-  let dot = 0;
-  let na = 0;
-  let nb = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i]! * b[i]!;
-    na += a[i]! * a[i]!;
-    nb += b[i]! * b[i]!;
-  }
-  if (na === 0 || nb === 0) return 0;
-  const r = dot / (Math.sqrt(na) * Math.sqrt(nb));
-  // A non-finite component (NaN/Infinity in an embedding) would poison the sort
-  // comparator — collapse it to the honest zero/lexical-fallback path.
-  return Number.isFinite(r) ? r : 0;
-}
+// Cosine similarity is the engine's as of webindex v1.15.2. The two guards this
+// copy had — a length mismatch and a non-finite result both scoring 0 rather
+// than poisoning a sort comparator — went upstream with it, so nothing is lost.
+export { cosine } from "../engine.js";
 
 async function reachable(base: string, path = "/"): Promise<boolean> {
   const r = await httpGet(base + path, { timeoutMs: REACHABLE_TIMEOUT_MS });
   return r.ok;
 }
 
-async function embed(text: string): Promise<number[] | null> {
-  const r = await httpJson("POST", `${OLLAMA}/api/embeddings`, { model: EMBED_MODEL, prompt: text.slice(0, 4000) }, { timeoutMs: EMBED_TIMEOUT_MS });
-  const v = r.ok ? r.data?.embedding : undefined;
-  return Array.isArray(v) && v.length ? v : null;
+// Embedding is the engine's too: it posts to /api/embed with `input` rather
+// than the legacy /api/embeddings with `prompt`, and it batches while preserving
+// input order. Kept singular here under a name the engine does not own, because
+// every call site wants one vector for one string and `null` for "no vector".
+async function embedOneChunk(text: string): Promise<number[] | null> {
+  const v = await embedOne(text.slice(0, 4000), { base: OLLAMA, model: EMBED_MODEL });
+  return v && v.length ? v : null;
 }
 
 export interface SemanticResult {
@@ -85,7 +75,7 @@ export async function semanticRescore(results: SourceResult[], query: string): P
   if (!(await reachable(OLLAMA, "/api/tags"))) {
     return unchanged(`Ollama not reachable at ${OLLAMA} — run \`construct semantic up\``);
   }
-  const qv = await embed(query);
+  const qv = await embedOneChunk(query);
   if (!qv) return unchanged(`could not embed the query (is the '${EMBED_MODEL}' model pulled?)`);
 
   // One embedding call per item, previously strictly serial: a run-sized dossier
@@ -97,7 +87,7 @@ export async function semanticRescore(results: SourceResult[], query: string): P
   let failures = 0;
   for (const r of results) {
     const items = await pool(r.items, EMBED_CONCURRENCY, async (it) => {
-      const v = await embed(`${it.title}\n${it.snippet}`);
+      const v = await embedOneChunk(`${it.title}\n${it.snippet}`);
       if (v) return { ...it, score: Number(cosine(qv, v).toFixed(4)), meta: { ...(it.meta ?? {}), semantic: true } };
       // Never leave a failed item on the lexical scale next to 0..1 cosines —
       // it would outrank everything. Sink it with a sentinel score.

@@ -6,8 +6,8 @@ import { fileURLToPath } from "node:url";
 import { Script } from "node:vm";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadBrief } from "../src/brief.js";
-import { BATCH_SIZE, PHASES, SMALL_WORKLIST, listPhases, orchestrateRun } from "../src/orchestrate.js";
-import { toBatches } from "../src/orchestrate-templates.js";
+import { BATCH_SIZE, PHASES, SMALL_WORKLIST, emitOrchestration, listPhasesFor } from "../src/orchestrate.js";
+import { toBatches } from "../src/engine.js";
 import { loadPlan, readyFrontier, writePlan } from "../src/plan.js";
 import { renderSRD } from "../src/render.js";
 import { runReview } from "../src/review.js";
@@ -65,7 +65,7 @@ const batchesOf = (src: string): string[][] => {
 describe("orchestrate — listPhases", () => {
   it("reports all four phases not ready on an empty run, naming the producing command", () => {
     const run = makeRun();
-    const phases = listPhases(run, ENGINE);
+    const phases = listPhasesFor(run, ENGINE);
     expect(phases.map((p) => p.name)).toEqual(["research", "claim-review", "adr-judges", "build"]);
     for (const p of phases) {
       expect(p.ready).toBe(false);
@@ -81,7 +81,7 @@ describe("orchestrate — listPhases", () => {
 
   it("reports ready phases with real item counts and absolute worklist paths", () => {
     const run = makeRun({ review: true, frontier: true });
-    const phases = listPhases(run, ENGINE);
+    const phases = listPhasesFor(run, ENGINE);
     // The fixtures leave 6 analyze gaps, 6 claim↔evidence pairs, 3 ADRs.
     expect(phases[0]).toMatchObject({ name: "research", ready: true, items: 6 });
     expect(phases[1]).toMatchObject({ name: "claim-review", ready: true, items: 6 });
@@ -96,7 +96,7 @@ describe("orchestrate — listPhases", () => {
 
   it("research units carry the gap AND its drill command rewritten to the absolute engine", () => {
     const run = makeRun({ seed: true });
-    const research = listPhases(run, ENGINE)[0]!;
+    const research = listPhasesFor(run, ENGINE)[0]!;
     expect(research.ready).toBe(true);
     expect(research.items).toBe(6);
     const tech = research.ids.find((g) => g.includes("PostgreSQL"));
@@ -109,7 +109,7 @@ describe("orchestrate — listPhases", () => {
 describe("orchestrate — emitted workflow", () => {
   it("emits one workflow per ready fan-out phase, plus all contracts and the runbook", () => {
     const run = makeRun({ review: true, frontier: true });
-    const res = orchestrateRun(run, ENGINE);
+    const res = emitOrchestration(run, ENGINE);
     expect(res.exitCode).toBe(0);
     for (const phase of ["research", "claim-review", "build"]) expect(existsSync(wf(run, phase)), phase).toBe(true);
     // The judge panel is opt-in (one contested ADR at a time): default emission
@@ -124,8 +124,8 @@ describe("orchestrate — emitted workflow", () => {
 
   it("parses as JavaScript the way the Workflow harness evaluates it (meta export + async body)", () => {
     const run = makeRun({ review: true, frontier: true });
-    orchestrateRun(run, ENGINE);
-    orchestrateRun(run, ENGINE, { phase: "adr-judges", adr: "0003" });
+    emitOrchestration(run, ENGINE);
+    emitOrchestration(run, ENGINE, { phase: "adr-judges", adr: "0003" });
     for (const phase of ["research", "claim-review", "build", "adr-judges"]) {
       const [metaLine, ...body] = readWf(run, phase).split("\n");
       expect(() => new Script(metaLine!.replace("export const meta =", "const meta ="))).not.toThrow();
@@ -135,7 +135,7 @@ describe("orchestrate — emitted workflow", () => {
 
   it("meta is a pure JSON literal on line 1 (name, description, phases)", () => {
     const run = makeRun({ review: true });
-    orchestrateRun(run, ENGINE, { phase: "claim-review" });
+    emitOrchestration(run, ENGINE, { phase: "claim-review" });
     const first = readWf(run, "claim-review").split("\n")[0]!;
     expect(first.startsWith("export const meta = ")).toBe(true);
     const meta = JSON.parse(first.replace("export const meta = ", "")) as { name: string; description: string; phases: unknown[] };
@@ -146,8 +146,8 @@ describe("orchestrate — emitted workflow", () => {
 
   it("never contains Date.now / Math.random / new Date (forbidden under the Workflow tool)", () => {
     const run = makeRun({ review: true, frontier: true });
-    orchestrateRun(run, ENGINE);
-    orchestrateRun(run, ENGINE, { phase: "adr-judges", adr: "0003" });
+    emitOrchestration(run, ENGINE);
+    emitOrchestration(run, ENGINE, { phase: "adr-judges", adr: "0003" });
     for (const phase of ["research", "claim-review", "build", "adr-judges"]) {
       const src = readWf(run, phase);
       expect(src).not.toContain("Date.now(");
@@ -158,7 +158,7 @@ describe("orchestrate — emitted workflow", () => {
 
   it("injects absolute RUN/ENGINE/WORKLIST constants matching the run", () => {
     const run = makeRun({ review: true });
-    orchestrateRun(run, ENGINE);
+    emitOrchestration(run, ENGINE);
     const src = readWf(run, "claim-review");
     for (const name of ["RUN", "ENGINE", "WORKLIST"]) {
       const m = src.match(new RegExp(`const ${name} = "([^"]+)"`));
@@ -171,21 +171,21 @@ describe("orchestrate — emitted workflow", () => {
 
   it("injects the REAL current worklist ids — a doctored worklist shows up on re-emit", () => {
     const run = makeRun({ review: true });
-    orchestrateRun(run, ENGINE);
+    emitOrchestration(run, ENGINE);
     expect(readWf(run, "claim-review")).not.toContain("FR-999::E9");
     const todoPath = join(run, "VERIFY.todo.json");
     const todo = JSON.parse(readFileSync(todoPath, "utf8")) as { pairs: Record<string, unknown>[] };
     todo.pairs.push({ ...todo.pairs[0]!, claimId: "FR-999", evidenceId: "E9" });
     writeFileSync(todoPath, JSON.stringify(todo, null, 2));
-    orchestrateRun(run, ENGINE);
+    emitOrchestration(run, ENGINE);
     expect(readWf(run, "claim-review")).toContain("FR-999::E9");
   });
 
   it("is deterministic — two runs over the same state emit byte-identical artifacts", () => {
     const run = makeRun({ review: true, frontier: true });
     const emit = () => {
-      orchestrateRun(run, ENGINE);
-      orchestrateRun(run, ENGINE, { phase: "adr-judges", adr: "0003" });
+      emitOrchestration(run, ENGINE);
+      emitOrchestration(run, ENGINE, { phase: "adr-judges", adr: "0003" });
       return (
         ["research", "claim-review", "build", "adr-judges"].map((p) => readWf(run, p)).join("\0") +
         readFileSync(join(run, "orchestration", "RUNBOOK.md"), "utf8") +
@@ -204,7 +204,7 @@ describe("orchestrate — emitted workflow", () => {
     const todo = JSON.parse(readFileSync(todoPath, "utf8")) as { pairs: Record<string, unknown>[] };
     while (todo.pairs.length < 20) todo.pairs.push({ ...todo.pairs[0]!, claimId: `FR-${100 + todo.pairs.length}` });
     writeFileSync(todoPath, JSON.stringify(todo, null, 2));
-    orchestrateRun(run, ENGINE, { phase: "claim-review" });
+    emitOrchestration(run, ENGINE, { phase: "claim-review" });
     const src = readWf(run, "claim-review");
     const batches = batchesOf(src);
     expect(batches.length).toBe(Math.ceil(20 / BATCH_SIZE));
@@ -218,7 +218,7 @@ describe("orchestrate — emitted workflow", () => {
 
   it("build fans out ONE builder per frontier task, each in its own git worktree", () => {
     const run = makeRun({ review: true, frontier: true });
-    orchestrateRun(run, ENGINE, { phase: "build" });
+    emitOrchestration(run, ENGINE, { phase: "build" });
     const src = readWf(run, "build");
     const frontier = readyFrontier(loadPlan(run)!).frontier;
     const batches = batchesOf(src);
@@ -226,13 +226,13 @@ describe("orchestrate — emitted workflow", () => {
     expect(batches.flat()).toEqual(frontier);
     expect(src).toContain("isolation: 'worktree'");
     // Only builders get a worktree — the read-only fan-outs must not.
-    orchestrateRun(run, ENGINE);
+    emitOrchestration(run, ENGINE);
     for (const phase of ["research", "claim-review"]) expect(readWf(run, phase)).not.toContain("isolation:");
   });
 
   it("adr-judges emits exactly the 3 lens agents with the ADR + cited evidence pasted in", () => {
     const run = makeRun({ render: true });
-    const res = orchestrateRun(run, ENGINE, { phase: "adr-judges", adr: "0003" });
+    const res = emitOrchestration(run, ENGINE, { phase: "adr-judges", adr: "0003" });
     expect(res.exitCode).toBe(0);
     const src = readWf(run, "adr-judges");
     const batches = batchesOf(src);
@@ -245,7 +245,7 @@ describe("orchestrate — emitted workflow", () => {
 
   it("small worklist (≤ SMALL_WORKLIST) → single batch + an eco notice", () => {
     const run = makeRun({ render: true }); // frontier is [T-000] only → 1 build unit
-    const res = orchestrateRun(run, ENGINE, { phase: "build" });
+    const res = emitOrchestration(run, ENGINE, { phase: "build" });
     expect(batchesOf(readWf(run, "build")).flat()).toEqual(["T-000"]);
     expect(res.notices.some((n) => n.includes("--eco"))).toBe(true);
     expect(SMALL_WORKLIST).toBeLessThan(BATCH_SIZE);
@@ -256,7 +256,7 @@ describe("orchestrate — emitted workflow", () => {
     const plan = loadPlan(run)!;
     for (const t of plan.tasks) t.status = "done";
     writePlan(run, plan);
-    const res = orchestrateRun(run, ENGINE);
+    const res = emitOrchestration(run, ENGINE);
     expect(res.exitCode).toBe(0);
     expect(existsSync(wf(run, "build"))).toBe(false);
     expect(existsSync(wf(run, "claim-review"))).toBe(true);
@@ -265,11 +265,11 @@ describe("orchestrate — emitted workflow", () => {
 
   it("every contract('<role>') referenced by a workflow has its agents/<role>.md", () => {
     const run = makeRun({ review: true, frontier: true });
-    orchestrateRun(run, ENGINE);
-    orchestrateRun(run, ENGINE, { phase: "adr-judges", adr: "0003" });
+    emitOrchestration(run, ENGINE);
+    emitOrchestration(run, ENGINE, { phase: "adr-judges", adr: "0003" });
     const agents = readdirSync(join(run, "orchestration", "agents")).map((f) => f.replace(/\.md$/, ""));
     for (const phase of ["research", "claim-review", "build", "adr-judges"]) {
-      const refs = [...readWf(run, phase).matchAll(/contract\('([a-z-]+)'/g)].map((m) => m[1]!);
+      const refs = [...readWf(run, phase).matchAll(/contract\("([a-z-]+)"/g)].map((m) => m[1]!);
       expect(refs.length, phase).toBeGreaterThan(0);
       for (const r of refs) expect(agents).toContain(r);
     }
@@ -277,8 +277,8 @@ describe("orchestrate — emitted workflow", () => {
 
   it("workflows return fragments and never contain a write step (the fold stays with the orchestrator)", () => {
     const run = makeRun({ review: true, frontier: true });
-    orchestrateRun(run, ENGINE);
-    orchestrateRun(run, ENGINE, { phase: "adr-judges", adr: "0003" });
+    emitOrchestration(run, ENGINE);
+    emitOrchestration(run, ENGINE, { phase: "adr-judges", adr: "0003" });
     for (const phase of ["research", "claim-review", "build", "adr-judges"]) {
       const src = readWf(run, phase);
       expect(src).toMatch(/^return \{/m);
@@ -298,7 +298,7 @@ describe("orchestrate — emitted workflow", () => {
 describe("orchestrate — contracts & runbook", () => {
   it("every emitted contract carries the one-writer footer and returns structured output", () => {
     const run = makeRun({ review: true });
-    orchestrateRun(run, ENGINE);
+    emitOrchestration(run, ENGINE);
     const dir = join(run, "orchestration", "agents");
     const files = readdirSync(dir);
     expect(files.sort()).toEqual(["adr-judge.md", "builder.md", "claim-reviewer.md", "researcher.md"]);
@@ -313,7 +313,7 @@ describe("orchestrate — contracts & runbook", () => {
 
   it("contracts encode each pattern's judgment rules", () => {
     const run = makeRun({ review: true });
-    orchestrateRun(run, ENGINE);
+    emitOrchestration(run, ENGINE);
     const read = (role: string) => readFileSync(join(run, "orchestration", "agents", `${role}.md`), "utf8");
     const researcher = read("researcher");
     expect(researcher).toContain("≤5-line summary");
@@ -337,7 +337,7 @@ describe("orchestrate — contracts & runbook", () => {
     const raw = JSON.parse(readFileSync(join(run, "brief.json"), "utf8"));
     raw.idea = "a `save-for-later` app\nwith `backticks`";
     writeFileSync(join(run, "brief.json"), JSON.stringify(raw));
-    orchestrateRun(run, ENGINE);
+    emitOrchestration(run, ENGINE);
     const researcher = readFileSync(join(run, "orchestration", "agents", "researcher.md"), "utf8");
     const line = researcher.split("\n").find((l) => l.startsWith("Product one-liner:"));
     // The interpolated idea stays ONE inline-code span: no interior backtick may
@@ -347,7 +347,7 @@ describe("orchestrate — contracts & runbook", () => {
 
   it("worklist-driven contracts carry the family stale-id rule", () => {
     const run = makeRun({ review: true, frontier: true });
-    orchestrateRun(run, ENGINE);
+    emitOrchestration(run, ENGINE);
     const read = (role: string) => readFileSync(join(run, "orchestration", "agents", `${role}.md`), "utf8");
     expect(read("claim-reviewer")).toContain("If a PAIRS key is no longer in the worklist, skip it and say so in your note");
     expect(read("builder")).toContain("If your TASK id is no longer in the worklist, skip it and say so in your summary");
@@ -355,7 +355,7 @@ describe("orchestrate — contracts & runbook", () => {
 
   it("the runbook covers every phase with concrete paths and the phase status", () => {
     const run = makeRun({ review: true, frontier: true });
-    orchestrateRun(run, ENGINE);
+    emitOrchestration(run, ENGINE);
     const rb = readFileSync(join(run, "orchestration", "RUNBOOK.md"), "utf8");
     expect(rb).toContain(join(run, "VERIFY.todo.json"));
     expect(rb).toContain(join(run, "BUILD-PLAN.json"));
@@ -367,8 +367,8 @@ describe("orchestrate — contracts & runbook", () => {
 
   it("golden shape (paths normalized)", () => {
     const run = makeRun({ review: true, frontier: true });
-    orchestrateRun(run, ENGINE);
-    orchestrateRun(run, ENGINE, { phase: "adr-judges", adr: "0003" });
+    emitOrchestration(run, ENGINE);
+    emitOrchestration(run, ENGINE, { phase: "adr-judges", adr: "0003" });
     expect(stable(readWf(run, "research"), run)).toMatchSnapshot("research.workflow.mjs");
     expect(stable(readWf(run, "adr-judges"), run)).toMatchSnapshot("adr-judges.workflow.mjs");
     expect(stable(readFileSync(join(run, "orchestration", "agents", "claim-reviewer.md"), "utf8"), run)).toMatchSnapshot("claim-reviewer.md");
@@ -379,7 +379,7 @@ describe("orchestrate — contracts & runbook", () => {
 describe("orchestrate — eco mode & phase gating", () => {
   it("--eco emits RUNBOOK + contracts only, no workflow scripts", () => {
     const run = makeRun({ review: true, frontier: true });
-    const res = orchestrateRun(run, ENGINE, { eco: true });
+    const res = emitOrchestration(run, ENGINE, { eco: true });
     expect(res.exitCode).toBe(0);
     expect(existsSync(join(run, "orchestration", "RUNBOOK.md"))).toBe(true);
     expect(existsSync(join(run, "orchestration", "agents", "claim-reviewer.md"))).toBe(true);
@@ -388,7 +388,7 @@ describe("orchestrate — eco mode & phase gating", () => {
 
   it("--phase on a not-ready phase exits 2 and names the producing command", () => {
     const run = makeRun({ seed: true }); // no SRD yet
-    const res = orchestrateRun(run, ENGINE, { phase: "claim-review" });
+    const res = emitOrchestration(run, ENGINE, { phase: "claim-review" });
     expect(res.exitCode).toBe(2);
     expect(res.errors.some((e) => e.includes("review --out"))).toBe(true);
     expect(existsSync(wf(run, "claim-review"))).toBe(false);
@@ -396,7 +396,7 @@ describe("orchestrate — eco mode & phase gating", () => {
 
   it("--phase restricts emission to that phase", () => {
     const run = makeRun({ review: true, frontier: true });
-    const res = orchestrateRun(run, ENGINE, { phase: "claim-review" });
+    const res = emitOrchestration(run, ENGINE, { phase: "claim-review" });
     expect(res.exitCode).toBe(0);
     expect(existsSync(wf(run, "claim-review"))).toBe(true);
     expect(existsSync(wf(run, "research"))).toBe(false);
@@ -405,21 +405,21 @@ describe("orchestrate — eco mode & phase gating", () => {
 
   it("an unknown phase exits 2 naming the valid ones", () => {
     const run = makeRun({ seed: true });
-    const res = orchestrateRun(run, ENGINE, { phase: "nope" });
+    const res = emitOrchestration(run, ENGINE, { phase: "nope" });
     expect(res.exitCode).toBe(2);
     expect(res.errors.some((e) => PHASES.every((p) => e.includes(p)))).toBe(true);
   });
 
   it("adr-judges without --adr exits 2 naming the run's ADR ids", () => {
     const run = makeRun({ render: true });
-    const res = orchestrateRun(run, ENGINE, { phase: "adr-judges" });
+    const res = emitOrchestration(run, ENGINE, { phase: "adr-judges" });
     expect(res.exitCode).toBe(2);
     expect(res.errors.some((e) => e.includes("--adr") && e.includes("0001") && e.includes("0003"))).toBe(true);
   });
 
   it("adr-judges with an unknown --adr exits 2 naming the available ids", () => {
     const run = makeRun({ render: true });
-    const res = orchestrateRun(run, ENGINE, { phase: "adr-judges", adr: "9999" });
+    const res = emitOrchestration(run, ENGINE, { phase: "adr-judges", adr: "9999" });
     expect(res.exitCode).toBe(2);
     expect(res.errors.some((e) => e.includes("9999") && e.includes("0001"))).toBe(true);
   });

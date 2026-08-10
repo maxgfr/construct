@@ -4,7 +4,7 @@ import { marketAngle } from "./market.js";
 import { ossAngle } from "./oss.js";
 import { techAngle } from "./tech.js";
 import { semanticRescore } from "./semantic.js";
-import { assignIds, fingerprint, loadLedger, writeDossier } from "./dossier.js";
+import { assignIds, evidenceFingerprint, loadLedger, writeDossier } from "./dossier.js";
 import type { DossierPaths } from "./dossier.js";
 import { timeAngle, type AngleTiming } from "./metrics.js";
 
@@ -107,7 +107,7 @@ export async function runResearch(ctx: ResearchContext, builtAt: string): Promis
     builtAt,
     notes: [...capped.flatMap((r) => r.notes), ...notes],
     timings,
-    fingerprint: fingerprint(evidence),
+    fingerprint: evidenceFingerprint(evidence),
   };
   const paths = writeDossier(dir, evidence, meta, ledger);
   return { dir, evidence, meta, paths };

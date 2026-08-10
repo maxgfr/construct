@@ -1,5 +1,6 @@
 import { join } from "node:path";
-import type { AdrPanelPayload, PhaseInfo } from "./orchestrate.js";
+import { oneWriterFooter, type PhaseInfo } from "./engine.js";
+import type { AdrPanelPayload } from "./orchestrate.js";
 
 // ---------------------------------------------------------------------------
 // Templates for `construct orchestrate` — the generator that turns the run's
@@ -17,24 +18,31 @@ import type { AdrPanelPayload, PhaseInfo } from "./orchestrate.js";
 
 export const ADR_LENSES = ["feasibility", "operations-cost", "user-value"] as const;
 
-// Family-standard footer, reusing the one-writer rule of
-// references/orchestration.md ("The serialization rule"): subagents return
-// text; the orchestrator alone writes the run folder, serially.
-function oneWriterFooter(runAbs: string, sanctionedWrite?: string): string {
-  return `
-## Return, don't write (the one-writer rule)
-
-Return ONLY the structured output specified above. Subagents NEVER write into the run folder: do not write, edit, or delete any file there, and do not run any engine command that writes it (\`research\`, \`review\`, \`review --apply\`, \`render\`, \`init\`, \`brainstorm --merge\`). Drill commands never write the dossier — \`web|oss|tech|so\` print evidence to stdout and are safe. The orchestrator is the sole writer: it folds your returned fragments in serially and runs the gates itself. One writer, many readers — no races, no clobbered evidence.${sanctionedWrite ? `\n\n${sanctionedWrite}` : ""}
-
-Exception for oversized prose: if a justification is too large to return, write ONLY to \`${join(runAbs, "orchestration", "out")}/<role>-<batch>.md\` (a file namespaced to you alone) and return its path.
-`;
+// The one-writer rule is the engine's as of webindex v1.15.0 — it was the same
+// paragraph in eight skills, differing only in whether a role gets a sanctioned
+// write of its own and which commands it must not run. Both are parameters now.
+//
+// The engine-emitted commands are construct's own writers; the drill commands
+// (`web|oss|tech|so`) print evidence to stdout and are deliberately absent from
+// the list, because forbidding them would forbid the research itself.
+function constructFooter(runAbs: string, sanctionedWrite?: string): string {
+  // The drill commands are NOT in the forbidden list above, and saying so
+  // explicitly matters: a researcher told "do not run any engine command that
+  // writes" will otherwise avoid the very commands it was dispatched to run.
+  const drillNote = "\nDrill commands never write the dossier — `web|oss|tech|so` print evidence to stdout and are safe.\n";
+  return (
+    oneWriterFooter(runAbs, {
+      ...(sanctionedWrite ? { sanctioned: sanctionedWrite } : {}),
+      writingCommands: ["research", "review", "review --apply", "render", "init", "brainstorm --merge"],
+    }) + drillNote
+  );
 }
 
 // Structured-output schemas the emitted workflows pass to agent(..., { schema }).
 // The claim-review one mirrors what `review --apply` accepts ({ pairs: [...] }),
 // so a fragment that validates here still gets re-checked (worklist
 // cross-reference, invalid-token = unadjudicated) at fold time.
-const RESEARCH_SCHEMA = {
+export const RESEARCH_SCHEMA = {
   type: "object",
   required: ["findings"],
   properties: {
@@ -53,7 +61,7 @@ const RESEARCH_SCHEMA = {
   },
 };
 
-const CLAIM_REVIEW_SCHEMA = {
+export const CLAIM_REVIEW_SCHEMA = {
   type: "object",
   required: ["pairs"],
   properties: {
@@ -73,7 +81,7 @@ const CLAIM_REVIEW_SCHEMA = {
   },
 };
 
-const ADR_JUDGE_SCHEMA = {
+export const ADR_JUDGE_SCHEMA = {
   type: "object",
   required: ["lens", "score", "rationale"],
   properties: {
@@ -83,7 +91,7 @@ const ADR_JUDGE_SCHEMA = {
   },
 };
 
-const BUILDER_SCHEMA = {
+export const BUILDER_SCHEMA = {
   type: "object",
   required: ["taskId", "status", "summary", "artifacts", "tests"],
   properties: {
@@ -97,148 +105,9 @@ const BUILDER_SCHEMA = {
   },
 };
 
-interface PhaseSpec {
-  role: string;
-  title: string;
-  schema: unknown;
-  /** One subagent per batch of at most this many units (1 = one agent per unit). */
-  batchSize: number;
-  description: (n: number) => string;
-  /** The JS expression (workflow-side) building the per-batch prompt extra. */
-  extraExpr: string;
-  /** Extra agent() options, e.g. the builder's sanctioned worktree isolation. */
-  agentOpts?: string;
-  /** The orchestrator's fold step, shown as a tail comment + in the runbook. */
-  applyHint: (engineAbs: string, runAbs: string) => string[];
-}
-
-const PHASE_SPECS: Record<string, PhaseSpec> = {
-  research: {
-    role: "researcher",
-    title: "Research fan-out",
-    schema: RESEARCH_SCHEMA,
-    batchSize: 8,
-    description: (n) => `Research the ${n} evidence gap(s) construct analyze found (fan-out; the orchestrator folds URLs into ONE pinned research re-run)`,
-    extraExpr: "'GAPS (yours only, each with its drill command):\\n- ' + batch.join('\\n- ')",
-    applyHint: (engine, run) => [
-      `node ${engine} research --out ${run} --angles market,oss,tech --url <u1,u2,...> [--docs-url <d,...>]`,
-      `node ${engine} analyze --out ${run}`,
-    ],
-  },
-  "claim-review": {
-    role: "claim-reviewer",
-    title: "Claim review",
-    schema: CLAIM_REVIEW_SCHEMA,
-    batchSize: 8,
-    description: (n) =>
-      `Adversarially verify the ${n} claim↔evidence pair(s) of a construct SRD (skeptic fan-out; the orchestrator folds the verdicts and gates)`,
-    extraExpr: "'PAIRS=' + batch.join(',')",
-    applyHint: (engine, run) => [`node ${engine} review --apply verdicts.json --out ${run}`, `node ${engine} check --out ${run} --semantic`],
-  },
-  "adr-judges": {
-    role: "adr-judge",
-    title: "Judge panel",
-    schema: ADR_JUDGE_SCHEMA,
-    batchSize: 1,
-    description: () => "Judge ONE contested ADR through the 3-lens panel (feasibility / operations & cost / user value); majority reduce",
-    extraExpr: "'LENS=' + batch[0] + '\\nADR = ' + JSON.stringify(ADR) + '\\nCITED EVIDENCE = ' + JSON.stringify(EVIDENCE)",
-    applyHint: (engine, run) => [`node ${engine} render --out ${run} --from-srd`],
-  },
-  build: {
-    role: "builder",
-    title: "Build frontier",
-    schema: BUILDER_SCHEMA,
-    batchSize: 1,
-    description: (n) => `Build the ${n} ready BUILD-PLAN task(s) of this milestone frontier — one TDD builder per task, each in its own git worktree`,
-    extraExpr: "'TASK=' + batch.join(',')",
-    agentOpts: ", isolation: 'worktree'",
-    applyHint: (engine, run) => [`node ${engine} verify --out ${run}`],
-  },
-};
-
-export function phaseSpec(name: string): PhaseSpec {
-  const spec = PHASE_SPECS[name];
-  if (!spec) throw new Error(`no phase spec for "${name}"`);
-  return spec;
-}
-
-/** Chunk worklist units into batches, one subagent per batch (order-preserving, deterministic). */
-export function toBatches(ids: string[], batchSize: number): string[][] {
-  const out: string[][] = [];
-  for (let i = 0; i < ids.length; i += batchSize) out.push(ids.slice(i, i + batchSize));
-  return out;
-}
-
-const FOLD_PREAMBLE: Record<string, string[]> = {
-  research: [
-    "// One-writer rule: this workflow only COLLECTS research fragments (summaries + URLs).",
-    "// The main agent folds them in serially with ONE pinned research re-run — a research run",
-    "// REBUILDS the dossier from exactly the angles/URLs it is given, so pass every angle —",
-    "// then re-measures the gaps:",
-  ],
-  "claim-review": [
-    "// One-writer rule: this workflow only COLLECTS verdict fragments. The main agent merges",
-    "// them into ONE verdicts.json (order-independent, keyed claimId::evidenceId — an omitted",
-    "// pair is reported unadjudicated, never silently passed), then folds and gates:",
-  ],
-  "adr-judges": [
-    "// One-writer rule: this workflow only COLLECTS the 3 lens verdicts. The main agent",
-    "// majority-reduces them (pass = >=2 lenses scoring >=3): record one line per lens in the",
-    "// ADR's *Alternatives considered*, flip status proposed -> accepted in SRD.json only on a",
-    "// pass (on a fail, take the strongest rationale back to the user), then re-emit the tree:",
-  ],
-  build: [
-    "// One-writer rule: builders write code ONLY in their own git worktrees. The main agent",
-    "// merges each worktree (serialising tasks that touch app-shared files — routing, schema,",
-    "// the test harness), folds artifacts/tests/status into BUILD-PLAN.json itself, then referees:",
-  ],
-};
-
-export function phaseWorkflowScript(ph: PhaseInfo, runAbs: string, engineAbs: string, units: string[], adr?: AdrPanelPayload): string {
-  const spec = phaseSpec(ph.name);
-  const scriptPath = join(runAbs, "orchestration", `${ph.name}.workflow.mjs`);
-  const meta = { name: `construct-${ph.name}`, description: spec.description(units.length), phases: [{ title: spec.title }] };
-  const adrConsts = adr ? [`const ADR = ${JSON.stringify(adr.adr)}`, `const EVIDENCE = ${JSON.stringify(adr.evidence)}`] : [];
-  const tail = FOLD_PREAMBLE[ph.name] ?? [];
-  return [
-    `export const meta = ${JSON.stringify(meta)}`,
-    ``,
-    `// NOT a plain Node script: launch via the Workflow tool — Workflow({ scriptPath: ${JSON.stringify(scriptPath)} }).`,
-    `// Emitted by \`construct orchestrate\` from the CURRENT run state. The run is the source`,
-    `// of truth: if its worklist changes, re-run \`orchestrate --phase ${ph.name}\` before launching.`,
-    ``,
-    `// Constants for THIS run (injected at emit time; no Date.now/Math.random in this harness).`,
-    `const RUN = ${JSON.stringify(runAbs)}`,
-    `const ENGINE = ${JSON.stringify(engineAbs)}`,
-    `const WORKLIST = ${JSON.stringify(ph.worklist)}`,
-    `const AGENTS = RUN + '/orchestration/agents'`,
-    `const BATCHES = ${JSON.stringify(toBatches(units, spec.batchSize))}`,
-    ...adrConsts,
-    `const SCHEMA = ${JSON.stringify(spec.schema)}`,
-    ``,
-    `function contract(name, extra) {`,
-    `  return 'Read and follow the dispatch contract at ' + AGENTS + '/' + name + '.md VERBATIM.\\n'`,
-    `    + 'Constants: RUN=' + RUN + '  ENGINE=' + ENGINE + '  WORKLIST=' + WORKLIST + '.\\n'`,
-    `    + 'Invoke the engine only by its ABSOLUTE path: node ' + ENGINE + ' <cmd> — stdout drills and read-only commands only.'`,
-    `    + (extra ? '\\n' + extra : '')`,
-    `}`,
-    ``,
-    `log('construct ${ph.name}: ' + ${JSON.stringify(String(units.length))} + ' unit(s) across ' + BATCHES.length + ' agent(s)')`,
-    ``,
-    `phase(${JSON.stringify(spec.title)})`,
-    `const results = await pipeline(BATCHES, (batch, _item, i) =>`,
-    `  agent(contract('${spec.role}', ${spec.extraExpr}), { label: '${ph.name}:' + (i + 1), phase: ${JSON.stringify(spec.title)}, agentType: 'general-purpose', schema: SCHEMA${spec.agentOpts ?? ""} }))`,
-    ``,
-    ...tail,
-    ...spec.applyHint(engineAbs, runAbs).map((c) => `//   ${c}`),
-    `return { phase: ${JSON.stringify(ph.name)}, worklist: WORKLIST, results: results.filter(Boolean) }`,
-    ``,
-  ].join("\n");
-}
-
 export function agentContracts(runAbs: string, engineAbs: string, idea: string): Record<string, string> {
-  const footer = oneWriterFooter(runAbs);
-  const builderFooter = oneWriterFooter(
+  const footer = constructFooter(runAbs);
+  const builderFooter = constructFooter(
     runAbs,
     "Your ONE sanctioned write surface is your own isolated git worktree — app code and app tests only. The run folder (BUILD-PLAN.json, SRD.json, evidence/) stays the orchestrator's.",
   );
@@ -312,17 +181,17 @@ ${builderFooter}`,
   };
 }
 
-export function runbookMd(phases: PhaseInfo[], runAbs: string, engineAbs: string): string {
+// construct's OWN runbook prose. Handed to the engine as the preamble; the
+// engine appends its per-phase listing underneath. No H1 and no `Run:` line —
+// the engine emits both above this.
+export function runbookPreamble(phases: PhaseInfo[], runAbs: string, engineAbs: string): string[] {
   const status = phases
     .map((p) => `| ${p.name} | \`${p.worklist}\` | ${p.ready ? `ready (${p.items} unit(s))` : "not ready"} | \`${p.prerequisite}\` |`)
     .join("\n");
   const engine = `node ${engineAbs}`;
   const agents = join(runAbs, "orchestration", "agents");
-  return `# construct — sequential RUNBOOK (eco / no-subagent fallback)
-
-Run: \`${runAbs}\` · Engine: \`${engine}\`
-
-Generated by \`construct orchestrate\` from the CURRENT run state. This sequential path is
+  return [
+    `Generated by \`construct orchestrate\` from the CURRENT run state. This sequential path is
 correctness-identical to the multi-agent workflows — same worklists, same contracts, same
 gates; only wall-clock differs. Fan-out is an optimization, not a requirement (the
 three-tier model of references/orchestration.md).
@@ -346,5 +215,6 @@ The adversarial SRD review (Pattern 2) stays a single fresh-eyes pass by design 
 per references/adversarial-review.md; it is deliberately not a fan-out and not emitted here.
 
 With subagents available, prefer the emitted workflows instead: \`orchestrate --out ${runAbs} --phase <p>\` then \`Workflow({ scriptPath: "${join(runAbs, "orchestration", "<p>.workflow.mjs")}" })\` — you stay the sole writer either way.
-`;
+`,
+  ];
 }
