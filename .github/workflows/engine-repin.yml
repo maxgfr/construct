@@ -134,13 +134,23 @@ jobs:
           test -f /tmp/construct-demo/requirements/FUNCTIONAL.md
           test -f /tmp/construct-demo/SRD.md
 
-      - name: The committed goldens did not move
+      # assets/example-srd is ENGINE OUTPUT: its requirements are rendered from
+      # evidence the vendored engines gathered, so a bump legitimately moves it.
+      # Hard-failing on that diff is how a pin rots — ultrasec's sat seven
+      # releases behind because twelve artifacts moved and every nightly re-pin
+      # died on them. So regenerate it, and refuse only a LOSS. (`example` also
+      # re-checks grounding >= 66, so a collapse fails here too.)
+      - name: Regenerate the engine-output artifacts
         if: steps.detect.outputs.repin == 'true'
-        run: |
-          # An engine bump that changes the example SRD is a behaviour change,
-          # not a re-pin. Fail loudly rather than push it as routine.
-          pnpm run example
-          git diff --exit-code -- assets
+        run: pnpm run example
+
+      # …but regenerating a regression gate on autopilot destroys the thing it
+      # guards, so the regenerated artifacts are compared against the committed
+      # ones: enrichment passes, anything that got SHORTER fails the run and
+      # nothing is pushed. Losing something stays a human decision.
+      - name: Guard — the regenerated artifacts lost nothing
+        if: steps.detect.outputs.repin == 'true'
+        run: node scripts/check-artifact-recall.mjs
 
       - name: Commit + push the re-pin to main
         if: steps.detect.outputs.repin == 'true'
