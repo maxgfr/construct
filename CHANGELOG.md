@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+## [3.15.1](https://github.com/maxgfr/construct/compare/v3.15.0...v3.15.1) (2026-08-25)
+
+
+### Bug Fixes
+
+* make construct compatible with Codex ([21b981a](https://github.com/maxgfr/construct/commit/21b981a5e3fb771b2f11c7330a70cf2b3588fd26))
+
 # [3.15.0](https://github.com/maxgfr/construct/compare/v3.14.0...v3.15.0) (2026-08-22)
 
 
