@@ -33,6 +33,13 @@ function stubEngineFetch(): void {
       status: 200,
       url,
       headers: { get: (k: string) => (k.toLowerCase() === "content-type" ? "application/json" : null) },
+      // httpJson reads through readCappedBytes since webindex v1.18.7: no `body`
+      // stream, so it falls back to arrayBuffer(). text() stays for httpGet and
+      // any caller that still reads the response as a string.
+      body: null,
+      async arrayBuffer() {
+        return new TextEncoder().encode(body).buffer;
+      },
       async text() {
         return body;
       },
