@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [3.18.0](https://github.com/maxgfr/construct/compare/v3.17.0...v3.18.0) (2026-09-04)
+
+
+### Bug Fixes
+
+* **tests:** let the engine fetch stub answer readCappedBytes ([9e0b54f](https://github.com/maxgfr/construct/commit/9e0b54ff2ca7a7694b3cd324fe2cbea3c795a771))
+
+
+### Features
+
+* **engine:** re-pin codeindex v2.28.1 -> v2.28.4, webindex v1.18.6 -> v1.18.9 ([68de230](https://github.com/maxgfr/construct/commit/68de23058d834a6a2d4c672d76b74207bd16bd55))
+
 # [3.17.0](https://github.com/maxgfr/construct/compare/v3.16.0...v3.17.0) (2026-08-31)
 
 
