@@ -87,15 +87,15 @@ jobs:
           test ! -e "$DIR/docker-compose.yml" || { echo "::error::stale docker-compose.yml in the installed skill — the stack lives in the engine"; exit 1; }
           test ! -e "$DIR/docker"             || { echo "::error::stale docker/ in the installed skill — the stack lives in the engine"; exit 1; }
           node "$DIR/scripts/construct.mjs" --help > /dev/null || { echo "::error::installed engine does not run"; exit 1; }
-          export CONSTRUCT_CACHE_DIR="$WORK/cache"
+          export ULTRA_STACK_CACHE_DIR="$WORK/cache"
           node "$DIR/scripts/construct.mjs" firecrawl status > /dev/null 2>&1 || true
-          test -f "$CONSTRUCT_CACHE_DIR/compose/docker-compose.yml" \
+          test -f "$ULTRA_STACK_CACHE_DIR/compose/docker-compose.yml" \
             || { echo "::error::the installed skill could not materialise the compose file — the stack is inoperable as-installed"; exit 1; }
-          test -f "$CONSTRUCT_CACHE_DIR/compose/docker/searxng/settings.yml" \
+          test -f "$ULTRA_STACK_CACHE_DIR/compose/docker/searxng/settings.yml" \
             || { echo "::error::searxng settings not materialised — the SearXNG mount would fail"; exit 1; }
-          test -f "$CONSTRUCT_CACHE_DIR/compose/docker/firecrawl/firecrawl.env" \
+          test -f "$ULTRA_STACK_CACHE_DIR/compose/docker/firecrawl/firecrawl.env" \
             || { echo "::error::firecrawl env not materialised — env_file: would fail before docker is reached"; exit 1; }
-          grep -q "construct semantic up" "$CONSTRUCT_CACHE_DIR/compose/docker-compose.yml" \
+          grep -q "construct semantic up" "$ULTRA_STACK_CACHE_DIR/compose/docker-compose.yml" \
             || { echo "::error::the materialised compose names another tool's command"; exit 1; }
           echo "install-bundle: skill installed whole, the engine runs, and it writes its own stack out."
 
