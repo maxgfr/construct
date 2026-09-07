@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [3.20.0](https://github.com/maxgfr/construct/compare/v3.19.0...v3.20.0) (2026-09-07)
+
+
+### Bug Fixes
+
+* **ci:** assert construct stack files in shared cache ([01321d5](https://github.com/maxgfr/construct/commit/01321d5eae62cc3b1cf0b92f9746c7deafc563f6))
+
+
+### Features
+
+* harden verification, add workflows and require explicit skill invocation ([264b18b](https://github.com/maxgfr/construct/commit/264b18b4ba1ddd494c51a755c73a0bac981e8c46))
+
 # [3.19.0](https://github.com/maxgfr/construct/compare/v3.18.0...v3.19.0) (2026-09-07)
 
 
