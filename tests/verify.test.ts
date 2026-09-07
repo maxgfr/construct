@@ -247,6 +247,26 @@ describe("verifyRun — load & integrity failure paths", () => {
     expect(r.errors.join(" ")).toMatch(/frTagPattern is not a valid regex/);
   });
 
+  // The zero-width `frTagPattern` regression (a legal pattern on which `exec`
+  // never advances, so `verify` looped forever) lives in tests/e2e.test.ts: it
+  // must run in a SUBPROCESS under a hard timeout, because an in-process infinite
+  // loop is not interruptible by a vitest test timeout and orphans the worker.
+  // What is safe to assert here is the other half of the contract — the consuming
+  // patterns that must keep working.
+  it("keeps collecting coverage for the standard and for a custom CONSUMING tag", () => {
+    for (const [pattern, tag] of [
+      ["FR-\\d{3}", "FR-001"],
+      ["FR-[0-9]+", "[FR-001]"],
+    ]) {
+      const { run, app, mutate } = setup();
+      writeFileSync(join(app, "app.test.js"), `// ${tag} save an article\n`);
+      mutate((p) => (p.conventions.frTagPattern = pattern!));
+      const r = verifyRun(run);
+      expect(r.errors.join(" "), `pattern=${pattern}`).not.toMatch(/frTagPattern/);
+      expect(r.frTestCoverage.find((c) => c.fr === "FR-001")!.testFiles, `pattern=${pattern}`).toEqual(["app.test.js"]);
+    }
+  });
+
   it("runs per-task verify commands under --run-tests and flags a failing one", () => {
     const { run, app, mutate } = setup();
     mkdirSync(join(app, "src"), { recursive: true });

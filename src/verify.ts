@@ -5,6 +5,8 @@ import { buildPlanPath, loadPlan } from "./plan.js";
 import { walk, readText } from "./walk.js";
 import { sh } from "./util.js";
 import { VERIFY_COMMAND_TIMEOUT_MS } from "./config.js";
+import { executeAcceptance } from "./acceptance.js";
+import { runAcceptanceCommand } from "./acceptance-runner.js";
 import { BUILD_PLAN_SCHEMA_VERSION } from "./types.js";
 import type { BuildPlanDoc, FrTestCoverage, SRD, VerifyResult } from "./types.js";
 
@@ -21,6 +23,7 @@ export interface VerifyOptions {
   appDir?: string;
   runTests?: boolean;
   strict?: boolean;
+  acceptance?: boolean;
 }
 
 // Dotted (.test.ts/.spec.js), suffixed (foo_test.go/foo_spec.rb) and
@@ -134,6 +137,17 @@ export function verifyRun(runDir: string, opts: VerifyOptions = {}): VerifyResul
   const rawApp = opts.appDir ?? plan.conventions.appDir ?? undefined;
   const appDir = rawApp ? (isAbsolute(rawApp) ? rawApp : resolve(runDir, rawApp)) : undefined;
   const doneTasks = plan.tasks.filter((t) => t.status === "done");
+  const acceptance = opts.acceptance
+    ? executeAcceptance(
+        srd,
+        plan,
+        opts.runTests && appDir && existsSync(appDir) && errors.length === 0
+          ? (command, timeoutMs) => runAcceptanceCommand(command, appDir, timeoutMs)
+          : undefined,
+      )
+    : undefined;
+  const acceptanceResults = acceptance?.results;
+  if (acceptance) errors.push(...acceptance.errors);
   if (!appDir) {
     if (doneTasks.length) {
       errors.push(`${doneTasks.length} task(s) are done but no app directory is declared — pass --app <dir> or set conventions.appDir.`);
@@ -141,11 +155,11 @@ export function verifyRun(runDir: string, opts: VerifyOptions = {}): VerifyResul
       warnings.push(`No app directory declared yet (conventions.appDir / --app) — file and test checks skipped.`);
     }
     const ok = errors.length === 0;
-    return { ok, errors, warnings, frTestCoverage };
+    return { ok, errors, warnings, frTestCoverage, acceptanceResults };
   }
   if (!existsSync(appDir)) {
     errors.push(`App directory does not exist: ${appDir}.`);
-    return { ok: false, errors, warnings, frTestCoverage };
+    return { ok: false, errors, warnings, frTestCoverage, acceptanceResults };
   }
 
   // --- Done tasks: declared artifacts and tests must exist. -----------------
@@ -168,35 +182,58 @@ export function verifyRun(runDir: string, opts: VerifyOptions = {}): VerifyResul
   if (tagRe) {
     const testFiles = walk(appDir).filter((f) => isTestFile(f.rel));
     const refs = new Map<string, string[]>(); // FR id → test files naming it
+    // A zero-width pattern (`^`, a bare lookahead) is a VALID regex, so the
+    // syntax guard above never fires — but `exec` does not advance `lastIndex`
+    // on a zero-length match, so the loop below spun forever on a legal plan.
+    // Detect it on the real matched text (a lookahead only matches where the
+    // text actually says FR, so pre-testing "" would miss it) and reject the
+    // pattern instead: an empty match can never name an FR id anyway.
+    let zeroWidth = false;
     for (const f of testFiles) {
       const text = readText(f.abs);
       if (!text) continue;
       tagRe.lastIndex = 0;
       const found = new Set<string>();
       let m: RegExpExecArray | null;
-      while ((m = tagRe.exec(text))) found.add(m[0]);
+      while ((m = tagRe.exec(text))) {
+        if (m[0] === "") {
+          zeroWidth = true;
+          break;
+        }
+        found.add(m[0]);
+      }
+      if (zeroWidth) break;
       for (const id of found) {
         if (!refs.has(id)) refs.set(id, []);
         refs.get(id)!.push(f.rel);
       }
     }
-    // Stale tags: a test naming an FR the SRD no longer has usually means the
-    // ids shifted on a re-render — retag before trusting the coverage below.
-    const known = new Set(srd.functional.map((f) => f.id));
-    const stale = [...refs.keys()].filter((id) => !known.has(id)).sort();
-    if (stale.length) {
-      warnings.push(`Tests reference FR id(s) absent from the SRD (${stale.join(", ")}) — ids may have shifted on a re-render; retag the tests.`);
-    }
-    for (const fr of srd.functional) {
-      const files = (refs.get(fr.id) ?? []).sort();
-      frTestCoverage.push({ fr: fr.id, priority: fr.priority, testFiles: files });
-      // Only gate FRs someone claims to have built: an FR whose task is still
-      // todo has honestly not been tested yet.
-      const claimed = plan.tasks.some((t) => t.frIds.includes(fr.id) && t.status === "done");
-      if (files.length === 0 && claimed) {
-        const msg = `${fr.id} (${fr.priority}) is built but no test references it — name the FR id in a test (pattern: ${plan.conventions.frTagPattern}).`;
-        if (opts.strict && fr.priority === "must") errors.push(msg);
-        else warnings.push(msg);
+    if (zeroWidth) {
+      errors.push(
+        `conventions.frTagPattern matches a zero-length (empty) string: ${plan.conventions.frTagPattern}. ` +
+          `An empty match names no requirement, so FR → test coverage cannot be computed. ` +
+          `Use a pattern that CONSUMES the tag text (e.g. FR-\\d{3}, or \\[FR-\\d{3}\\] for bracketed tags) — ` +
+          `not an anchor or a bare lookahead.`,
+      );
+    } else {
+      // Stale tags: a test naming an FR the SRD no longer has usually means the
+      // ids shifted on a re-render — retag before trusting the coverage below.
+      const known = new Set(srd.functional.map((f) => f.id));
+      const stale = [...refs.keys()].filter((id) => !known.has(id)).sort();
+      if (stale.length) {
+        warnings.push(`Tests reference FR id(s) absent from the SRD (${stale.join(", ")}) — ids may have shifted on a re-render; retag the tests.`);
+      }
+      for (const fr of srd.functional) {
+        const files = (refs.get(fr.id) ?? []).sort();
+        frTestCoverage.push({ fr: fr.id, priority: fr.priority, testFiles: files });
+        // Only gate FRs someone claims to have built: an FR whose task is still
+        // todo has honestly not been tested yet.
+        const claimed = plan.tasks.some((t) => t.frIds.includes(fr.id) && t.status === "done");
+        if (files.length === 0 && claimed) {
+          const msg = `${fr.id} (${fr.priority}) is built but no test references it — name the FR id in a test (pattern: ${plan.conventions.frTagPattern}).`;
+          if (opts.strict && fr.priority === "must") errors.push(msg);
+          else warnings.push(msg);
+        }
       }
     }
   }
@@ -222,7 +259,7 @@ export function verifyRun(runDir: string, opts: VerifyOptions = {}): VerifyResul
   }
 
   const ok = errors.length === 0;
-  return { ok, errors, warnings, frTestCoverage, commandResults };
+  return { ok, errors, warnings, frTestCoverage, commandResults, acceptanceResults };
 }
 
 export function formatVerifyReport(r: VerifyResult, runDir: string): string {
@@ -244,6 +281,11 @@ export function formatVerifyReport(r: VerifyResult, runDir: string): string {
     lines.push(``);
     lines.push(`Commands (--run-tests):`);
     for (const c of r.commandResults) lines.push(`  ${c.ok ? "✓" : "✗"} ${c.command} (exit ${c.exitCode})`);
+  }
+  if (r.acceptanceResults) {
+    lines.push("", "Acceptance execution (dedicated commands only; test adequacy requires review):");
+    for (const c of r.acceptanceResults)
+      lines.push(`  ${c.frId}[${c.index}] ${c.status}${c.command ? `: ${c.command} (exit ${c.exitCode ?? "not run"})` : ""}`);
   }
   return lines.join("\n");
 }

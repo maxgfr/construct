@@ -356,6 +356,303 @@ describe("check --semantic coverage gate (worklist ↔ ledger)", () => {
   });
 });
 
+// The staleness gate used to compare only SRD.generatedAt — but the documented
+// workflow (edit SRD.json, `render --from-srd`) PRESERVES generatedAt, so an SRD
+// whose claims were rewritten after the review still certified as "supported".
+// Verdicts must therefore bind to the full claim text AND the cited evidence's
+// contents, checked at worklist generation, at apply, and at check.
+describe("check --semantic binds verdicts to claim + evidence CONTENT (stale-verdict bypass)", () => {
+  const readSrd = (dir: string) => JSON.parse(readFileSync(join(dir, "SRD.json"), "utf8"));
+  const writeSrd = (dir: string, srd: unknown) => writeFileSync(join(dir, "SRD.json"), JSON.stringify(srd, null, 2));
+  const HOSTILE = "The application uploads every saved article to a public server without authentication.";
+
+  // review → adjudicate every pair `supported` → apply. The green baseline.
+  function reviewed(dir: string): void {
+    runReview(dir);
+    applyVerdicts(dir, writeVerdicts(dir, {}));
+  }
+
+  function twoClaims(): string {
+    const dir = scratch();
+    run(
+      dir,
+      [
+        { id: "FR-001", ev: ["E1"] },
+        { id: "FR-002", ev: ["E2"] },
+      ],
+      EVIDENCE,
+    );
+    return dir;
+  }
+
+  it("passes a genuine unchanged run, and a re-render of identical content stays valid + deterministic", () => {
+    const dir = twoClaims();
+    const first = runReview(dir);
+    expect(first.pairs.every((p) => typeof p.fingerprint === "string" && p.fingerprint.length > 0)).toBe(true);
+    applyVerdicts(dir, writeVerdicts(dir, {}));
+    expect(checkRun(dir, { semantic: true }).semanticError).toBeUndefined();
+    expect(checkRun(dir, { semantic: true }).semantic?.ok).toBe(true);
+
+    // `render --from-srd` rewrites the manifest from the same model (generatedAt
+    // preserved). Identical content ⇒ identical fingerprints ⇒ still certified.
+    writeSrd(dir, readSrd(dir));
+    const second = runReview(dir);
+    expect(second.pairs.map((p) => p.fingerprint)).toEqual(first.pairs.map((p) => p.fingerprint));
+    const r = checkRun(dir, { semantic: true });
+    expect(r.semanticError).toBeUndefined();
+    expect(r.semantic?.ok).toBe(true);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("refuses a stale saved worklist even when rows carry a current fingerprint", () => {
+    const dir = twoClaims();
+    try {
+      runReview(dir);
+      const saved = readFileSync(join(dir, "VERIFY.todo.json"), "utf8");
+      const srd = readSrd(dir);
+      srd.functional[0].description += ` ${"context ".repeat(80)} ORIGINAL_SUFFIX`;
+      writeSrd(dir, srd);
+      runReview(dir);
+      const verdicts = writeVerdicts(dir, {});
+      writeFileSync(join(dir, "VERIFY.todo.json"), saved);
+      expect(() => applyVerdicts(dir, verdicts)).toThrow(/changed|stale/i);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["missing", "corrupt", "legacy"])("keeps old rows unbound with a %s worklist after a suffix edit", (state) => {
+    const dir = twoClaims();
+    try {
+      const srd = readSrd(dir);
+      srd.functional[0].description += ` ${"context ".repeat(80)} ORIGINAL_SUFFIX`;
+      writeSrd(dir, srd);
+      const todo = runReview(dir);
+      const pairs = todo.pairs.map(({ fingerprint: _fingerprint, ...p }) => ({ ...p, verdict: "supported", note: "old judgement" }));
+      const path = join(dir, "VERIFY.todo.json");
+      if (state === "missing") rmSync(path);
+      else writeFileSync(path, state === "corrupt" ? "{" : JSON.stringify({ pairs }));
+      srd.functional[0].description = srd.functional[0].description.replace("ORIGINAL_SUFFIX", "CHANGED_SUFFIX");
+      writeSrd(dir, srd);
+      const f = join(dir, "legacy.json");
+      writeFileSync(f, JSON.stringify({ pairs }));
+      applyVerdicts(dir, f);
+      expect(checkRun(dir, { semantic: true }).semanticError).toMatch(/fingerprint/i);
+      expect(JSON.parse(readFileSync(join(dir, "VERIFY.json"), "utf8")).verdicts.every((v: any) => !v.fingerprint)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails when a claim's description changed under the SAME generatedAt", () => {
+    const dir = twoClaims();
+    reviewed(dir);
+    const srd = readSrd(dir);
+    const stamp = srd.generatedAt;
+    srd.functional[0].description = HOSTILE;
+    writeSrd(dir, srd);
+    expect(readSrd(dir).generatedAt).toBe(stamp); // exactly what `render --from-srd` preserves
+
+    const strict = checkRun(dir, { semantic: true });
+    expect(strict.ok).toBe(false);
+    expect(strict.semantic).toBeUndefined(); // no misleading "17 supported" PASS block
+    expect(strict.semanticError).toMatch(/FR-001·E1/);
+    expect(strict.semanticError).toMatch(/--allow-unverified/);
+    expect(strict.semanticError).toMatch(/construct review/);
+
+    const lax = checkRun(dir, { semantic: true, allowUnverified: true });
+    expect(lax.semanticError).toBeUndefined();
+    expect(lax.structural.warnings.join(" ")).toMatch(/FR-001·E1|changed since/);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("fails when an acceptance criterion changed BEYOND the 400-char claim excerpt", () => {
+    const dir = twoClaims();
+    const filler = Array.from({ length: 8 }, (_, i) => ({
+      given: `precondition ${i} with enough prose to push the interesting criterion past the excerpt cap`,
+      when: `the user performs step ${i}`,
+      then: `the system records outcome ${i}`,
+    }));
+    const seed = readSrd(dir);
+    seed.functional[0].acceptance = [...filler, { given: "the archive is private", when: "an article is saved", then: "it stays on the device" }];
+    writeSrd(dir, seed);
+    reviewed(dir);
+    const before = JSON.parse(readFileSync(join(dir, "VERIFY.json"), "utf8")).verdicts.find((v: any) => v.claimId === "FR-001").claim;
+
+    const srd = readSrd(dir);
+    srd.functional[0].acceptance.at(-1).then = "it is published to a public bucket";
+    writeSrd(dir, srd);
+    runReview(dir); // the worklist's 400-char excerpt cannot see the edit …
+    const after = JSON.parse(readFileSync(join(dir, "VERIFY.todo.json"), "utf8")).pairs.find((p: any) => p.claimId === "FR-001").claim;
+    expect(after).toBe(before);
+    expect(after.length).toBe(400);
+
+    const r = checkRun(dir, { semantic: true }); // … but the fingerprint must
+    expect(r.ok).toBe(false);
+    expect(r.semanticError).toMatch(/FR-001·E1/);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("fails when the CITED EVIDENCE snippet was altered after the review", () => {
+    const dir = twoClaims();
+    reviewed(dir);
+    const altered = EVIDENCE.map((e) => (e.id === "E1" ? { ...e, snippet: "POST /todos is unsupported and returns 501" } : e));
+    writeFileSync(join(dir, "evidence", "evidence.json"), JSON.stringify(altered));
+
+    const r = checkRun(dir, { semantic: true });
+    expect(r.ok).toBe(false);
+    expect(r.semantic).toBeUndefined();
+    expect(r.semanticError).toMatch(/FR-001·E1/);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("refuses to apply a STALE worklist's verdicts after the SRD changed", () => {
+    const dir = twoClaims();
+    runReview(dir); // judged against the ORIGINAL claim text
+    const verdicts = writeVerdicts(dir, {});
+    const srd = readSrd(dir);
+    srd.functional[0].description = HOSTILE;
+    writeSrd(dir, srd);
+
+    expect(() => applyVerdicts(dir, verdicts)).toThrow(/FR-001·E1/);
+    expect(() => applyVerdicts(dir, verdicts)).toThrow(/construct review/);
+    expect(existsSync(join(dir, "VERIFY.json"))).toBe(false); // no green ledger written
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("refuses a stale worklist even for FRAGMENT verdicts that carry no fingerprint", () => {
+    const dir = twoClaims();
+    runReview(dir);
+    // What the orchestrated claim-reviewer agents emit (CLAIM_REVIEW_SCHEMA):
+    // claimId/evidenceId/verdict/note only — the binding comes from the worklist.
+    const fragments = [
+      { claimId: "FR-001", evidenceId: "E1", verdict: "supported", note: "" },
+      { claimId: "FR-002", evidenceId: "E2", verdict: "supported", note: "" },
+    ];
+    const f = join(dir, "fragments.json");
+    writeFileSync(f, JSON.stringify({ pairs: fragments }));
+
+    // Against the CURRENT worklist a fragment file still applies and is bound.
+    const ok = applyVerdicts(dir, f);
+    expect(ok.ok).toBe(true);
+    const ledger = JSON.parse(readFileSync(join(dir, "VERIFY.json"), "utf8"));
+    expect(ledger.verdicts.every((v: any) => typeof v.fingerprint === "string")).toBe(true);
+    expect(checkRun(dir, { semantic: true }).semantic?.ok).toBe(true);
+
+    const srd = readSrd(dir);
+    srd.functional[0].description = HOSTILE;
+    writeSrd(dir, srd);
+    expect(() => applyVerdicts(dir, f)).toThrow(/FR-001·E1/);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("never lets a fingerprint-less (legacy) ledger silently certify — it is explicit and degradable", () => {
+    const dir = twoClaims();
+    reviewed(dir);
+    const p = join(dir, "VERIFY.json");
+    const sem = JSON.parse(readFileSync(p, "utf8"));
+    sem.verdicts = sem.verdicts.map(({ fingerprint, ...rest }: any) => rest); // a pre-fingerprint ledger
+    writeFileSync(p, JSON.stringify(sem, null, 2));
+
+    const strict = checkRun(dir, { semantic: true });
+    expect(strict.ok).toBe(false);
+    expect(strict.semantic).toBeUndefined();
+    expect(strict.semanticError).toMatch(/fingerprint/i);
+    expect(strict.semanticError).toMatch(/--allow-unverified/);
+
+    const lax = checkRun(dir, { semantic: true, allowUnverified: true });
+    expect(lax.semanticError).toBeUndefined();
+    expect(lax.structural.warnings.join(" ")).toMatch(/fingerprint/i);
+    expect(lax.semantic?.ok).toBe(true); // explicit downgrade still reduces the verdicts
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // The laundering path: a pre-fingerprint worklist + the verdicts adjudicated
+  // from it, applied AFTER the SRD was edited. Binding those verdicts to whatever
+  // is on disk at apply time would make an old review certify claims it never saw
+  // — the legacy artifact must stay unbound and be re-reviewed.
+  it("never re-binds a legacy worklist's verdicts to the CURRENT SRD", () => {
+    const dir = twoClaims();
+    runReview(dir);
+    const todoPath = join(dir, "VERIFY.todo.json");
+    const todo = JSON.parse(readFileSync(todoPath, "utf8"));
+    const legacyPairs = todo.pairs.map(({ fingerprint, ...p }: any) => p);
+    writeFileSync(todoPath, JSON.stringify({ run: dir, pairs: legacyPairs })); // pre-3.19: no fingerprints, no scope
+    const f = join(dir, "legacy-verdicts.json");
+    writeFileSync(f, JSON.stringify({ pairs: legacyPairs.map((p: any) => ({ ...p, verdict: "supported", note: "" })) }));
+
+    // … and the SRD is edited afterwards, generatedAt preserved as `render --from-srd` leaves it.
+    const srd = readSrd(dir);
+    srd.functional[0].description = HOSTILE;
+    writeSrd(dir, srd);
+
+    applyVerdicts(dir, f);
+    const ledger = JSON.parse(readFileSync(join(dir, "VERIFY.json"), "utf8"));
+    expect(ledger.verdicts.every((v: any) => v.fingerprint === undefined)).toBe(true); // no minted binding
+
+    const strict = checkRun(dir, { semantic: true });
+    expect(strict.ok).toBe(false);
+    expect(strict.semantic).toBeUndefined();
+    expect(strict.semanticError).toMatch(/fingerprint/i);
+    expect(strict.semanticError).toMatch(/construct review/);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // The pair SET can change too: a claim added after the review has no verdict to
+  // invalidate, so per-verdict fingerprints alone would never notice it.
+  it("fails when the SRD cites a pair that was never part of a review", () => {
+    const dir = twoClaims();
+    reviewed(dir);
+    const srd = readSrd(dir);
+    const stamp = srd.generatedAt;
+    srd.functional.push({ ...srd.functional[0], id: "FR-003", title: "FR-003 title", description: HOSTILE, rationaleEvidence: ["E2"] });
+    writeSrd(dir, srd);
+    expect(readSrd(dir).generatedAt).toBe(stamp);
+
+    const strict = checkRun(dir, { semantic: true });
+    expect(strict.ok).toBe(false);
+    expect(strict.semantic).toBeUndefined();
+    expect(strict.semanticError).toMatch(/FR-003·E2/);
+    expect(strict.semanticError).toMatch(/--allow-unverified/);
+    expect(strict.semanticError).toMatch(/construct review/);
+
+    const lax = checkRun(dir, { semantic: true, allowUnverified: true });
+    expect(lax.semanticError).toBeUndefined();
+    expect(lax.structural.warnings.join(" ")).toMatch(/FR-003·E2/);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("refuses to apply verdicts from a worklist the SRD has since outgrown", () => {
+    const dir = twoClaims();
+    runReview(dir);
+    const verdicts = writeVerdicts(dir, {});
+    const srd = readSrd(dir);
+    srd.functional.push({ ...srd.functional[0], id: "FR-003", title: "FR-003 title", rationaleEvidence: ["E2"] });
+    writeSrd(dir, srd);
+
+    expect(() => applyVerdicts(dir, verdicts)).toThrow(/FR-003·E2/);
+    expect(existsSync(join(dir, "VERIFY.json"))).toBe(false);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // The cap is an explicit, documented omission (VERIFY.md names every dropped
+  // pair): it must stay transparently partial, not be re-read as "the SRD changed".
+  it("keeps an explicitly capped review applicable and passing — its dropped pairs are in scope", () => {
+    const dir = twoClaims();
+    runReview(dir, { maxReview: 1 });
+    const todo = JSON.parse(readFileSync(join(dir, "VERIFY.todo.json"), "utf8"));
+    expect(todo.pairs.length).toBe(1);
+    expect(todo.scope.length).toBe(2); // kept + dropped
+
+    applyVerdicts(dir, writeVerdicts(dir, {}));
+    const r = checkRun(dir, { semantic: true });
+    expect(r.semanticError).toBeUndefined();
+    expect(r.semantic?.ok).toBe(true);
+    expect(r.semantic?.pairs).toBe(1); // still only what was actually adjudicated
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
 describe("runReview — claim coverage & error paths", () => {
   it("builds pairs for NFR, ADR, competitor and OSS claims, not only FRs", () => {
     const dir = scratch();

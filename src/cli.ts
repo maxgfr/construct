@@ -43,7 +43,7 @@ Usage:
   construct render   --out <run> --from-srd [--merge] [--prd|--no-prd]
   construct check    --out <run> [--min-grounding <0-100>] [--semantic [--allow-unverified]] [--json]
   construct review   --out <run> [--apply <verdicts.json>] [--max-review N] [--json]
-  construct verify   --out <run> [--app <dir>] [--run-tests] [--strict] [--json]
+  construct verify   --out <run> [--app <dir>] [--acceptance] [--run-tests] [--strict] [--json]
   construct status   --out <run> [--json]
   construct orchestrate --out <run> [--phase research|claim-review|adr-judges|build] [--adr <id>] [--eco] [--list]
   construct semantic up|down|status
@@ -214,6 +214,7 @@ const BOOL_FLAGS = new Set([
   "json",
   "refresh",
   "run-tests",
+  "acceptance",
   "strict",
   "no-design",
   "prd",
@@ -592,6 +593,7 @@ async function main(): Promise<void> {
         appDir: p.values.app ? resolve(p.values.app) : undefined,
         runTests: p.bools.has("run-tests"),
         strict: p.bools.has("strict"),
+        acceptance: p.bools.has("acceptance"),
       });
       if (p.bools.has("json")) {
         process.stdout.write(JSON.stringify(res, null, 2) + "\n");

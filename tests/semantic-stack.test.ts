@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { ShResult } from "../src/util.js";
 import type { SourceResult } from "../src/types.js";
 
@@ -72,7 +74,7 @@ describe("stackCommand", () => {
     expect(r.code).toBe(0);
     const file = calls[0]![calls[0]!.indexOf("-f") + 1]!;
     expect(existsSync(file)).toBe(true);
-    expect(file).toContain("construct"); // under OUR cache dir, not a shared one
+    expect(file).toBe(join(process.env.ULTRA_STACK_CACHE_DIR || join(homedir(), ".cache", "skills"), "compose", "docker-compose.yml"));
   });
 
   it("status prints `docker compose ps` output and is always exit 0", () => {

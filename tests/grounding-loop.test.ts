@@ -14,7 +14,7 @@ import { assignIds, contentKey, emptyLedger, loadLedger, writeDossier, evidenceF
 import { capSource } from "../src/research/registry.js";
 import { renderSRD } from "../src/render.js";
 import { checkRun } from "../src/check.js";
-import { applyVerdicts } from "../src/review.js";
+import { applyVerdicts, runReview } from "../src/review.js";
 import { srdManifestPath } from "../src/srd.js";
 import { authorSRD } from "./helpers/author.js";
 import type { Brief, DossierMeta, EvidenceItem, RawItem, SourceResult, SRD } from "../src/types.js";
@@ -229,14 +229,18 @@ describe("duplicate requirement titles are refused (A6)", () => {
 });
 
 describe("verdicts cannot outlive the SRD they judged (A3)", () => {
+  // A genuine review of the SRD as it stands: ground a claim, generate the
+  // worklist over it, adjudicate every pair the worklist names. Verdicts written
+  // by hand cannot stand in — `review --apply` never mints a content binding for
+  // an unbound verdict, so only a real worklist produces a certifying ledger.
   function seedVerdicts(dir: string): string {
     const srd = JSON.parse(readFileSync(srdManifestPath(dir), "utf8")) as SRD;
-    const fr = srd.functional[0]!;
-    fr.rationaleEvidence = [evidenceFixture[0]!.id];
+    srd.functional[0]!.rationaleEvidence = [evidenceFixture[0]!.id];
     writeFileSync(srdManifestPath(dir), JSON.stringify(srd, null, 2));
-    const verdicts = [{ claimId: fr.id, evidenceId: evidenceFixture[0]!.id, verdict: "supported", note: "ok" }];
+    runReview(dir);
+    const todo = JSON.parse(readFileSync(join(dir, "VERIFY.todo.json"), "utf8")) as { pairs: Record<string, unknown>[] };
     const p = join(dir, "verdicts.json");
-    writeFileSync(p, JSON.stringify(verdicts));
+    writeFileSync(p, JSON.stringify(todo.pairs.map((pair) => ({ ...pair, verdict: "supported", note: "ok" }))));
     return p;
   }
 

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { keywords } from "./util.js";
@@ -9,6 +10,11 @@ const VALID_VERDICTS: VerdictKind[] = ["supported", "partial", "refuted", "unsup
 export interface ReviewWorklist {
   run: string;
   pairs: ClaimEvidencePair[];
+  // Every pair this review DERIVED (`claimId::evidenceId`), including the ones an
+  // explicit `--max-review` cap dropped from `pairs`. It records what the review
+  // looked at, so a pair the SRD cites LATER is distinguishable from one the cap
+  // consciously left out.
+  scope: string[];
 }
 
 // Load the dossier defensively: a hand-edited evidence.json (invalid JSON or a
@@ -47,6 +53,67 @@ function srdClaims(srd: SRD): { id: string; kind: ClaimEvidencePair["kind"]; tex
   srd.competitive.competitors.forEach((c, i) => out.push({ id: `COMP-${i + 1}`, kind: "competitor", text: `${c.name}: ${c.note}`, ev: c.evidence }));
   srd.competitive.oss.forEach((o, i) => out.push({ id: `OSS-${i + 1}`, kind: "oss", text: `${o.name}: ${o.note}`, ev: o.evidence }));
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Content binding. A verdict is only meaningful for the exact text it judged, so
+// every pair carries a fingerprint of that text: the claim's FULL string (the
+// worklist only SHOWS a 400-char excerpt — an edit past it must still be caught)
+// and the cited evidence item's whole retrieved record (an edited snippet is a
+// different piece of evidence).
+//
+// This is what SRD.generatedAt could not do: the documented loop — edit SRD.json,
+// `render --from-srd` — preserves generatedAt, so the timestamp gate saw nothing
+// while every claim underneath the verdicts had changed.
+//
+// Deterministic by construction: same content ⇒ same fingerprint, so a re-render
+// of unchanged content keeps the review valid.
+// ---------------------------------------------------------------------------
+const FINGERPRINT_VERSION = "cf1";
+
+export const pairKey = (claimId: string, evidenceId: string): string => `${claimId}::${evidenceId}`;
+
+function pairFingerprint(claimText: string, e: EvidenceItem): string {
+  const canonical = JSON.stringify([
+    FINGERPRINT_VERSION,
+    claimText,
+    e.id,
+    e.source,
+    e.title ?? "",
+    e.ref ?? "",
+    e.url ?? "",
+    e.location ?? "",
+    e.snippet ?? "",
+  ]);
+  return `${FINGERPRINT_VERSION}:${createHash("sha256").update(canonical).digest("hex").slice(0, 32)}`;
+}
+
+/**
+ * The fingerprint of every claim↔evidence pair the run's CURRENT SRD + dossier
+ * imply, keyed `claimId::evidenceId`. Built from the same claim/evidence walk as
+ * `runReview`, so the worklist and this map agree by construction.
+ *
+ * `null` when the pair set cannot be derived at all (no/unreadable/shapeless
+ * SRD.json) — callers then treat verdicts as unbound rather than as verified.
+ */
+export function currentPairFingerprints(runDir: string): Map<string, string> | null {
+  const manifest = srdManifestPath(runDir);
+  if (!existsSync(manifest)) return null;
+  try {
+    const srd = JSON.parse(readFileSync(manifest, "utf8")) as SRD;
+    const byId = new Map(loadEvidence(join(runDir, "evidence", "evidence.json")).map((e) => [e.id, e] as const));
+    const out = new Map<string, string>();
+    for (const c of srdClaims(srd)) {
+      for (const id of new Set(c.ev)) {
+        const e = byId.get(id);
+        if (!e) continue; // dangling citation — runReview emits no pair for it either
+        out.set(pairKey(c.id, id), pairFingerprint(c.text, e));
+      }
+    }
+    return out;
+  } catch {
+    return null;
+  }
 }
 
 // The ~600-char window of the snippet that best covers the claim's keywords.
@@ -108,6 +175,9 @@ export function runReview(runDir: string, opts: { maxReview?: number } = {}): Re
         // is flagged so the judge adjudicates it skeptically instead of granting
         // "supported" on the URL alone.
         digest: e.meta?.lowSignal ? `[low-signal snippet — no keyword-matched excerpt; adjudicate skeptically] ${digest}` : digest,
+        // Binds the verdict to the text actually reviewed — the FULL claim, not
+        // the excerpt above, and the whole cited item.
+        fingerprint: pairFingerprint(c.text, e),
         score: e.score,
       });
     }
@@ -125,10 +195,17 @@ export function runReview(runDir: string, opts: { maxReview?: number } = {}): Re
       : pairs;
   const kept = sorted.slice(0, Math.min(sorted.length, max));
   const dropped = sorted.slice(kept.length);
-  const worklist: ReviewWorklist = { run: runDir, pairs: kept.map(({ score, ...rest }) => rest) };
+  const worklist: ReviewWorklist = {
+    run: runDir,
+    pairs: kept.map(({ score, ...rest }) => rest),
+    // kept + dropped: the cap is a transparent omission, not a claim that the
+    // dropped pairs do not exist.
+    scope: pairs.map((p) => pairKey(p.claimId, p.evidenceId)).sort(),
+  };
 
   const todo = {
     run: runDir,
+    scope: worklist.scope,
     pairs: worklist.pairs.map((p) => ({ ...p, verdict: null as VerdictKind | null, note: "" })),
   };
   writeFileSync(join(runDir, "VERIFY.todo.json"), JSON.stringify(todo, null, 2));
@@ -164,6 +241,41 @@ function renderWorklistMd(wl: ReviewWorklist, total: number, dropped: (ClaimEvid
   return out.join("\n");
 }
 
+// The persisted worklist (VERIFY.todo.json), or null when it is absent/corrupt —
+// a corrupt worklist must not block applying real verdicts (see the
+// cross-reference below).
+function readWorklist(runDir: string): { pairs: ClaimEvidencePair[]; scope: string[] | null } | null {
+  const todoPath = join(runDir, "VERIFY.todo.json");
+  if (!existsSync(todoPath)) return null;
+  try {
+    const todo = JSON.parse(readFileSync(todoPath, "utf8")) as { pairs?: ClaimEvidencePair[]; scope?: unknown };
+    return {
+      pairs: (todo.pairs ?? []).filter((p) => !!p && typeof p.claimId === "string" && typeof p.evidenceId === "string"),
+      // A worklist written before `scope` existed carries none: the caller then
+      // cannot tell a capped-away pair from a newly cited one, and says so
+      // instead of inventing coverage.
+      scope: Array.isArray(todo.scope) && todo.scope.every((k) => typeof k === "string") ? (todo.scope as string[]) : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The pair keys the last `construct review` actually looked at: its recorded
+ * `scope` (kept + capped-away pairs), or — for a pre-scope worklist — the rows it
+ * lists. Empty when there is no readable worklist.
+ *
+ * A pair the CURRENT SRD cites that is in neither this set nor the ledger has
+ * never been through a review at all, which is not the same as an explicitly
+ * capped one.
+ */
+export function reviewedScope(runDir: string): Set<string> {
+  const wl = readWorklist(runDir);
+  if (!wl) return new Set();
+  return new Set(wl.scope ?? wl.pairs.map((p) => pairKey(p.claimId, p.evidenceId)));
+}
+
 // Phase B — read an agent-filled verdicts file (a `{ pairs: ClaimVerdict[] }`
 // object or a bare array), validate it, reduce to a ClaimVerifyResult, and
 // persist VERIFY.json (read by `check --semantic`).
@@ -187,12 +299,32 @@ export function applyVerdicts(runDir: string, verdictsPath: string): ClaimVerify
     throw new Error(`verdicts file must be a JSON array of verdicts or an object with a "pairs" array (${verdictsPath}).`);
   }
 
+  // The worklist the agent judged. Read BEFORE reducing: it supplies both the
+  // dropped-pair cross-reference below and the fingerprint of a FRAGMENT verdict
+  // (the orchestrated claim-reviewers emit claimId/evidenceId/verdict/note only,
+  // so their binding lives in the worklist row they were dispatched from).
+  const worklist = readWorklist(runDir);
+  const todoPairs = worklist?.pairs ?? [];
+  const current = currentPairFingerprints(runDir);
+  const todoFingerprint = new Map<string, string>();
+  for (const p of todoPairs) {
+    if (typeof p.fingerprint === "string" && p.fingerprint) {
+      if (current && current.get(pairKey(p.claimId, p.evidenceId)) !== p.fingerprint) {
+        throw new Error(`VERIFY.todo.json is stale: ${p.claimId}·${p.evidenceId} content has changed. Re-run construct review and re-adjudicate.`);
+      }
+      // Only the saved generation-time binding may supply a fragment's hash.
+      // If current content cannot be derived, leave the fragment unbound.
+      if (current) todoFingerprint.set(pairKey(p.claimId, p.evidenceId), p.fingerprint);
+    }
+  }
+
   const verdicts: ClaimVerdict[] = [];
   const seen = new Set<string>();
-  const key = (claimId: string, evidenceId: string) => `${claimId}::${evidenceId}`;
+  const key = pairKey;
   for (const v of list as any[]) {
     if (!v || typeof v.claimId !== "string" || typeof v.evidenceId !== "string") continue;
     const verdict = VALID_VERDICTS.includes(v.verdict) ? (v.verdict as VerdictKind) : (undefined as unknown as VerdictKind);
+    const k = key(v.claimId, v.evidenceId);
     verdicts.push({
       claimId: v.claimId,
       kind: v.kind,
@@ -200,39 +332,80 @@ export function applyVerdicts(runDir: string, verdictsPath: string): ClaimVerify
       evidenceId: v.evidenceId,
       source: v.source,
       digest: typeof v.digest === "string" ? v.digest : "",
+      fingerprint: typeof v.fingerprint === "string" && v.fingerprint ? v.fingerprint : todoFingerprint.get(k),
       verdict,
       note: typeof v.note === "string" ? v.note : "",
     });
-    seen.add(key(v.claimId, v.evidenceId));
+    seen.add(k);
   }
 
   // Cross-reference the worklist (VERIFY.todo.json): a claim↔evidence pair DROPPED
   // from the verdicts file is surfaced as unadjudicated, never silently passed —
   // omitting a load-bearing pair must not read as "every cited claim supported".
-  const todoPath = join(runDir, "VERIFY.todo.json");
-  if (existsSync(todoPath)) {
-    try {
-      const todo = JSON.parse(readFileSync(todoPath, "utf8")) as { pairs?: ClaimEvidencePair[] };
-      for (const p of todo.pairs ?? []) {
-        if (!p || typeof p.claimId !== "string" || typeof p.evidenceId !== "string") continue;
-        if (seen.has(key(p.claimId, p.evidenceId))) continue;
-        verdicts.push({
-          claimId: p.claimId,
-          kind: p.kind,
-          claim: p.claim ?? "",
-          evidenceId: p.evidenceId,
-          source: p.source,
-          digest: p.digest ?? "",
-          verdict: undefined as unknown as VerdictKind,
-          note: "",
-        });
-        seen.add(key(p.claimId, p.evidenceId));
+  for (const p of todoPairs) {
+    if (seen.has(key(p.claimId, p.evidenceId))) continue;
+    verdicts.push({
+      claimId: p.claimId,
+      kind: p.kind,
+      claim: p.claim ?? "",
+      evidenceId: p.evidenceId,
+      source: p.source,
+      digest: p.digest ?? "",
+      fingerprint: todoFingerprint.get(key(p.claimId, p.evidenceId)),
+      verdict: undefined as unknown as VerdictKind,
+      note: "",
+    });
+    seen.add(key(p.claimId, p.evidenceId));
+  }
+
+  // Staleness, bound to CONTENT. A verdict whose fingerprint no longer matches
+  // the pair the SRD + dossier imply right now judged text that has since been
+  // edited (or a pair that no longer exists) — applying it would launder a stale
+  // review into a fresh-looking ledger, so refuse and write nothing.
+  if (current) {
+    const stale = verdicts
+      .filter((v) => v.fingerprint && current.get(key(v.claimId, v.evidenceId)) !== v.fingerprint)
+      .map((v) => `${v.claimId}·${v.evidenceId}`)
+      .sort();
+    if (stale.length) {
+      const shown = stale.slice(0, 5).join(", ");
+      const more = stale.length > 5 ? ` (+${stale.length - 5} more)` : "";
+      throw new Error(
+        `${stale.length} verdict(s) judge claim/evidence content that has CHANGED since the worklist was generated: ${shown}${more} — ` +
+          `the SRD or its dossier was edited after the review (SRD.generatedAt alone does not detect this, since \`render --from-srd\` preserves it). ` +
+          `VERIFY.json was NOT written: re-run \`construct review --out ${runDir}\` and re-adjudicate the refreshed worklist.`,
+      );
+    }
+
+    // The pair SET must also still be the reviewed one. A claim (or a new
+    // citation on an existing claim) added after the worklist was generated is a
+    // pair nobody has judged, and the per-verdict check above cannot see it —
+    // there is no verdict for it to invalidate. Only meaningful against a
+    // recorded `scope`, which already includes the pairs an explicit
+    // `--max-review` cap dropped, so a capped review stays applicable.
+    if (worklist?.scope) {
+      const inScope = new Set(worklist.scope);
+      const added = [...current.keys()].filter((k) => !inScope.has(k)).sort();
+      if (added.length) {
+        const shown = added
+          .slice(0, 5)
+          .map((k) => k.replace("::", "·"))
+          .join(", ");
+        const more = added.length > 5 ? ` (+${added.length - 5} more)` : "";
+        throw new Error(
+          `${added.length} claim↔evidence pair(s) are cited by the SRD but absent from the worklist these verdicts came from: ${shown}${more} — ` +
+            `the SRD gained citations after \`construct review\` ran, so the worklist no longer describes the run. ` +
+            `VERIFY.json was NOT written: re-run \`construct review --out ${runDir}\` and adjudicate the refreshed worklist.`,
+        );
       }
-    } catch {
-      // A corrupt worklist must not block applying real verdicts — reduce over
-      // what was provided.
     }
   }
+
+  // NOTE: a verdict that still carries no fingerprint here (hand-written, or from
+  // a pre-binding worklist) is written AS-IS, unbound. It is deliberately NOT
+  // bound to whatever is on disk now: minting a fresh fingerprint would make an
+  // old review look like it had judged the current claims. `check --semantic`
+  // fails closed on an unbound ledger and asks for a real re-review.
 
   const result = reduceVerdicts(verdicts);
   // Stamp the SRD these verdicts judge, so `check --semantic` can refuse to

@@ -1,6 +1,7 @@
 ---
 name: construct
-description: "Use when the user wants to turn a product idea into a serious, buildable requirements document (an SRD/PRD) — or build the app from one. Triggers: write an SRD or PRD, spec out a product, write or define requirements, idea to spec, brainstorm an idea, build from spec, one PRD per module, PRD folder. construct interviews the user, grounds every major decision in real research — competitors and market signal, comparable open-source projects and their issues/PRs, candidate-tech docs and StackOverflow pitfalls — then renders a complete SRD suite: vision, scope, functional requirements with Given/When/Then acceptance criteria, NFRs, data model, interfaces, ADRs, competitive landscape, build plan, traceability. Modules mode renders one PRD per module under the prd directory; render --prd emits one PRD per requirement. A hard structural gate plus an advisory grounding report validate it; for building, it emits a BUILD-PLAN.json task DAG and construct verify referees the app against the SRD."
+description: "Turn a product idea into grounded SRD/PRD requirements, acceptance criteria, and a verifiable build plan."
+disable-model-invocation: true
 license: MIT
 metadata:
   version: 3.18.0
@@ -90,7 +91,7 @@ No `npm install`, no API keys. `--help` has the full surface; this is the map.
 | `render --out <run> --from-srd` | re-emit the tree from an **edited `SRD.json`**. This is how you persist enrichment. |
 | `check --out <run>` | the hard structural gate + the advisory grounding report |
 | `review --out <run> [--apply <f>]` | the claim↔evidence worklist, then the verdict ledger `check --semantic` gates on |
-| `verify --out <run> [--app <dir>] [--run-tests] [--strict]` | the build referee: plan well-formed, refs resolve, every requirement referenced by a test (`--app` defaults to `conventions.appDir`) |
+| `verify --out <run> [--app <dir>] [--acceptance] [--run-tests] [--strict]` | static consistency by default; `--acceptance --run-tests` executes current criterion-bound commands (`--app` defaults to `conventions.appDir`) |
 | `status --out <run> [--json]` | what exists + **the next command**; `--json` adds the build frontier |
 | `orchestrate --out <run> [--phase …] [--eco]` | emit this run's fan-out (see below) |
 | `semantic up\|down\|status` | the optional local Docker stack |
@@ -120,9 +121,17 @@ many candidate technologies `tech` grounds; `--per-source <n>` (default 6) how
 much evidence each source keeps; `--source <kind>` reclassifies `web --url`
 pages. Most commands take `--json` — prefer it whenever you branch on the result.
 
-**Exit codes.** `0` ok · `1` a gate failed (act on it) · `2` usage error, or a
-phase whose worklist does not exist yet (the message names the command that
-produces it). `analyze` never gates.
+**Exit codes.** `0` ok · `1` gate failure, usage error or runtime error · `2`
+orchestration precondition failure, including a phase whose worklist does not
+exist yet (the message names the command that produces it). `analyze` never gates.
+
+Semantic verdicts bind to the full claim and cited evidence content, including
+text beyond the displayed excerpt. Keep the generated `VERIFY.todo.json` while
+adjudicating: minimal verdict rows inherit its fingerprint only after the engine
+confirms it still matches the current SRD and evidence. Preserve fingerprints in
+self-contained verdicts. A legacy or missing worklist cannot bind old unbound
+rows; `check --semantic` rejects them. Re-run `review` and re-adjudicate changed
+content. `--allow-unverified` explicitly downgrades binding failures to warnings.
 
 ## Workflow
 
@@ -281,6 +290,11 @@ loop to completion; only pause to ask the user a real decision.
      `references/verify.md` explains what verify can and cannot prove).
    - If an FR proves wrong while building, amend the brief, re-render
      (progress merges by feature title), retag shifted FR ids, re-`check`.
+   - Before claiming the app is implemented, follow the criterion-binding protocol
+     in `references/verify.md` and run `verify --out <run> --strict --acceptance --run-tests --json`.
+     Every current criterion must be `passed`; `failed` or `not-tested` blocks the
+     claim. Review the dedicated assertions: exit 0 proves command success, not
+     that a skipped, empty or weakened test satisfies the business requirement.
 
 ## When something goes wrong
 

@@ -70,3 +70,4 @@ configure({
 process.env.CONSTRUCT_SH_TIMEOUT_MS ??= String(SH_DEFAULT_TIMEOUT_MS);
 
 export * from "./vendor/webindex-engine.mjs";
+export { materializeSharedStack as ensureComposeMaterialized, sharedStackControl as stackControl } from "./stack.js";

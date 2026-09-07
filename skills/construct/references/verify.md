@@ -27,6 +27,42 @@ assertion, a skipped test, or a tautological expect all pass. It is opt-in
 because executing user-declared commands is side-effectful — never run it on
 a plan you have not read.
 
+## Criterion execution: `--acceptance --run-tests`
+
+Use this gate before claiming the complete app is implemented. First run
+`verify --out <run> --acceptance --json` without execution. Its nonzero result
+contains `acceptanceResults`: each current `{frId,index,criterion,fingerprint}`.
+Read each full FR and its dedicated test, then add exactly one mapping to the
+owning done task's `verify.criteria` array in `BUILD-PLAN.json`:
+
+```json
+{"frId":"FR-001","index":0,"fingerprint":"<from current acceptanceResults>","command":"node tests/save-one-value.test.mjs","timeoutMs":5000}
+```
+
+The task must declare that acceptance reference. Use a command selecting the
+specific assertion/case; do not bind every criterion to an unrelated green suite.
+Run `verify --out <run> --strict --acceptance --run-tests --json` and retain its
+JSON as execution evidence. The command never reads a saved success report.
+`passed` means that this freshly executed, bound command exited 0 with complete
+bounded output; `failed` means execution failed/timed out/overflowed;
+`not-tested` means no authorization or a missing, duplicate, stale, invalid or
+unfinished mapping. Any non-passed criterion fails the gate, including criteria
+of tasks not yet done. Empty criterion sets fail. Incremental milestone checks
+may therefore remain static until the entire declared scope is implemented.
+
+Fingerprints include the full current FR, not its displayed excerpt. After any
+FR edit or re-render, review stale mappings and their tests before rebinding;
+never copy fresh hashes blindly onto old tests. Commands use the existing
+platform-shell contract in the app directory, timeout 1–600000 ms (default 600000),
+with at most 65536 captured bytes per stream. The criterion adapter preserves
+native error/signal/timeout metadata; even a timed-out command exiting 0 fails.
+On POSIX it terminates its own process group after execution, including ordinary
+children. Detached descendants and Windows process trees are not supervised:
+commands must terminate those themselves and must not start persistent services.
+This is not a sandbox. Read the plan and obtain execution authorization.
+The original static gate and generic `--run-tests` do not certify per-criterion
+execution; they remain available for compatibility.
+
 ## The gap that needs eyes
 
 Greps prove *reference*; execution proves *green*; neither proves a test

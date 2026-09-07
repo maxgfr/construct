@@ -1,5 +1,12 @@
 # construct
 
+## Manual skill invocation
+
+Invoke `$construct` explicitly in Codex or `/construct` in Claude Code.
+The shipped skill disables automatic activation in both hosts; CLI commands
+remain unchanged. Other hosts may not honor these settings. Existing installed
+copies need to be updated to receive this invocation policy.
+
 Turn a product idea into a **grounded, buildable SRD suite** — a Software
 Requirements Document whose requirements and decisions rest on **real research**
 (competitors, open-source prior art, technology docs, known pitfalls), not the
@@ -185,6 +192,26 @@ down, research runs exactly as it did before and says so in the dossier notes.
 
 See [`references/semantic-setup.md`](skills/construct/references/semantic-setup.md).
 
+## Acceptance execution evidence
+
+`verify` without `--acceptance` checks static consistency; FR tags are not proof
+that a criterion ran. For the final build gate, inspect
+`verify --out <run> --acceptance --json` (nonzero until executed), bind each
+current `{frId,index,fingerprint}` to a dedicated test command under its done
+task's `verify.criteria`, then run:
+
+```sh
+node scripts/construct.mjs verify --out <run> --strict --acceptance --run-tests --json
+```
+
+Every criterion reports `passed`, `failed` or `not-tested` with its full-FR
+fingerprint and bounded command output. Missing, stale, duplicate or unexecuted
+criteria fail. The command always executes afresh; it does not import old green
+reports. Review the actual assertions before claiming implementation: exit 0
+does not prove a test exercises its mapped requirement. Commands run locally
+with your privileges, through the existing shell runner, not a sandbox. Schema,
+limits and rebinding protocol: [verify reference](skills/construct/references/verify.md).
+
 ## License
 
 MIT © maxgfr
@@ -233,6 +260,13 @@ used to define three separate projects on the same host ports, so only one could
 be up at a time — starting a second failed on the port *after* leaving its
 sidecars running. Bringing it up from any of them now targets the same
 containers, so the second is a no-op and the RAM is paid once.
+
+Compose files and bind-mounted settings use the shared directory
+`~/.cache/skills/compose`. Set `ULTRA_STACK_CACHE_DIR` to the same directory
+for all three tools to override its parent. Per-tool HTTP and clone cache
+overrides still apply only to those caches. The first startup after upgrading
+from per-tool Compose directories may recreate SearXNG once to move its mount;
+subsequent startups from another tool reuse it.
 
 Upgrading from a version with per-skill container names? Remove the old ones
 once — this file can no longer stop them, and they still hold the ports:

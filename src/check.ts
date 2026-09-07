@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import type { Stats } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { reduceVerdicts, readSrdGeneratedAt } from "./review.js";
+import { reduceVerdicts, readSrdGeneratedAt, currentPairFingerprints, pairKey, reviewedScope } from "./review.js";
 import { lintRequirements, formatFinding } from "./requirements-lint.js";
 import { srdManifestPath } from "./srd.js";
 import { REQUIRED_NFR, DESIGN_TOKEN_CATEGORIES, DESIGN_TOKENS_SEEDED_BANNER } from "./types.js";
@@ -280,6 +280,64 @@ function applySemantic(runDir: string, result: CheckResult, allowUnverified: boo
     return;
   }
 
+  // Content-binding gate. `srdGeneratedAt` above only detects a NEW render — but
+  // the documented workflow (edit SRD.json, `render --from-srd`) PRESERVES that
+  // stamp, so an SRD whose claims were rewritten after the review kept certifying
+  // on the old verdicts. Re-derive every pair's fingerprint from the CURRENT
+  // SRD + dossier and compare it to what each verdict was bound to:
+  //   - `stale`   — the claim text or the cited evidence changed since the review,
+  //   - `unbound` — the verdict carries no fingerprint at all (a pre-fingerprint
+  //     VERIFY.json, or a hand-edited one), so nothing ties it to what it judged,
+  //   - `unreviewed` — the SRD now cites a pair that is in neither the ledger nor
+  //     the worklist's scope, i.e. a claim/citation added after the review.
+  // All three fail closed, all three are downgradable by --allow-unverified — a
+  // legacy ledger is reported explicitly rather than silently read as assurance.
+  const current = currentPairFingerprints(runDir);
+  const stale: string[] = [];
+  const unbound: string[] = [];
+  const known = new Set<string>();
+  for (const v of sem.verdicts) {
+    if (!v || typeof v.claimId !== "string" || typeof v.evidenceId !== "string") continue;
+    const label = `${v.claimId}·${v.evidenceId}`;
+    known.add(pairKey(v.claimId, v.evidenceId));
+    if (typeof v.fingerprint !== "string" || !v.fingerprint || !current) unbound.push(label);
+    else if (current.get(pairKey(v.claimId, v.evidenceId)) !== v.fingerprint) stale.push(label);
+  }
+  // The worklist's scope covers the pairs an explicit `--max-review` cap dropped:
+  // those stay transparently unadjudicated (VERIFY.md names them), they are not
+  // treated as an SRD that changed under the review.
+  for (const k of reviewedScope(runDir)) known.add(k);
+  const unreviewed = current ? [...current.keys()].filter((k) => !known.has(k)).sort() : [];
+  const list = (labels: string[]) => {
+    const shown = labels.slice(0, 5).join(", ");
+    return `${shown}${labels.length > 5 ? ` (+${labels.length - 5} more)` : ""}`;
+  };
+  const label = (keys: string[]) => list(keys.map((k) => k.replace("::", "·")));
+  if (stale.length && !allowUnverified) {
+    result.semanticError =
+      `${stale.length} adjudicated pair(s) judge claim/evidence content that has CHANGED since the review: ${list(stale)} — ` +
+      `a claim or its cited evidence was edited after the verdicts were recorded (SRD.generatedAt does not move on \`render --from-srd\`). ` +
+      `Re-run \`construct review\` and re-adjudicate the refreshed worklist, or pass --allow-unverified to degrade this to a warning.`;
+    result.ok = false;
+    return;
+  }
+  if (unbound.length && !allowUnverified) {
+    result.semanticError =
+      `${unbound.length} verdict(s) in VERIFY.json carry no claim fingerprint: ${list(unbound)} — ` +
+      `written before the content-binding contract (or hand-edited), so they cannot be tied to the claims and evidence they judged. ` +
+      `Re-run \`construct review\` then \`review --apply <verdicts.json>\` to re-bind them, or pass --allow-unverified to degrade this to a warning.`;
+    result.ok = false;
+    return;
+  }
+  if (unreviewed.length && !allowUnverified) {
+    result.semanticError =
+      `${unreviewed.length} claim↔evidence pair(s) the SRD cites were never part of a review: ${label(unreviewed)} — ` +
+      `a claim or a citation was added after the worklist was generated, so no verdict covers it. ` +
+      `Re-run \`construct review\` and adjudicate the refreshed worklist, or pass --allow-unverified to degrade this to a warning.`;
+    result.ok = false;
+    return;
+  }
+
   const reduced = reduceVerdicts(sem.verdicts);
   if (reduced.ok !== sem.ok) {
     result.structural.warnings.push("VERIFY.json's persisted summary disagreed with its verdicts — recomputed at check time.");
@@ -291,6 +349,23 @@ function applySemantic(runDir: string, result: CheckResult, allowUnverified: boo
     // surfaced loudly.
     result.structural.warnings.push(
       `--semantic: ${uncovered.length} review pair(s) lack an adjudicated verdict (a worklist pair was dropped or never judged); coverage gate skipped (--allow-unverified).`,
+    );
+  }
+  // Same for the binding gaps — forgiven only explicitly, never silently. The
+  // reduction above still fails on any refuted/unsupported pair that IS present.
+  if (stale.length) {
+    result.structural.warnings.push(
+      `--semantic: ${stale.length} pair(s) were adjudicated against content that has since CHANGED (${list(stale)}); staleness gate skipped (--allow-unverified).`,
+    );
+  }
+  if (unbound.length) {
+    result.structural.warnings.push(
+      `--semantic: ${unbound.length} verdict(s) carry no claim fingerprint (${list(unbound)}), so they cannot be bound to what they judged; binding gate skipped (--allow-unverified).`,
+    );
+  }
+  if (unreviewed.length) {
+    result.structural.warnings.push(
+      `--semantic: ${unreviewed.length} cited pair(s) were never part of a review (${label(unreviewed)}); coverage of new claims skipped (--allow-unverified).`,
     );
   }
 }

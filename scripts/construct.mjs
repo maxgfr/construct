@@ -23,8 +23,8 @@ var DESIGN_TOKENS_SEEDED_BANNER = "Seeded defaults \u2014 replace these with the
 var BUILD_PLAN_SCHEMA_VERSION = 1;
 
 // src/engine.ts
-import { homedir, tmpdir as tmpdir5 } from "os";
-import { join as join5 } from "path";
+import { homedir as homedir2, tmpdir as tmpdir5 } from "os";
+import { join as join9 } from "path";
 
 // src/config.ts
 var SEARXNG_TIMEOUT_MS = 8e3;
@@ -3378,6 +3378,24 @@ function readBody(req) {
   });
 }
 
+// src/stack.ts
+import { homedir } from "os";
+import { join as join5 } from "path";
+function withStackCache(action) {
+  const key = brand().envPrefix + "_CACHE_DIR";
+  const saved = process.env[key];
+  process.env[key] = process.env.ULTRA_STACK_CACHE_DIR || join5(homedir(), ".cache", "skills");
+  try {
+    return action();
+  } finally {
+    if (saved === void 0) delete process.env[key];
+    else process.env[key] = saved;
+  }
+}
+function sharedStackControl(service, action, deps = {}) {
+  return withStackCache(() => stackControl(service, action, deps));
+}
+
 // src/engine.ts
 configure({
   name: "construct",
@@ -3393,10 +3411,10 @@ configure({
   // default because moving them would orphan every checkout on every machine
   // that has run `construct` before, and leave the cache commands reporting an
   // empty cache that is not empty.
-  repoDir: join5(tmpdir5(), "construct"),
+  repoDir: join9(tmpdir5(), "construct"),
   // Likewise for the page cache: `~/.cache/construct/http` is where entries
   // already are. CONSTRUCT_CACHE_DIR still overrides it, as it always did.
-  cacheDir: join5(homedir(), ".cache", "construct", "http"),
+  cacheDir: join9(homedir2(), ".cache", "construct", "http"),
   // A week, not the engine's day. A competitor page or a docs page stays
   // materially the same for about that long, and the skill's fold-in loop
   // re-runs the same research constantly — the whole point of the cache.
@@ -3417,9 +3435,9 @@ process.env.CONSTRUCT_SH_TIMEOUT_MS ??= String(SH_DEFAULT_TIMEOUT_MS);
 
 // src/brief.ts
 import { existsSync as existsSync7, readFileSync as readFileSync6, writeFileSync as writeFileSync4, mkdirSync as mkdirSync5 } from "fs";
-import { join as join9 } from "path";
+import { join as join10 } from "path";
 function briefPath(runDir) {
-  return join9(runDir, "brief.json");
+  return join10(runDir, "brief.json");
 }
 function initBrief(idea, now) {
   return {
@@ -3651,7 +3669,7 @@ function validateBrief(brief) {
 
 // src/brainstorm.ts
 import { existsSync as existsSync8, readFileSync as readFileSync7, writeFileSync as writeFileSync5, mkdirSync as mkdirSync6 } from "fs";
-import { join as join10 } from "path";
+import { join as join11 } from "path";
 
 // src/templates.ts
 var BRAINSTORM_ANGLE_ORDER = [
@@ -4147,7 +4165,7 @@ var ANGLES = ["reframe", "segment", "feature", "differentiator", "anti-goal", "w
 var STATUSES = ["proposed", "kept", "parked", "rejected"];
 var TARGETS = ["featureWishlist", "competitors", "nonGoals", "goals", "candidateTech", "openQuestions"];
 function brainstormPath(runDir) {
-  return join10(runDir, "brainstorm.json");
+  return join11(runDir, "brainstorm.json");
 }
 function initBrainstorm(idea, now) {
   return { schemaVersion: BRAINSTORM_SCHEMA_VERSION, idea: idea.trim(), createdAt: now, ideas: [] };
@@ -4160,7 +4178,7 @@ function saveBrainstorm(runDir, b) {
 }
 function writeBrainstormMd(runDir, b) {
   mkdirSync6(runDir, { recursive: true });
-  const path = join10(runDir, "BRAINSTORM.md");
+  const path = join11(runDir, "BRAINSTORM.md");
   const md = renderBrainstormMd(b);
   writeFileSync5(path, md.endsWith("\n") ? md : md + "\n");
   return path;
@@ -4496,10 +4514,10 @@ async function marketAngle(ctx) {
 // src/vendor/codeindex-engine.mjs
 import { spawnSync as spawnSync3 } from "child_process";
 import { readdirSync as readdirSync4, statSync as statSync4, lstatSync, readFileSync as readFileSync8, realpathSync as realpathSync2, existsSync as existsSync9 } from "fs";
-import { join as join11, resolve as resolve4, sep as sep2, extname } from "path";
+import { join as join12, resolve as resolve4, sep as sep2, extname } from "path";
 import { createHash } from "crypto";
 import { readFileSync as readFileSync22, existsSync as existsSync22, statSync as statSync22 } from "fs";
-import { homedir as homedir2 } from "os";
+import { homedir as homedir3 } from "os";
 import { dirname as dirname3, join as join22 } from "path";
 import { fileURLToPath as fileURLToPath2 } from "url";
 import { basename as basename2 } from "path";
@@ -4519,7 +4537,7 @@ import { join as join102 } from "path";
 import { chmodSync, mkdtempSync as mkdtempSync2, readFileSync as readFileSync62, realpathSync as realpathSync22, renameSync as renameSync2, rmSync as rmSync22, statSync as statSync42, writeFileSync as writeFileSync22 } from "fs";
 import { basename as basename32, dirname as dirname4, join as join112 } from "path";
 import { mkdirSync as mkdirSync22, readdirSync as readdirSync22, readFileSync as readFileSync72, rmSync as rmSync32, statSync as statSync5, writeFileSync as writeFileSync32 } from "fs";
-import { dirname as dirname5, join as join12 } from "path";
+import { dirname as dirname5, join as join122 } from "path";
 import { existsSync as existsSync62, readdirSync as readdirSync32, statSync as statSync6 } from "fs";
 import { join as join13 } from "path";
 import { createHash as createHash3 } from "crypto";
@@ -4904,7 +4922,7 @@ function isIgnoredDirectory(name2, ignoreDirs) {
 function gitDirOf(dir, entries) {
   const marker = entries.find((e) => e.name === GIT_ENTRY);
   if (!marker) return void 0;
-  const path = join11(dir, GIT_ENTRY);
+  const path = join12(dir, GIT_ENTRY);
   try {
     if (marker.isDirectory()) return path;
     const st = statSync4(path);
@@ -4915,7 +4933,7 @@ function gitDirOf(dir, entries) {
     const target = content.slice(GITFILE_PREFIX.length).replace(/[\r\n]+$/, "");
     if (!target) return void 0;
     const gitDir = resolve4(dir, target);
-    const common = join11(gitDir, "commondir");
+    const common = join12(gitDir, "commondir");
     return existsSync9(common) ? resolve4(gitDir, readFileSync8(common, "utf8").trim()) : gitDir;
   } catch {
     return void 0;
@@ -4924,7 +4942,7 @@ function gitDirOf(dir, entries) {
 function readInfoExclude(gitDir) {
   if (!gitDir) return "";
   try {
-    const exclude = join11(gitDir, "info", "exclude");
+    const exclude = join12(gitDir, "info", "exclude");
     return existsSync9(exclude) ? readText(exclude) : "";
   } catch {
     return "";
@@ -4979,12 +4997,12 @@ function walk(root, opts = {}) {
       if (parsed.length) rules = [...rules, ...parsed];
     }
     if (useGitignore && entries.some((e) => e.name === ".gitignore")) {
-      const parsed = parseGitignore(readText(join11(frame.dir, ".gitignore")), frame.rel);
+      const parsed = parseGitignore(readText(join12(frame.dir, ".gitignore")), frame.rel);
       if (parsed.length) rules = [...rules, ...parsed];
     }
     for (const entry2 of entries) {
       const name2 = entry2.name;
-      const abs = join11(frame.dir, name2);
+      const abs = join12(frame.dir, name2);
       const rel2 = frame.rel ? `${frame.rel}/${name2}` : name2;
       const isLink = entry2.isSymbolicLink();
       if (name2 === GIT_ENTRY) continue;
@@ -10484,7 +10502,7 @@ function grammarKeyForExt(ext) {
 }
 function sharedGrammarsCacheDir() {
   const xdg = process.env.XDG_CACHE_HOME;
-  const base = xdg && xdg.trim() ? xdg.trim() : join22(homedir2(), ".cache");
+  const base = xdg && xdg.trim() ? xdg.trim() : join22(homedir3(), ".cache");
   return join22(base, "codeindex", "grammars", ENGINE_VERSION);
 }
 function resolveGrammarsTier(opts = {}) {
@@ -15903,7 +15921,7 @@ function sanitize(name2) {
   return clean;
 }
 function memoryPath(repo, name2) {
-  return join12(repo, ...MEMORY_DIR, `${sanitize(name2)}.md`);
+  return join122(repo, ...MEMORY_DIR, `${sanitize(name2)}.md`);
 }
 function writeMemory(repo, name2, content) {
   const path = memoryPath(repo, name2);
@@ -15929,7 +15947,7 @@ function deleteMemory(repo, name2) {
   return true;
 }
 function listMemories(repo) {
-  const root = join12(repo, ...MEMORY_DIR);
+  const root = join122(repo, ...MEMORY_DIR);
   const out2 = [];
   const walk22 = (dir, prefix) => {
     let entries;
@@ -15939,7 +15957,7 @@ function listMemories(repo) {
       return;
     }
     for (const e of entries) {
-      if (e.isDirectory()) walk22(join12(dir, e.name), prefix ? `${prefix}/${e.name}` : e.name);
+      if (e.isDirectory()) walk22(join122(dir, e.name), prefix ? `${prefix}/${e.name}` : e.name);
       else if (e.name.endsWith(".md")) out2.push(prefix ? `${prefix}/${e.name.slice(0, -3)}` : e.name.slice(0, -3));
     }
   };
@@ -16764,25 +16782,25 @@ function computeSurprises(graph) {
     tierOf2.set(m.slug, m.tier);
   }
   const pairCount = /* @__PURE__ */ new Map();
-  const pairKey = (a, b) => a < b ? `${a}:${b}` : `${b}:${a}`;
+  const pairKey2 = (a, b) => a < b ? `${a}:${b}` : `${b}:${a}`;
   const candidates = [];
   for (const e of graph.moduleEdges) {
     if (e.dangling) continue;
     const ca = commOf.get(e.from);
     const cb = commOf.get(e.to);
     if (ca === void 0 || cb === void 0 || ca === cb) continue;
-    pairCount.set(pairKey(ca, cb), (pairCount.get(pairKey(ca, cb)) ?? 0) + 1);
+    pairCount.set(pairKey2(ca, cb), (pairCount.get(pairKey2(ca, cb)) ?? 0) + 1);
     if (!DEP_KINDS.has(e.kind)) continue;
     if (tierOf2.get(e.to) === 0) continue;
     candidates.push({ edge: e, comms: [ca, cb] });
   }
-  return candidates.filter((c2) => pairCount.get(pairKey(c2.comms[0], c2.comms[1])) <= MAX_PAIR_EDGES).map((c2) => ({
+  return candidates.filter((c2) => pairCount.get(pairKey2(c2.comms[0], c2.comms[1])) <= MAX_PAIR_EDGES).map((c2) => ({
     from: c2.edge.from,
     to: c2.edge.to,
     kind: c2.edge.kind,
     weight: c2.edge.weight,
     communities: c2.comms,
-    pairEdges: pairCount.get(pairKey(c2.comms[0], c2.comms[1]))
+    pairEdges: pairCount.get(pairKey2(c2.comms[0], c2.comms[1]))
   })).sort((a, b) => a.pairEdges - b.pairEdges || byStr(a.from, b.from) || byStr(a.to, b.to)).slice(0, SURPRISE_CAP);
 }
 function isSurprising(graph, from, to) {
@@ -22691,7 +22709,7 @@ var USE_HINT = {
   firecrawl: "  use:    construct research --out <run>   (pages are cleaned through Firecrawl automatically)"
 };
 function stackCommand(stack, action, deps = {}) {
-  const r = stackControl(SERVICE_GROUPS[stack], action, deps);
+  const r = sharedStackControl(SERVICE_GROUPS[stack], action, deps);
   return r.code === 0 && action === "up" ? { ...r, message: `${r.message}
 ${USE_HINT[stack]}` } : r;
 }
@@ -23951,6 +23969,7 @@ import { existsSync as existsSync16, readFileSync as readFileSync18, readdirSync
 import { join as join29, relative, sep as sep3 } from "path";
 
 // src/review.ts
+import { createHash as createHash5 } from "crypto";
 import { existsSync as existsSync15, readFileSync as readFileSync17, writeFileSync as writeFileSync10 } from "fs";
 import { join as join28 } from "path";
 var VALID_VERDICTS = ["supported", "partial", "refuted", "unsupported"];
@@ -23980,6 +23999,41 @@ function srdClaims(srd) {
   srd.competitive.competitors.forEach((c2, i2) => out2.push({ id: `COMP-${i2 + 1}`, kind: "competitor", text: `${c2.name}: ${c2.note}`, ev: c2.evidence }));
   srd.competitive.oss.forEach((o, i2) => out2.push({ id: `OSS-${i2 + 1}`, kind: "oss", text: `${o.name}: ${o.note}`, ev: o.evidence }));
   return out2;
+}
+var FINGERPRINT_VERSION = "cf1";
+var pairKey = (claimId, evidenceId) => `${claimId}::${evidenceId}`;
+function pairFingerprint(claimText, e) {
+  const canonical = JSON.stringify([
+    FINGERPRINT_VERSION,
+    claimText,
+    e.id,
+    e.source,
+    e.title ?? "",
+    e.ref ?? "",
+    e.url ?? "",
+    e.location ?? "",
+    e.snippet ?? ""
+  ]);
+  return `${FINGERPRINT_VERSION}:${createHash5("sha256").update(canonical).digest("hex").slice(0, 32)}`;
+}
+function currentPairFingerprints(runDir) {
+  const manifest = srdManifestPath(runDir);
+  if (!existsSync15(manifest)) return null;
+  try {
+    const srd = JSON.parse(readFileSync17(manifest, "utf8"));
+    const byId = new Map(loadEvidence(join28(runDir, "evidence", "evidence.json")).map((e) => [e.id, e]));
+    const out2 = /* @__PURE__ */ new Map();
+    for (const c2 of srdClaims(srd)) {
+      for (const id of new Set(c2.ev)) {
+        const e = byId.get(id);
+        if (!e) continue;
+        out2.set(pairKey(c2.id, id), pairFingerprint(c2.text, e));
+      }
+    }
+    return out2;
+  } catch {
+    return null;
+  }
 }
 function claimDigest(snippet, claim, cap = 600) {
   if (snippet.length <= cap) return snippet;
@@ -24026,6 +24080,9 @@ function runReview(runDir, opts = {}) {
         // is flagged so the judge adjudicates it skeptically instead of granting
         // "supported" on the URL alone.
         digest: e.meta?.lowSignal ? `[low-signal snippet \u2014 no keyword-matched excerpt; adjudicate skeptically] ${digest}` : digest,
+        // Binds the verdict to the text actually reviewed — the FULL claim, not
+        // the excerpt above, and the whole cited item.
+        fingerprint: pairFingerprint(c2.text, e),
         score: e.score
       });
     }
@@ -24035,9 +24092,16 @@ function runReview(runDir, opts = {}) {
   const sorted = pairs.length > max ? pairs.slice().sort((a, b) => rank2(b) - rank2(a) || a.claimId.localeCompare(b.claimId) || a.evidenceId.localeCompare(b.evidenceId)) : pairs;
   const kept = sorted.slice(0, Math.min(sorted.length, max));
   const dropped = sorted.slice(kept.length);
-  const worklist = { run: runDir, pairs: kept.map(({ score, ...rest }) => rest) };
+  const worklist = {
+    run: runDir,
+    pairs: kept.map(({ score, ...rest }) => rest),
+    // kept + dropped: the cap is a transparent omission, not a claim that the
+    // dropped pairs do not exist.
+    scope: pairs.map((p) => pairKey(p.claimId, p.evidenceId)).sort()
+  };
   const todo = {
     run: runDir,
+    scope: worklist.scope,
     pairs: worklist.pairs.map((p) => ({ ...p, verdict: null, note: "" }))
   };
   writeFileSync10(join28(runDir, "VERIFY.todo.json"), JSON.stringify(todo, null, 2));
@@ -24068,6 +24132,27 @@ function renderWorklistMd(wl, total2, dropped) {
   }
   return out2.join("\n");
 }
+function readWorklist(runDir) {
+  const todoPath = join28(runDir, "VERIFY.todo.json");
+  if (!existsSync15(todoPath)) return null;
+  try {
+    const todo = JSON.parse(readFileSync17(todoPath, "utf8"));
+    return {
+      pairs: (todo.pairs ?? []).filter((p) => !!p && typeof p.claimId === "string" && typeof p.evidenceId === "string"),
+      // A worklist written before `scope` existed carries none: the caller then
+      // cannot tell a capped-away pair from a newly cited one, and says so
+      // instead of inventing coverage.
+      scope: Array.isArray(todo.scope) && todo.scope.every((k) => typeof k === "string") ? todo.scope : null
+    };
+  } catch {
+    return null;
+  }
+}
+function reviewedScope(runDir) {
+  const wl = readWorklist(runDir);
+  if (!wl) return /* @__PURE__ */ new Set();
+  return new Set(wl.scope ?? wl.pairs.map((p) => pairKey(p.claimId, p.evidenceId)));
+}
 function applyVerdicts(runDir, verdictsPath) {
   if (!existsSync15(verdictsPath)) throw new Error(`verdicts file not found: ${verdictsPath}`);
   let raw;
@@ -24080,12 +24165,25 @@ function applyVerdicts(runDir, verdictsPath) {
   if (list === null) {
     throw new Error(`verdicts file must be a JSON array of verdicts or an object with a "pairs" array (${verdictsPath}).`);
   }
+  const worklist = readWorklist(runDir);
+  const todoPairs = worklist?.pairs ?? [];
+  const current2 = currentPairFingerprints(runDir);
+  const todoFingerprint = /* @__PURE__ */ new Map();
+  for (const p of todoPairs) {
+    if (typeof p.fingerprint === "string" && p.fingerprint) {
+      if (current2 && current2.get(pairKey(p.claimId, p.evidenceId)) !== p.fingerprint) {
+        throw new Error(`VERIFY.todo.json is stale: ${p.claimId}\xB7${p.evidenceId} content has changed. Re-run construct review and re-adjudicate.`);
+      }
+      if (current2) todoFingerprint.set(pairKey(p.claimId, p.evidenceId), p.fingerprint);
+    }
+  }
   const verdicts = [];
   const seen = /* @__PURE__ */ new Set();
-  const key = (claimId, evidenceId) => `${claimId}::${evidenceId}`;
+  const key = pairKey;
   for (const v of list) {
     if (!v || typeof v.claimId !== "string" || typeof v.evidenceId !== "string") continue;
     const verdict = VALID_VERDICTS.includes(v.verdict) ? v.verdict : void 0;
+    const k = key(v.claimId, v.evidenceId);
     verdicts.push({
       claimId: v.claimId,
       kind: v.kind,
@@ -24093,31 +24191,46 @@ function applyVerdicts(runDir, verdictsPath) {
       evidenceId: v.evidenceId,
       source: v.source,
       digest: typeof v.digest === "string" ? v.digest : "",
+      fingerprint: typeof v.fingerprint === "string" && v.fingerprint ? v.fingerprint : todoFingerprint.get(k),
       verdict,
       note: typeof v.note === "string" ? v.note : ""
     });
-    seen.add(key(v.claimId, v.evidenceId));
+    seen.add(k);
   }
-  const todoPath = join28(runDir, "VERIFY.todo.json");
-  if (existsSync15(todoPath)) {
-    try {
-      const todo = JSON.parse(readFileSync17(todoPath, "utf8"));
-      for (const p of todo.pairs ?? []) {
-        if (!p || typeof p.claimId !== "string" || typeof p.evidenceId !== "string") continue;
-        if (seen.has(key(p.claimId, p.evidenceId))) continue;
-        verdicts.push({
-          claimId: p.claimId,
-          kind: p.kind,
-          claim: p.claim ?? "",
-          evidenceId: p.evidenceId,
-          source: p.source,
-          digest: p.digest ?? "",
-          verdict: void 0,
-          note: ""
-        });
-        seen.add(key(p.claimId, p.evidenceId));
+  for (const p of todoPairs) {
+    if (seen.has(key(p.claimId, p.evidenceId))) continue;
+    verdicts.push({
+      claimId: p.claimId,
+      kind: p.kind,
+      claim: p.claim ?? "",
+      evidenceId: p.evidenceId,
+      source: p.source,
+      digest: p.digest ?? "",
+      fingerprint: todoFingerprint.get(key(p.claimId, p.evidenceId)),
+      verdict: void 0,
+      note: ""
+    });
+    seen.add(key(p.claimId, p.evidenceId));
+  }
+  if (current2) {
+    const stale = verdicts.filter((v) => v.fingerprint && current2.get(key(v.claimId, v.evidenceId)) !== v.fingerprint).map((v) => `${v.claimId}\xB7${v.evidenceId}`).sort();
+    if (stale.length) {
+      const shown = stale.slice(0, 5).join(", ");
+      const more = stale.length > 5 ? ` (+${stale.length - 5} more)` : "";
+      throw new Error(
+        `${stale.length} verdict(s) judge claim/evidence content that has CHANGED since the worklist was generated: ${shown}${more} \u2014 the SRD or its dossier was edited after the review (SRD.generatedAt alone does not detect this, since \`render --from-srd\` preserves it). VERIFY.json was NOT written: re-run \`construct review --out ${runDir}\` and re-adjudicate the refreshed worklist.`
+      );
+    }
+    if (worklist?.scope) {
+      const inScope = new Set(worklist.scope);
+      const added = [...current2.keys()].filter((k) => !inScope.has(k)).sort();
+      if (added.length) {
+        const shown = added.slice(0, 5).map((k) => k.replace("::", "\xB7")).join(", ");
+        const more = added.length > 5 ? ` (+${added.length - 5} more)` : "";
+        throw new Error(
+          `${added.length} claim\u2194evidence pair(s) are cited by the SRD but absent from the worklist these verdicts came from: ${shown}${more} \u2014 the SRD gained citations after \`construct review\` ran, so the worklist no longer describes the run. VERIFY.json was NOT written: re-run \`construct review --out ${runDir}\` and adjudicate the refreshed worklist.`
+        );
       }
-    } catch {
     }
   }
   const result = reduceVerdicts(verdicts);
@@ -24503,6 +24616,39 @@ function applySemantic(runDir, result, allowUnverified) {
     result.ok = false;
     return;
   }
+  const current2 = currentPairFingerprints(runDir);
+  const stale = [];
+  const unbound = [];
+  const known = /* @__PURE__ */ new Set();
+  for (const v of sem.verdicts) {
+    if (!v || typeof v.claimId !== "string" || typeof v.evidenceId !== "string") continue;
+    const label2 = `${v.claimId}\xB7${v.evidenceId}`;
+    known.add(pairKey(v.claimId, v.evidenceId));
+    if (typeof v.fingerprint !== "string" || !v.fingerprint || !current2) unbound.push(label2);
+    else if (current2.get(pairKey(v.claimId, v.evidenceId)) !== v.fingerprint) stale.push(label2);
+  }
+  for (const k of reviewedScope(runDir)) known.add(k);
+  const unreviewed = current2 ? [...current2.keys()].filter((k) => !known.has(k)).sort() : [];
+  const list = (labels) => {
+    const shown = labels.slice(0, 5).join(", ");
+    return `${shown}${labels.length > 5 ? ` (+${labels.length - 5} more)` : ""}`;
+  };
+  const label = (keys) => list(keys.map((k) => k.replace("::", "\xB7")));
+  if (stale.length && !allowUnverified) {
+    result.semanticError = `${stale.length} adjudicated pair(s) judge claim/evidence content that has CHANGED since the review: ${list(stale)} \u2014 a claim or its cited evidence was edited after the verdicts were recorded (SRD.generatedAt does not move on \`render --from-srd\`). Re-run \`construct review\` and re-adjudicate the refreshed worklist, or pass --allow-unverified to degrade this to a warning.`;
+    result.ok = false;
+    return;
+  }
+  if (unbound.length && !allowUnverified) {
+    result.semanticError = `${unbound.length} verdict(s) in VERIFY.json carry no claim fingerprint: ${list(unbound)} \u2014 written before the content-binding contract (or hand-edited), so they cannot be tied to the claims and evidence they judged. Re-run \`construct review\` then \`review --apply <verdicts.json>\` to re-bind them, or pass --allow-unverified to degrade this to a warning.`;
+    result.ok = false;
+    return;
+  }
+  if (unreviewed.length && !allowUnverified) {
+    result.semanticError = `${unreviewed.length} claim\u2194evidence pair(s) the SRD cites were never part of a review: ${label(unreviewed)} \u2014 a claim or a citation was added after the worklist was generated, so no verdict covers it. Re-run \`construct review\` and adjudicate the refreshed worklist, or pass --allow-unverified to degrade this to a warning.`;
+    result.ok = false;
+    return;
+  }
   const reduced = reduceVerdicts(sem.verdicts);
   if (reduced.ok !== sem.ok) {
     result.structural.warnings.push("VERIFY.json's persisted summary disagreed with its verdicts \u2014 recomputed at check time.");
@@ -24512,6 +24658,21 @@ function applySemantic(runDir, result, allowUnverified) {
   if (uncovered.length) {
     result.structural.warnings.push(
       `--semantic: ${uncovered.length} review pair(s) lack an adjudicated verdict (a worklist pair was dropped or never judged); coverage gate skipped (--allow-unverified).`
+    );
+  }
+  if (stale.length) {
+    result.structural.warnings.push(
+      `--semantic: ${stale.length} pair(s) were adjudicated against content that has since CHANGED (${list(stale)}); staleness gate skipped (--allow-unverified).`
+    );
+  }
+  if (unbound.length) {
+    result.structural.warnings.push(
+      `--semantic: ${unbound.length} verdict(s) carry no claim fingerprint (${list(unbound)}), so they cannot be bound to what they judged; binding gate skipped (--allow-unverified).`
+    );
+  }
+  if (unreviewed.length) {
+    result.structural.warnings.push(
+      `--semantic: ${unreviewed.length} cited pair(s) were never part of a review (${label(unreviewed)}); coverage of new claims skipped (--allow-unverified).`
     );
   }
 }
@@ -24856,6 +25017,109 @@ function formatGapReport(r, runDir) {
 // src/verify.ts
 import { existsSync as existsSync18, readFileSync as readFileSync20 } from "fs";
 import { isAbsolute as isAbsolute2, join as join31, resolve as resolve6 } from "path";
+
+// src/acceptance.ts
+import { createHash as createHash6 } from "crypto";
+function executeAcceptance(srd, plan, run2) {
+  const errors = [];
+  const results = [];
+  const requirementIds = /* @__PURE__ */ new Set();
+  for (const fr of srd.functional) {
+    if (requirementIds.has(fr.id)) errors.push(`Duplicate requirement id ${fr.id}.`);
+    requirementIds.add(fr.id);
+    if (!fr.acceptance.length) errors.push(`${fr.id}: no acceptance criteria; an empty requirement cannot pass execution verification.`);
+  }
+  const entries = plan.tasks.flatMap((task) => {
+    if (task.verify.criteria !== void 0 && !Array.isArray(task.verify.criteria)) {
+      errors.push(`${task.id}: verify.criteria must be an array.`);
+      return [];
+    }
+    return (task.verify.criteria ?? []).map((binding) => ({ task, binding }));
+  });
+  const keys = new Set(srd.functional.flatMap((fr) => fr.acceptance.map((_, index) => `${fr.id}:${index}`)));
+  for (const { task, binding } of entries) {
+    if (!binding || !keys.has(`${binding.frId}:${binding.index}`)) errors.push(`${task.id}: unknown acceptance criterion binding.`);
+  }
+  for (const fr of srd.functional) {
+    for (const [index, criterion] of fr.acceptance.entries()) {
+      const fingerprint = createHash6("sha256").update(JSON.stringify({ version: 1, requirement: fr, index, criterion })).digest("hex");
+      const row = { frId: fr.id, index, fingerprint, criterion, status: "not-tested" };
+      results.push(row);
+      const matches = entries.filter(({ binding }) => binding?.frId === fr.id && binding.index === index);
+      const match2 = matches[0];
+      if (matches.length !== 1 || !match2) row.reason = matches.length ? "Duplicate criterion mappings." : "Missing criterion command mapping.";
+      else if (match2.binding.fingerprint !== fingerprint)
+        row.reason = "Stale criterion fingerprint: review the current requirement and rebind its dedicated test.";
+      else if (match2.task.status !== "done" || !match2.task.acceptance.some((ref2) => ref2.frId === fr.id && ref2.index === index)) {
+        row.reason = "Criterion mapping must belong to a done task declaring this acceptance reference.";
+      } else if (typeof match2.binding.command !== "string" || !match2.binding.command.trim() || match2.binding.command.includes("\0")) {
+        row.reason = "Missing or invalid criterion command.";
+      } else if (match2.binding.timeoutMs !== void 0 && (!Number.isInteger(match2.binding.timeoutMs) || match2.binding.timeoutMs < 1 || match2.binding.timeoutMs > 6e5)) {
+        row.reason = "Criterion timeoutMs must be an integer between 1 and 600000.";
+      } else {
+        row.command = match2.binding.command;
+        if (!run2) row.reason = "Execution requires --run-tests and an existing app directory.";
+        else {
+          const observation = run2(match2.binding.command, match2.binding.timeoutMs);
+          Object.assign(row, {
+            command: observation.command,
+            exitCode: observation.exitCode,
+            stdout: observation.stdout,
+            stderr: observation.stderr,
+            timedOut: observation.timedOut,
+            signal: observation.signal,
+            error: observation.error,
+            outputTruncated: observation.outputTruncated
+          });
+          row.status = observation.ok && !observation.outputTruncated ? "passed" : "failed";
+          if (row.status === "failed") row.reason = "Dedicated command failed, timed out, or exceeded the output limit.";
+        }
+      }
+      if (row.status !== "passed") errors.push(`${fr.id}[${index}] ${row.status}: ${row.reason}`);
+    }
+  }
+  if (!results.length) errors.push("Acceptance execution requires at least one current criterion; an empty suite is not proof.");
+  return { results, errors };
+}
+
+// src/acceptance-runner.ts
+import { spawnSync as spawnSync4 } from "child_process";
+function runAcceptanceCommand(command, cwd, timeoutMs = VERIFY_COMMAND_TIMEOUT_MS) {
+  const windows = process.platform === "win32";
+  const cap = 65536;
+  const options = {
+    cwd,
+    timeout: timeoutMs,
+    encoding: "utf8",
+    maxBuffer: cap,
+    killSignal: "SIGKILL",
+    detached: !windows
+  };
+  const r = spawnSync4(windows ? "cmd" : "sh", windows ? ["/c", command] : ["-c", command], options);
+  let cleanupError;
+  if (!windows && r.pid) {
+    try {
+      process.kill(-r.pid, "SIGKILL");
+    } catch (error2) {
+      if (error2.code !== "ESRCH") cleanupError = error2.message;
+    }
+  }
+  const error = r.error;
+  const stdout = r.stdout ?? "", stderr = r.stderr ?? "";
+  return {
+    command,
+    ok: r.status === 0 && !r.signal && !error && !cleanupError,
+    exitCode: r.status,
+    stdout: stdout.slice(0, cap),
+    stderr: stderr.slice(0, cap),
+    signal: r.signal,
+    timedOut: error?.code === "ETIMEDOUT",
+    ...error || cleanupError ? { error: (error?.message ?? cleanupError).slice(0, 1e3) } : {},
+    outputTruncated: error?.code === "ENOBUFS" || Buffer.byteLength(stdout) > cap || Buffer.byteLength(stderr) > cap
+  };
+}
+
+// src/verify.ts
 var TEST_FILE_RE = /\.(test|spec)\.[^./]+$|_(test|spec)\.[^./]+$|(^|\/)test_[^/]+\.[^./]+$/i;
 var TEST_SUFFIX_RE = /(^|\/)[^/]*[A-Z]\w*Tests?\.(java|kt|kts|cs|scala|groovy)$/;
 var TEST_DIR_RE = /(^|\/)(tests?|__tests__|spec|specs|e2e)\//i;
@@ -24948,6 +25212,13 @@ function verifyRun(runDir, opts = {}) {
   const rawApp = opts.appDir ?? plan.conventions.appDir ?? void 0;
   const appDir = rawApp ? isAbsolute2(rawApp) ? rawApp : resolve6(runDir, rawApp) : void 0;
   const doneTasks = plan.tasks.filter((t) => t.status === "done");
+  const acceptance = opts.acceptance ? executeAcceptance(
+    srd,
+    plan,
+    opts.runTests && appDir && existsSync18(appDir) && errors.length === 0 ? (command, timeoutMs) => runAcceptanceCommand(command, appDir, timeoutMs) : void 0
+  ) : void 0;
+  const acceptanceResults = acceptance?.results;
+  if (acceptance) errors.push(...acceptance.errors);
   if (!appDir) {
     if (doneTasks.length) {
       errors.push(`${doneTasks.length} task(s) are done but no app directory is declared \u2014 pass --app <dir> or set conventions.appDir.`);
@@ -24955,11 +25226,11 @@ function verifyRun(runDir, opts = {}) {
       warnings.push(`No app directory declared yet (conventions.appDir / --app) \u2014 file and test checks skipped.`);
     }
     const ok2 = errors.length === 0;
-    return { ok: ok2, errors, warnings, frTestCoverage };
+    return { ok: ok2, errors, warnings, frTestCoverage, acceptanceResults };
   }
   if (!existsSync18(appDir)) {
     errors.push(`App directory does not exist: ${appDir}.`);
-    return { ok: false, errors, warnings, frTestCoverage };
+    return { ok: false, errors, warnings, frTestCoverage, acceptanceResults };
   }
   for (const t of doneTasks) {
     for (const rel2 of [...t.artifacts, ...t.tests]) {
@@ -24978,31 +25249,45 @@ function verifyRun(runDir, opts = {}) {
   if (tagRe) {
     const testFiles = walk2(appDir).filter((f) => isTestFile2(f.rel));
     const refs = /* @__PURE__ */ new Map();
+    let zeroWidth = false;
     for (const f of testFiles) {
       const text = readText(f.abs);
       if (!text) continue;
       tagRe.lastIndex = 0;
       const found = /* @__PURE__ */ new Set();
       let m;
-      while (m = tagRe.exec(text)) found.add(m[0]);
+      while (m = tagRe.exec(text)) {
+        if (m[0] === "") {
+          zeroWidth = true;
+          break;
+        }
+        found.add(m[0]);
+      }
+      if (zeroWidth) break;
       for (const id of found) {
         if (!refs.has(id)) refs.set(id, []);
         refs.get(id).push(f.rel);
       }
     }
-    const known = new Set(srd.functional.map((f) => f.id));
-    const stale = [...refs.keys()].filter((id) => !known.has(id)).sort();
-    if (stale.length) {
-      warnings.push(`Tests reference FR id(s) absent from the SRD (${stale.join(", ")}) \u2014 ids may have shifted on a re-render; retag the tests.`);
-    }
-    for (const fr of srd.functional) {
-      const files = (refs.get(fr.id) ?? []).sort();
-      frTestCoverage.push({ fr: fr.id, priority: fr.priority, testFiles: files });
-      const claimed = plan.tasks.some((t) => t.frIds.includes(fr.id) && t.status === "done");
-      if (files.length === 0 && claimed) {
-        const msg = `${fr.id} (${fr.priority}) is built but no test references it \u2014 name the FR id in a test (pattern: ${plan.conventions.frTagPattern}).`;
-        if (opts.strict && fr.priority === "must") errors.push(msg);
-        else warnings.push(msg);
+    if (zeroWidth) {
+      errors.push(
+        `conventions.frTagPattern matches a zero-length (empty) string: ${plan.conventions.frTagPattern}. An empty match names no requirement, so FR \u2192 test coverage cannot be computed. Use a pattern that CONSUMES the tag text (e.g. FR-\\d{3}, or \\[FR-\\d{3}\\] for bracketed tags) \u2014 not an anchor or a bare lookahead.`
+      );
+    } else {
+      const known = new Set(srd.functional.map((f) => f.id));
+      const stale = [...refs.keys()].filter((id) => !known.has(id)).sort();
+      if (stale.length) {
+        warnings.push(`Tests reference FR id(s) absent from the SRD (${stale.join(", ")}) \u2014 ids may have shifted on a re-render; retag the tests.`);
+      }
+      for (const fr of srd.functional) {
+        const files = (refs.get(fr.id) ?? []).sort();
+        frTestCoverage.push({ fr: fr.id, priority: fr.priority, testFiles: files });
+        const claimed = plan.tasks.some((t) => t.frIds.includes(fr.id) && t.status === "done");
+        if (files.length === 0 && claimed) {
+          const msg = `${fr.id} (${fr.priority}) is built but no test references it \u2014 name the FR id in a test (pattern: ${plan.conventions.frTagPattern}).`;
+          if (opts.strict && fr.priority === "must") errors.push(msg);
+          else warnings.push(msg);
+        }
       }
     }
   }
@@ -25025,7 +25310,7 @@ function verifyRun(runDir, opts = {}) {
     }
   }
   const ok = errors.length === 0;
-  return { ok, errors, warnings, frTestCoverage, commandResults };
+  return { ok, errors, warnings, frTestCoverage, commandResults, acceptanceResults };
 }
 function formatVerifyReport(r, runDir) {
   const lines = [];
@@ -25046,6 +25331,11 @@ function formatVerifyReport(r, runDir) {
     lines.push(``);
     lines.push(`Commands (--run-tests):`);
     for (const c2 of r.commandResults) lines.push(`  ${c2.ok ? "\u2713" : "\u2717"} ${c2.command} (exit ${c2.exitCode})`);
+  }
+  if (r.acceptanceResults) {
+    lines.push("", "Acceptance execution (dedicated commands only; test adequacy requires review):");
+    for (const c2 of r.acceptanceResults)
+      lines.push(`  ${c2.frId}[${c2.index}] ${c2.status}${c2.command ? `: ${c2.command} (exit ${c2.exitCode ?? "not run"})` : ""}`);
   }
   return lines.join("\n");
 }
@@ -25987,7 +26277,7 @@ Usage:
   construct render   --out <run> --from-srd [--merge] [--prd|--no-prd]
   construct check    --out <run> [--min-grounding <0-100>] [--semantic [--allow-unverified]] [--json]
   construct review   --out <run> [--apply <verdicts.json>] [--max-review N] [--json]
-  construct verify   --out <run> [--app <dir>] [--run-tests] [--strict] [--json]
+  construct verify   --out <run> [--app <dir>] [--acceptance] [--run-tests] [--strict] [--json]
   construct status   --out <run> [--json]
   construct orchestrate --out <run> [--phase research|claim-review|adr-judges|build] [--adr <id>] [--eco] [--list]
   construct semantic up|down|status
@@ -26157,6 +26447,7 @@ var BOOL_FLAGS = /* @__PURE__ */ new Set([
   "json",
   "refresh",
   "run-tests",
+  "acceptance",
   "strict",
   "no-design",
   "prd",
@@ -26489,7 +26780,8 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
       const res = verifyRun(out2, {
         appDir: p.values.app ? resolve9(p.values.app) : void 0,
         runTests: p.bools.has("run-tests"),
-        strict: p.bools.has("strict")
+        strict: p.bools.has("strict"),
+        acceptance: p.bools.has("acceptance")
       });
       if (p.bools.has("json")) {
         process.stdout.write(JSON.stringify(res, null, 2) + "\n");

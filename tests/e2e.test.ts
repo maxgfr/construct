@@ -23,17 +23,25 @@ interface Run {
   status: number;
   stdout: string;
   stderr: string;
+  timedOut: boolean; // the child was killed by `timeoutMs`, i.e. it never returned
 }
 
 // Run the bundle. execFileSync throws on non-zero exit; normalise both paths to
-// { status, stdout, stderr } so tests can assert on failures too.
-function cli(args: string[]): Run {
+// { status, stdout, stderr } so tests can assert on failures too. `timeoutMs`
+// makes a command that never terminates a bounded FAILURE of this test rather
+// than a wedged worker: the child is killed, and the caller sees `timedOut`.
+function cli(args: string[], opts: { timeoutMs?: number } = {}): Run {
   try {
-    const stdout = execFileSync(process.execPath, [BIN, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-    return { status: 0, stdout, stderr: "" };
+    const stdout = execFileSync(process.execPath, [BIN, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: opts.timeoutMs });
+    return { status: 0, stdout, stderr: "", timedOut: false };
   } catch (e) {
-    const err = e as { status?: number; stdout?: string | Buffer; stderr?: string | Buffer };
-    return { status: err.status ?? 1, stdout: String(err.stdout ?? ""), stderr: String(err.stderr ?? "") };
+    const err = e as { status?: number; stdout?: string | Buffer; stderr?: string | Buffer; signal?: string | null; code?: string };
+    return {
+      status: err.status ?? 1,
+      stdout: String(err.stdout ?? ""),
+      stderr: String(err.stderr ?? ""),
+      timedOut: err.code === "ETIMEDOUT" || (opts.timeoutMs !== undefined && err.status === undefined && err.signal === "SIGTERM"),
+    };
   }
 }
 
@@ -552,6 +560,41 @@ describe("e2e: verify referee", () => {
     const r = cli(["verify", "--out", run]);
     expect(r.status).toBe(1);
     expect(r.stdout + r.stderr).toContain("No BUILD-PLAN.json");
+  });
+
+  // A zero-width `conventions.frTagPattern` is a LEGAL regex, so the "not a valid
+  // regex" guard never fires — but `while ((m = re.exec(text)))` never advances
+  // lastIndex on an empty match, so `verify` spun forever on a well-formed plan.
+  // Deliberately driven as a SUBPROCESS under a hard timeout: if the guard ever
+  // regresses this fails in seconds with `timedOut`, instead of wedging the test
+  // worker in a loop no test timeout can interrupt.
+  it.each([
+    ["^", "an anchor with no consuming atom"],
+    ["(?=FR)", "a lookahead — it matches only where the text really says FR"],
+  ])("rejects the zero-length-matching frTagPattern %s (%s) instead of hanging", (pattern) => {
+    const run = rendered();
+    const app = join(run, "app");
+    mkdirSync(join(app, "tests"), { recursive: true });
+    // Real matched input: the lookahead only matches text that contains "FR".
+    writeFileSync(join(app, "tests", "save.test.js"), '// FR-001 save an article\nit("FR-001", () => {});\n');
+    const plan = readPlan(run);
+    plan.conventions.appDir = app;
+    plan.conventions.frTagPattern = pattern;
+    writePlan(run, plan);
+
+    const r = cli(["verify", "--out", run, "--strict", "--json"], { timeoutMs: 30_000 });
+    expect(r.timedOut, "verify must not loop forever on a zero-width frTagPattern").toBe(false);
+    expect(r.status).toBe(1);
+    const res = JSON.parse(r.stdout) as { ok: boolean; errors: string[]; frTestCoverage: unknown[] };
+    expect(res.ok).toBe(false);
+    const msg = res.errors.join(" ");
+    expect(msg).toContain("frTagPattern");
+    expect(msg).toMatch(/zero-length|empty/i);
+    expect(msg).toContain(pattern); // name the offending pattern …
+    expect(msg).toContain("FR-\\d{3}"); // … and a CONSUMING one that works
+    // Coverage derived from empty matches would be meaningless — none is reported.
+    expect(res.frTestCoverage).toEqual([]);
+    noStackTrace(r.stdout + r.stderr);
   });
 });
 

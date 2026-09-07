@@ -14,7 +14,7 @@ read the criteria there, they are never copied), `dependsOn`,
 
 Agent-owned (a re-render preserves these, keyed by the feature title):
 `conventions.testCommand`, `conventions.appDir`, and per task `artifacts`,
-`tests`, `verify.commands`, `status` (`todo` → `in-progress` → `done`).
+`tests`, `verify.commands`, `verify.criteria`, `status` (`todo` → `in-progress` → `done`).
 
 **One-writer rule (build phase).** `BUILD-PLAN.json` is a run-folder file; only
 the orchestrator writes it — exactly as only `construct research`/`review` write
@@ -52,6 +52,8 @@ must-haves.
 4. **Record:** fill `artifacts` (the source files that implement it) and
    `tests` (the test files), both app-relative. Add any extra
    `verify.commands` worth running for this task (lint, a smoke script).
+   Bind each dedicated criterion test under `verify.criteria`, following
+   `references/verify.md`; preserve the current full-FR fingerprint.
 5. **Set `status: "done"`**, then referee:
    ```
    node scripts/construct.mjs verify --out <run>
@@ -130,6 +132,8 @@ checks honesty. Fix what it finds before starting the next milestone.
 
 A milestone is done when: every task is `done`, `verify --run-tests --strict`
 exits 0, and the milestone review found nothing unaddressed. The build is
-done when every milestone is — then `construct status` shows
+done when every milestone is and `verify --strict --acceptance --run-tests`
+exits 0 with every current criterion `passed`. Review the mapped assertions;
+command success alone cannot establish test adequacy. Then `construct status` shows
 `build: N/N tasks done`, and you present the app against the SRD's success
 metrics, not just its file tree.

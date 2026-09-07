@@ -508,6 +508,13 @@ export interface ClaimEvidencePair {
   evidenceId: string; // the cited [E#]
   source: SourceKind;
   digest: string; // the cited item's snippet
+  // Content fingerprint of what was actually reviewed: the claim's FULL text
+  // (not the capped `claim` excerpt) + the cited evidence item's whole record.
+  // `render --from-srd` PRESERVES generatedAt, so a hand-edited SRD.json used to
+  // slip past the timestamp staleness gate with the old verdicts still certifying
+  // it. Optional: an artifact written before this field simply carries no binding,
+  // which `check --semantic` reports explicitly instead of trusting.
+  fingerprint?: string;
 }
 
 export interface ClaimVerdict extends ClaimEvidencePair {
@@ -550,6 +557,27 @@ export interface AcceptanceRef {
   index: number;
 }
 
+export interface AcceptanceBinding extends AcceptanceRef {
+  fingerprint: string;
+  command: string;
+  timeoutMs?: number;
+}
+
+export interface AcceptanceResult extends AcceptanceRef {
+  fingerprint: string;
+  criterion: AcceptanceCriterion;
+  status: "passed" | "failed" | "not-tested";
+  reason?: string;
+  command?: string;
+  exitCode?: number | null;
+  stdout?: string;
+  stderr?: string;
+  timedOut?: boolean;
+  signal?: string | null;
+  error?: string;
+  outputTruncated?: boolean;
+}
+
 export type TaskStatus = "todo" | "in-progress" | "done";
 
 export interface BuildTask {
@@ -564,7 +592,7 @@ export interface BuildTask {
   // Agent-owned (preserved across re-renders, keyed by the task's frIds):
   artifacts: string[]; // app-relative paths implementing the task
   tests: string[]; // app-relative test files exercising the task
-  verify: { commands: string[] }; // per-task commands `verify --run-tests` executes
+  verify: { commands: string[]; criteria?: AcceptanceBinding[] }; // explicit execution mappings
   status: TaskStatus;
 }
 
@@ -598,6 +626,7 @@ export interface VerifyResult {
   frTestCoverage: FrTestCoverage[];
   // Present only with --run-tests.
   commandResults?: { command: string; ok: boolean; exitCode: number | null }[];
+  acceptanceResults?: AcceptanceResult[];
 }
 
 // ---------------------------------------------------------------------------
