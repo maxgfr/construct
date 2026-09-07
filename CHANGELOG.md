@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [3.19.0](https://github.com/maxgfr/construct/compare/v3.18.0...v3.19.0) (2026-09-07)
+
+
+### Features
+
+* **engine:** re-pin vendored engines ([c0c7d47](https://github.com/maxgfr/construct/commit/c0c7d477ceb4102a59e7d8de1f5477cf61bb385a))
+
 # [3.18.0](https://github.com/maxgfr/construct/compare/v3.17.0...v3.18.0) (2026-09-04)
 
 
