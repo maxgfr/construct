@@ -4,7 +4,7 @@ description: "Turn a product idea into grounded SRD/PRD requirements, acceptance
 disable-model-invocation: true
 license: MIT
 metadata:
-  version: 3.20.0
+  version: 3.20.1
 ---
 
 # construct — a product idea, grounded into a buildable SRD

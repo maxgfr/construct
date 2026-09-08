@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+## [3.20.1](https://github.com/maxgfr/construct/compare/v3.20.0...v3.20.1) (2026-09-08)
+
+
+### Bug Fixes
+
+* **engine:** unify pins, repins and shared engine adapters ([7967140](https://github.com/maxgfr/construct/commit/79671407e86d180139cf878c57d13be00f910f53))
+* **engine:** unify pins, repins and shared engine adapters ([ed1ba55](https://github.com/maxgfr/construct/commit/ed1ba552fd970c4f473cbcead1fe2719f298d627))
+
 # [3.20.0](https://github.com/maxgfr/construct/compare/v3.19.0...v3.20.0) (2026-09-07)
 
 
