@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+## [3.20.2](https://github.com/maxgfr/construct/compare/v3.20.1...v3.20.2) (2026-09-08)
+
+
+### Bug Fixes
+
+* **engine:** measure CodeIndex adoption independently of WebIndex ([6025010](https://github.com/maxgfr/construct/commit/6025010c440fdae8bdcda85f71de38a4d36a5173))
+
 ## [3.20.1](https://github.com/maxgfr/construct/compare/v3.20.0...v3.20.1) (2026-09-08)
 
 
