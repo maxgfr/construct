@@ -9,7 +9,7 @@ metadata:
 
 # construct — a product idea, grounded into a buildable SRD
 
-Use the bundled CodeIndex-backed commands to locate relevant files, symbols and relationships, then inspect the cited source before drawing conclusions. Use the bundled WebIndex-backed commands to retrieve and inspect source pages; search snippets identify candidates, while the fetched passages support citations. Report caps, skipped files, unavailable extractors and blocked sources as coverage limits. An empty or partial result does not establish that nothing exists.
+For engine evidence and coverage limits, read [engine-evidence](references/engine-evidence.md).
 
 `construct` turns a product idea into a **Software Requirements Document suite**
 whose requirements and decisions are **grounded in real research**, not the
