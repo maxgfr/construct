@@ -26,11 +26,13 @@
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
     "verify:bundle": "node scripts/verify-skill-bundle.mjs",
-    "check:build": "node scripts/sync-engine.mjs --check && tsup && node scripts/copy-bundle.mjs && git diff --exit-code -- scripts/construct.mjs skills/construct/scripts/construct.mjs && node scripts/verify-skill-bundle.mjs && git diff --exit-code -- assets tests/__snapshots__ && node scripts/verify-engine-usage.mjs",
+    "check:build": "node scripts/sync-engine.mjs --check && tsup && node scripts/copy-bundle.mjs && git diff --exit-code -- scripts/construct.mjs skills/construct/scripts/construct.mjs && node scripts/verify-skill-bundle.mjs && git diff --exit-code -- assets tests/__snapshots__ && node scripts/verify-engine-usage.mjs && node scripts/sync-engine.mjs --check && node scripts/verify-engine-usage.mjs",
     "demo": "rm -rf /tmp/construct-demo && mkdir -p /tmp/construct-demo/evidence && cp tests/fixtures/sample-brief.json /tmp/construct-demo/brief.json && cp tests/fixtures/sample-evidence.json /tmp/construct-demo/evidence/evidence.json && node scripts/construct.mjs render --out /tmp/construct-demo --level light --merge && node scripts/construct.mjs check --out /tmp/construct-demo",
     "release": "semantic-release",
     "example": "node scripts/construct.mjs render --out assets/example-srd --from-srd && node scripts/construct.mjs check --out assets/example-srd --min-grounding 66",
-    "verify:engine": "node scripts/verify-engine-usage.mjs"
+    "verify:engine": "node scripts/verify-engine-usage.mjs",
+    "engine:prepare": "pnpm run build && pnpm run example && node scripts/check-artifact-recall.mjs",
+    "engine:gate": "pnpm run typecheck && pnpm run lint && pnpm run test:coverage && pnpm run check:build && pnpm run demo"
   },
   "keywords": [
     "skills",
@@ -60,7 +62,8 @@
     "tsup": "^8.3.0",
     "typescript": "^5.5.0",
     "vitest": "^4.1.0",
-    "yaml": "^2.9.0"
+    "yaml": "^2.9.0",
+    "@maxgfr/webindex": "https://codeload.github.com/maxgfr/webindex/tar.gz/5789560fa2b8c9a34326292e50f8f0fa951fa79d"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

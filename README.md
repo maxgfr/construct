@@ -274,3 +274,5 @@ once — this file can no longer stop them, and they still hold the ports:
 ```bash
 docker rm -f $(docker ps -aq --filter name='^(ultrasearch|construct|ultradoc)-')
 ```
+
+See [shared engine maintenance](ENGINE-MAINTENANCE.md) for pins, source adoption checks and the daily repin workflow.

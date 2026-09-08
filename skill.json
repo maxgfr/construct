@@ -1,0 +1,64 @@
+{
+  "name": "construct",
+  "vendorDir": "src/vendor",
+  "engines": {
+    "codeindex": {
+      "repo": "maxgfr/codeindex",
+      "minRef": "v2.27.1",
+      "meta": "engine.meta.json",
+      "files": [
+        {
+          "remote": "scripts/engine.mjs",
+          "local": "codeindex-engine.mjs"
+        },
+        {
+          "remote": "scripts/engine.d.mts",
+          "local": "codeindex-engine.d.mts"
+        }
+      ],
+      "forks": {
+        "src/verify.ts:isTestFile": "Build-plan verification recognizes its supported test runner filenames; this is verification policy, not code indexing.",
+        "src/walk.ts:walk": "Result adapter returning the shared walker files array."
+      },
+      "usageFloor": 10
+    },
+    "webindex": {
+      "repo": "maxgfr/webindex",
+      "minRef": "v1.18.0",
+      "meta": "webindex.meta.json",
+      "files": [
+        {
+          "remote": "scripts/engine.mjs",
+          "local": "webindex-engine.mjs"
+        },
+        {
+          "remote": "scripts/engine.d.mts",
+          "local": "webindex-engine.d.mts"
+        }
+      ],
+      "forks": {},
+      "usageFloor": 109
+    }
+  },
+  "repin": {
+    "artifacts": [
+      "src/vendor",
+      "scripts",
+      "skills",
+      "package.json",
+      "pnpm-lock.yaml",
+      "skill.json",
+      ".github/workflows/engine-repin.yml",
+      "assets/example-srd"
+    ],
+    "workflows": [
+      "ci.yml",
+      "release.yml"
+    ],
+    "recall": {
+      "paths": [
+        "assets/example-srd"
+      ]
+    }
+  }
+}
