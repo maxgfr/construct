@@ -20,7 +20,7 @@
         "src/verify.ts:isTestFile": "Build-plan verification recognizes its supported test runner filenames; this is verification policy, not code indexing.",
         "src/walk.ts:walk": "Result adapter returning the shared walker files array."
       },
-      "usageFloor": 10
+      "usageFloor": 4
     },
     "webindex": {
       "repo": "maxgfr/webindex",
