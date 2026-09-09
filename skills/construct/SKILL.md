@@ -360,9 +360,9 @@ node scripts/construct.mjs orchestrate --out <run> [--phase research|claim-revie
 
 | Your harness | How to run each phase |
 |---|---|
-| Has the Workflow tool | `orchestrate --phase <p>`, then `Workflow({ scriptPath: "<RUN>/orchestration/<p>.workflow.mjs" })` |
-| Subagents, no Workflow tool | Same `orchestrate`; dispatch one subagent per batch per `<RUN>/orchestration/agents/<role>.md` |
-| Eco mode, or no subagents | `orchestrate --eco` → follow `<RUN>/orchestration/RUNBOOK.md` sequentially |
+| Has the Workflow tool | `orchestrate --phase <p>`, then `Workflow({ scriptPath: "<run>/orchestration/<p>.workflow.mjs" })` |
+| Subagents, no Workflow tool | Same `orchestrate`; dispatch one subagent per batch per `<run>/orchestration/agents/<role>.md` |
+| Eco mode, or no subagents | `orchestrate --eco` → follow `<run>/orchestration/RUNBOOK.md` sequentially |
 
 **Two rules survive every tier.** Subagents never write the run folder — they return
 fragments and YOU fold them in (builders write code only in their own git worktree). And
