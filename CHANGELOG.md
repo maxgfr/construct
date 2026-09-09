@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+## [3.20.5](https://github.com/maxgfr/construct/compare/v3.20.4...v3.20.5) (2026-09-09)
+
+
+### Bug Fixes
+
+* réépingler webindex après harmonisation du chemin d’orchestration ([133fe94](https://github.com/maxgfr/construct/commit/133fe949b2afb6790108041ec83787f009edd0b3))
+
 ## [3.20.4](https://github.com/maxgfr/construct/compare/v3.20.3...v3.20.4) (2026-09-08)
 
 
