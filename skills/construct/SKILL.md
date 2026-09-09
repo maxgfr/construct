@@ -1,10 +1,11 @@
 ---
 name: construct
-description: "Turn a product idea into grounded SRD/PRD requirements, acceptance criteria, and a verifiable build plan."
+description: Turn a product idea into grounded SRD/PRD requirements, acceptance criteria, and a verifiable build plan.
 disable-model-invocation: true
 license: MIT
 metadata:
   version: 3.20.5
+  opencode/autoinvoke: 'false'
 ---
 
 # construct — a product idea, grounded into a buildable SRD
