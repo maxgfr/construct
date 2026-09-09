@@ -21,8 +21,10 @@ rendered scaffold into a precise, well-grounded SRD.
 > **The core rule:** prefer a *grounded* requirement to a *guessed* one. Use the
 > research the engine retrieves (competitors, OSS prior art, tech docs,
 > StackOverflow) to justify scope, NFRs and architecture decisions, and cite the
-> evidence with `[E#]`. Grounding is **advisory** here — `construct check`
-> reports coverage but never fails on it — so the rigor is yours to apply.
+> evidence with `[E#]`. Grounding is **advisory by default**: `construct check` reports citation
+> coverage. Pass `--min-grounding <0-100>` to fail below a required coverage
+> threshold. Coverage counts references; use `review` and `check --semantic`
+> to verify that the cited evidence actually supports the claims.
 
 ## The loop, in one line
 
