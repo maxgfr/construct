@@ -1,11 +1,11 @@
 # construct
 
-## Manual skill invocation
+## Invocation
 
-Invoke `$construct` explicitly in Codex or `/construct` in Claude Code.
-The shipped skill disables automatic activation in both hosts; CLI commands
-remain unchanged. Other hosts may not honor these settings. Existing installed
-copies need to be updated to receive this invocation policy.
+**Manual by default.** `construct` runs when you ask for it: `$construct` in Codex,
+`/construct` in Claude Code or OpenCode. The agent never starts it on its own, and
+CLI commands are unchanged. One setting per host makes it automatic — see
+[Manual or automatic](#manual-or-automatic).
 
 Turn a product idea into a **grounded, buildable SRD suite** — a Software
 Requirements Document whose requirements and decisions rest on **real research**
@@ -277,11 +277,32 @@ docker rm -f $(docker ps -aq --filter name='^(ultrasearch|construct|ultradoc)-')
 
 See [shared engine maintenance](ENGINE-MAINTENANCE.md) for pins, source adoption checks and the daily repin workflow.
 
-## Manual skill invocation
+## Manual or automatic
 
-These skills run when explicitly invoked: `construct`. Use `$name` in Codex or `/name` in Claude Code and OpenCode (with the plugin namespace when installed as a Claude plugin).
+`construct` ships **explicit-only**, and `skills add` installs it that way: it runs
+when you invoke it, never when the agent feels like it. Use `$construct` in Codex,
+`/construct` in Claude Code or OpenCode, prefixing the plugin namespace when it is
+installed as a Claude plugin.
 
-The skill bundle disables implicit selection in Codex and Claude Code. OpenCode V2 reads `metadata.opencode/autoinvoke: "false"`. For OpenCode V1, merge these entries into `permission.skill` in `~/.config/opencode/opencode.json` or the project configuration; retain unrelated permissions:
+Letting the agent choose it is one setting per host, applied to the
+**installed** copy of the skill:
+
+| Host | Shipped, manual | Automatic |
+| --- | --- | --- |
+| Claude Code | `disable-model-invocation: true` in `SKILL.md` | delete that line, or set it to `false` |
+| Codex | `allow_implicit_invocation: false` under `policy:` in `agents/openai.yaml` | set it to `true` |
+| OpenCode | `metadata.opencode/autoinvoke: 'false'` in `SKILL.md` | delete that entry, or set it to `'true'` |
+
+Claude Code can do it without touching the file: put
+`"skillOverrides": { "construct": "on" }` in `settings.json`, where
+`"user-invocable-only"` forces manual mode back. Plugin installs ignore
+`skillOverrides`, so edit the frontmatter there. Updating or reinstalling the
+skill restores the shipped default, so reapply the change afterwards.
+
+OpenCode V1 reads no `autoinvoke` metadata. Keep it manual with
+`permission.skill` in `~/.config/opencode/opencode.json` or the project
+configuration, retaining unrelated permissions; dropping the entry, or setting
+`"allow"`, is what lets the agent reach it:
 
 ```json
 {
@@ -293,4 +314,6 @@ The skill bundle disables implicit selection in Codex and Claude Code. OpenCode 
 }
 ```
 
-On OpenCode 1.18.30, these rules hide the skills from the agent and reject skill-tool loading, while explicit `/name` commands remain available. Installation with `skills add` does not apply this OpenCode V1 configuration.
+On OpenCode 1.18.30 that rule hides the skill from the agent and rejects
+skill-tool loading, while the explicit `/construct` command still works.
+Installation with `skills add` does not write this OpenCode V1 configuration.
