@@ -60,7 +60,7 @@
     "@vitest/coverage-v8": "^4.1.8",
     "semantic-release": "^24.2.0",
     "tsup": "^8.3.0",
-    "typescript": "^5.5.0",
+    "typescript": "^6.0.3",
     "vitest": "^4.1.0",
     "yaml": "^2.9.0",
     "@maxgfr/webindex": "https://codeload.github.com/maxgfr/webindex/tar.gz/708b9e5efc8908ca785cc2d975867d602fff4e00"
