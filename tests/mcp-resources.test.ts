@@ -94,7 +94,9 @@ describe("resources/read", () => {
   });
 
   it("rejects traversal out of the skill root", () => {
-    expect(() => readResource("skill://../../package.json")).toThrow(/escapes the skill root|no such resource/);
+    // Refused on the path as written, before the filesystem is asked anything:
+    // only SKILL.md and references/*.md are served.
+    expect(() => readResource("skill://../../package.json")).toThrow(/not a resource this server serves/);
   });
 
   it("rejects a symlink that points out of the skill root", () => {
@@ -102,17 +104,20 @@ describe("resources/read", () => {
     // the filesystem resolves it, which is why containment is checked on the
     // realpath. Relevant because this server can be reached over HTTP.
     const root = tmp();
+    // The link sits at a name the server does serve (references/*.md), so only
+    // the realpath check stands between it and the file outside the root.
     mkdirSync(join(root, "scripts"), { recursive: true });
+    mkdirSync(join(root, "references"), { recursive: true });
     writeFileSync(join(root, "SKILL.md"), "# skill\n\nBody.\n");
     const secret = join(tmp(), "secret.md");
     writeFileSync(secret, "top secret");
-    symlinkSync(secret, join(root, "escape.md"));
+    symlinkSync(secret, join(root, "references", "escape.md"));
 
-    expect(() => readResource("skill://escape.md", join(root, "scripts"))).toThrow(/escapes the skill root/);
+    expect(() => readResource("skill://references/escape.md", join(root, "scripts"))).toThrow(/escapes the skill root/);
   });
 
   it("rejects a directory and a file that is not there", () => {
-    expect(() => readResource("skill://references")).toThrow(/not a file/);
+    expect(() => readResource("skill://references")).toThrow(/not a resource this server serves/);
     expect(() => readResource("skill://references/nope.md")).toThrow(/no such resource/);
   });
 

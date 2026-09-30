@@ -390,25 +390,34 @@ describe("fetchAndExtract — the extraction seam", () => {
     expect(note).toMatch(/Could not fetch https:\/\/gone\.example\/page \(status 404\)/);
   });
 
-  // The consent stripper drops any line under 120 chars that mentions cookies.
-  // That is calibrated for banner chrome the regex stripper leaves behind — run
-  // it on main-content markdown and it eats a page ABOUT cookies.
+  // The consent stripper is calibrated for banner chrome the regex HTML
+  // extractor leaves behind. Firecrawl already returns main content, so its
+  // markdown is never passed through it: a page ABOUT cookies stays whole.
   it("never runs the consent stripper on Firecrawl markdown", async () => {
+    // A genuine banner notice, which the stripper does remove, rides along in
+    // the scraped markdown: it surviving is what shows the stripper never ran.
+    // (Since webindex v1.26 the stripper itself also spares the article's own
+    // cookie section, so that section alone could no longer prove this.)
+    const banner = "We use cookies to improve your experience on our site.";
+    const scrape = { ...SCRAPE_FIXTURE, data: { ...SCRAPE_FIXTURE.data, markdown: `${SCRAPE_FIXTURE.data.markdown}\n${banner}\n` } };
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {
         const u = String(url);
-        if (u.endsWith("/scrape")) return json(SCRAPE_FIXTURE);
+        if (u.endsWith("/scrape")) return json(scrape);
         return json({ message: "Firecrawl API" });
       }),
     );
     const { text } = await fetchAndExtract("https://cookies.example/guide");
     expect(text).toMatch(/Set the cookies option to opt into signed cookies/);
     expect(text).toMatch(/## Cookies/);
-    // Proof the guard is what saved it: the same text through the HTML path loses both lines.
-    const { text: stripped } = stripConsentBoilerplate(text);
-    expect(stripped).not.toMatch(/Set the cookies option/);
-    expect(stripped).not.toMatch(/## Cookies/);
+    expect(text).toContain(banner);
+    // Proof the guard is what kept it: the same text through the stripper loses
+    // the banner, and only the banner.
+    const { text: stripped, dropped } = stripConsentBoilerplate(text);
+    expect(stripped).not.toContain(banner);
+    expect(dropped).toBe(1);
+    expect(stripped).toMatch(/Set the cookies option/);
   });
 
   it("reports which extractor produced the text", async () => {

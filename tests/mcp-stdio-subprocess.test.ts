@@ -60,6 +60,9 @@ function session(frames: unknown[], opts: { args?: string[]; timeoutMs?: number 
 
 const INIT = { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18" } };
 const INITIALIZED = { jsonrpc: "2.0", method: "notifications/initialized" };
+// JSON-RPC batches exist in MCP 2025-03-26 and were removed in 2025-06-18, so
+// the batch test negotiates the revision that still has them.
+const INIT_BATCHES = { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26" } };
 
 describe("the bundled MCP server over stdio", () => {
   it("completes a handshake, and writes NOTHING to stdout but JSON-RPC frames", async () => {
@@ -197,10 +200,27 @@ describe("the bundled MCP server over stdio", () => {
   });
 
   it("answers a batch with a single array frame", async () => {
-    const s = await session([INIT, [{ jsonrpc: "2.0", id: 2, method: "ping" }, INITIALIZED, { jsonrpc: "2.0", id: 3, method: "ping" }]]);
+    const s = await session([INIT_BATCHES, [{ jsonrpc: "2.0", id: 2, method: "ping" }, INITIALIZED, { jsonrpc: "2.0", id: 3, method: "ping" }]]);
+    expect(JSON.parse(s.lines[0]!).result.protocolVersion).toBe("2025-03-26");
     const batch = JSON.parse(s.lines[1]!);
     expect(Array.isArray(batch)).toBe(true);
     expect(batch.map((m: { id: number }) => m.id)).toEqual([2, 3]);
+  });
+
+  it("refuses a batch once 2025-06-18 is negotiated, with one invalid-request frame", async () => {
+    const s = await session([
+      INIT,
+      [
+        { jsonrpc: "2.0", id: 2, method: "ping" },
+        { jsonrpc: "2.0", id: 3, method: "ping" },
+      ],
+    ]);
+    expect(s.lines).toHaveLength(2);
+    const refusal = JSON.parse(s.lines[1]!);
+    expect(Array.isArray(refusal)).toBe(false);
+    expect(refusal.id).toBeNull();
+    expect(refusal.error.code).toBe(-32600);
+    expect(refusal.error.message).toMatch(/batches are not part of MCP 2025-06-18/);
   });
 });
 
