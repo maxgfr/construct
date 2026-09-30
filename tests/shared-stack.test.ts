@@ -38,6 +38,8 @@ describe("shared Docker stack location", () => {
         stackControl("searxng", "up", {
           has: () => true,
           run: (_cmd, args) => {
+            // The daemon probe answers; the compose command that follows throws.
+            if (args[0] === "info") return { ok: true, stdout: "27.0.0\n", stderr: "" };
             expect(args).toContain(join(root, "shared/compose/docker-compose.yml"));
             throw new Error("runner failed");
           },

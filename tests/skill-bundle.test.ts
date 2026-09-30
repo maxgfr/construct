@@ -27,7 +27,8 @@ describe("skill bundle — the Docker stack is the engine's", () => {
     const calls: string[][] = [];
     const r = stackCommand("firecrawl", "status", {
       has: () => true,
-      run: (cmd, args) => (calls.push([cmd, ...args]), { ok: true, stdout: "", stderr: "" }),
+      // Every call succeeds; the daemon probe (`docker info`) is not a compose call.
+      run: (cmd, args) => (args[0] === "info" || calls.push([cmd, ...args]), { ok: true, stdout: "", stderr: "" }),
     });
     expect(r.code).toBe(0);
     const file = calls[0]![calls[0]!.indexOf("-f") + 1]!;

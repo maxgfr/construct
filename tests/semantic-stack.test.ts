@@ -32,18 +32,27 @@ afterEach(() => {
 // there against a fake docker. What is construct's — and what these cover — is
 // the mapping: which services each of its two commands means, that neither
 // drifts into the other's, and the `use:` hint each one ends with.
+//
+// The engine asks the daemon (`docker info`) before any compose command, so a
+// stopped Docker Desktop is one clear sentence. The fake daemon answers that
+// probe, which is kept out of `calls`: those are the compose commands only.
 function fake(over: { fails?: string; missingDocker?: boolean; ps?: string } = {}) {
   const calls: string[][] = [];
+  const probes: string[][] = [];
   const deps = {
     has: () => !over.missingDocker,
     run: (cmd: string, args: string[]) => {
+      if (args[0] === "info") {
+        probes.push([cmd, ...args]);
+        return { ok: true, stdout: "27.0.0\n", stderr: "" };
+      }
       calls.push([cmd, ...args]);
       const verb = args.find((a) => ["pull", "up", "down", "ps", "exec"].includes(a)) ?? "";
       const ok = over.fails !== verb;
       return { ok, stdout: verb === "ps" ? (over.ps ?? "") : "", stderr: ok ? "" : "boom" };
     },
   };
-  return { calls, deps };
+  return { calls, probes, deps };
 }
 const profilesOf = (argv: string[]): string[] => argv.filter((a, i) => argv[i - 1] === "--profile");
 
@@ -57,11 +66,12 @@ describe("stackCommand", () => {
   });
 
   it("reports a clean error (no shelling out) when docker is not installed", () => {
-    const { calls, deps } = fake({ missingDocker: true });
+    const { calls, probes, deps } = fake({ missingDocker: true });
     const r = stackCommand("semantic", "up", deps);
     expect(r.code).toBe(1);
     expect(r.message).toMatch(/docker not found/);
     expect(calls).toEqual([]);
+    expect(probes).toEqual([]);
   });
 
   it("works from an install, not just a clone", () => {
@@ -92,10 +102,12 @@ describe("stackCommand", () => {
     expect(r.message).toMatch(/no services running/);
   });
 
-  it("status failure surfaces stderr but does not gate (exit 0)", () => {
+  // A listing that could not be read is not "nothing is running": since
+  // webindex v1.26 a failed `ps` exits 1 (an empty one still exits 0, above).
+  it("status failure surfaces stderr and exits 1", () => {
     const { deps } = fake({ fails: "ps" });
     const r = stackCommand("semantic", "status", deps);
-    expect(r.code).toBe(0);
+    expect(r.code).toBe(1);
     expect(r.message).toMatch(/status failed/);
     expect(r.message).toContain("boom");
   });
