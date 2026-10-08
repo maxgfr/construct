@@ -3,7 +3,7 @@ name: construct
 description: Turn a product idea into grounded SRD/PRD requirements, acceptance criteria, and a verifiable build plan. Use only when the user explicitly asks for construct or for an SRD/PRD built from a product idea.
 license: MIT
 metadata:
-  version: 3.20.9
+  version: 3.21.0
   opencode/autoinvoke: 'true'
 ---
 

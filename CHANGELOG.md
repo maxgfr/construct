@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [3.21.0](https://github.com/maxgfr/construct/compare/v3.20.9...v3.21.0) (2026-10-08)
+
+
+### Features
+
+* **skill:** let the agent invoke construct on request ([aedb2d5](https://github.com/maxgfr/construct/commit/aedb2d5615d0362804e55b24a700e734dc2e1d19))
+
 ## [3.20.9](https://github.com/maxgfr/construct/compare/v3.20.8...v3.20.9) (2026-10-01)
 
 
