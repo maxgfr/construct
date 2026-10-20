@@ -14,7 +14,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Claude Code matches skill descriptions at <=1024 chars; 1000 leaves a safety
+// The Agent Skills spec caps skill descriptions at 1024 chars; 1000 leaves a safety
 // margin so a future edit can't silently cross the cap.
 const DESC_MAX = 1000;
 

@@ -22,7 +22,7 @@ three-tier model of references/orchestration.md).
 ## The loop (play every role yourself, one unit at a time)
 
 1. **Interview → brief** (if not done): \`node <ENGINE> init --idea "<one-liner>" --out <RUN>\`, then fill \`<RUN>/brief.json\` one question at a time (references/interview-playbook.md).
-2. **Research, then dig every gap** — \`node <ENGINE> research --out <RUN>\` builds the dossier; \`node <ENGINE> analyze --out <RUN>\` names each gap + its drill command. For EVERY gap, apply \`<RUN>/orchestration/agents/researcher.md\` yourself (run the drill, WebSearch what it misses, keep the URLs worth grounding). Fold in serially with ONE pinned re-run: \`node <ENGINE> research --out <RUN> --angles market,oss,tech --url <u,...>\` → re-run \`analyze\`. Loop until clean or the user stops you.
+2. **Research, then dig every gap** — \`node <ENGINE> research --out <RUN>\` builds the dossier; \`node <ENGINE> analyze --out <RUN>\` names each gap + its drill command. For EVERY gap, apply \`<RUN>/orchestration/agents/researcher.md\` yourself (run the drill, web-search what it misses, keep the URLs worth grounding). Fold in serially with ONE pinned re-run: \`node <ENGINE> research --out <RUN> --angles market,oss,tech --url <u,...>\` → re-run \`analyze\`. Loop until clean or the user stops you.
 3. **Render**: \`node <ENGINE> render --out <RUN> --level complex\`, then enrich the SRD (SKILL.md step 4).
 4. **Claim-support review** — \`node <ENGINE> review --out <RUN>\` writes \`<RUN>/VERIFY.todo.json\`. For EVERY pair, apply \`<RUN>/orchestration/agents/claim-reviewer.md\` yourself (verdict + note into a \`verdicts.json\`). Then fold: \`node <ENGINE> review --apply verdicts.json --out <RUN>\` and gate: \`node <ENGINE> check --out <RUN> --semantic\` (must exit 0 before presenting).
 5. **Judge panel — only for ONE genuinely contested ADR** — apply \`<RUN>/orchestration/agents/adr-judge.md\` yourself three times (feasibility / operations-cost / user-value) over the pasted ADR + its cited evidence. Majority (≥2 lenses ≥3) → one line per lens under *Alternatives considered*, flip \`proposed → accepted\` in \`<RUN>/SRD.json\`, re-emit: \`node <ENGINE> render --out <RUN> --from-srd\`.
@@ -31,7 +31,7 @@ three-tier model of references/orchestration.md).
 The adversarial SRD review (Pattern 2) stays a single fresh-eyes pass by design — run it
 per references/adversarial-review.md; it is deliberately not a fan-out and not emitted here.
 
-With subagents available, prefer the emitted workflows instead: \`orchestrate --out <RUN> --phase <p>\` then \`Workflow({ scriptPath: "<RUN>/orchestration/<p>.workflow.mjs" })\` — you stay the sole writer either way.
+With subagents available, fan out instead: \`orchestrate --out <RUN> --phase <p>\`, then dispatch one subagent per batch with your host's subagent tool, each given its \`<RUN>/orchestration/agents/<role>.md\` contract. Optional — Claude Code: launch \`<RUN>/orchestration/<p>.workflow.mjs\` with the Workflow tool (\`Workflow({ scriptPath: "<RUN>/orchestration/<p>.workflow.mjs" })\`) for one-call parallel fan-out. You stay the sole writer either way.
 
 
 The subagents return fragments; **you** are the sole writer. Each phase below

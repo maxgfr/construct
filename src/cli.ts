@@ -2,7 +2,7 @@ import { resolve, join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
-import { VERSION, ALL_SOURCE_KINDS } from "./types.js";
+import { VERSION, ALL_SOURCE_KINDS, WEB_ENGINE_INPUTS, normalizeWebEngine } from "./types.js";
 import type { Angle, ResearchContext, WebEngine, EvidenceItem, DossierMeta, Level, SourceResult, SourceKind, BuildPlanDoc } from "./types.js";
 import { slugify } from "./util.js";
 import { initBrief, saveBrief, loadBrief, validateBrief } from "./brief.js";
@@ -128,8 +128,10 @@ Options:
   --list               For 'orchestrate': print the phases + readiness as JSON
   --run-tests          For 'verify': also execute testCommand + per-task verify commands
   --strict             For 'verify': a built must-have FR with no referencing test FAILS
-  --web-engine <e>     auto | searxng | ddg | claude | firecrawl (default: auto;
-                       'firecrawl' is explicit-only — 'auto' never probes it)
+  --web-engine <e>     auto | searxng | ddg | host | firecrawl (default: auto;
+                       'host' = the agent's built-in web search; 'claude' is
+                       a deprecated alias of 'host'; 'firecrawl' is
+                       explicit-only — 'auto' never probes it)
   --firecrawl <url>    Firecrawl base URL, or 'off' to force the built-in
                        extractor        (default: $CONSTRUCT_FIRECRAWL or
                        http://localhost:3002)
@@ -318,7 +320,9 @@ function buildResearchContext(p: Parsed, runDir: string, angles: Angle[]): Resea
   // Same reasoning as the cache: the extraction layer sits under fetchAndExtract,
   // far below every angle, so it is configured once here instead of threaded.
   if (p.values.firecrawl) configureFirecrawl({ base: p.values.firecrawl });
-  const webEngine = oneOf<WebEngine>("web-engine", p.values["web-engine"] ?? "auto", ["auto", "searxng", "ddg", "claude", "firecrawl"]);
+  const webEngineInput = oneOf("web-engine", p.values["web-engine"] ?? "auto", WEB_ENGINE_INPUTS);
+  if (webEngineInput === "claude") process.stderr.write('construct: --web-engine claude is deprecated — use "host" (same behaviour)\n');
+  const webEngine: WebEngine = normalizeWebEngine(webEngineInput);
   if (p.values.seeds) brief.ossSeeds = csv(p.values.seeds);
   return {
     brief,
@@ -675,14 +679,20 @@ async function main(): Promise<void> {
       for (const w of res.written) process.stderr.write(`  ${w}\n`);
       for (const n of res.notices) process.stderr.write(`construct orchestrate: note — ${n}\n`);
       const workflows = res.written.filter((w) => w.endsWith(".workflow.mjs"));
+      const orchDir = join(runDir, "orchestration");
       if (workflows.length) {
+        // The generic route comes first: any host that can spawn subagents runs
+        // the agents/*.md contracts as-is. The .workflow.mjs scripts are an
+        // optional accelerator for hosts that ship a Workflow tool.
         process.stderr.write("\n");
-        for (const w of workflows) process.stderr.write(`Launch: Workflow({ scriptPath: ${JSON.stringify(w)} })\n`);
         process.stderr.write(
-          "Then fold the returned fragments in yourself and run the fold command named at the tail of each workflow (you stay the sole writer).\n",
+          `Next: dispatch one subagent per batch with your host's subagent tool, each given its contract from ${join(orchDir, "agents")}/<role>.md — or, single agent, re-run with --eco and follow ${join(orchDir, "RUNBOOK.md")} sequentially.\n`,
         );
+        process.stderr.write("Optional — Claude Code: launch the emitted workflow with the Workflow tool for one-call parallel fan-out:\n");
+        for (const w of workflows) process.stderr.write(`  Workflow({ scriptPath: ${JSON.stringify(w)} })\n`);
+        process.stderr.write("Either way, fold the returned fragments in yourself and run the fold command named in RUNBOOK.md (you stay the sole writer).\n");
       } else {
-        process.stderr.write(`Follow ${join(runDir, "orchestration", "RUNBOOK.md")} sequentially (the eco path).\n`);
+        process.stderr.write(`Follow ${join(orchDir, "RUNBOOK.md")} sequentially (the eco path).\n`);
       }
       return;
     }
@@ -739,7 +749,11 @@ async function main(): Promise<void> {
       // but keeping the two transports identical here means no one has to
       // remember which is which.
       process.stderr.write(`construct: MCP server listening on ${running.url}\n`);
-      process.stderr.write(`  client: claude mcp add --transport http construct ${running.url}\n`);
+      // Point at the URL, not at one client: every MCP host takes it.
+      process.stderr.write(`  connect any MCP client to ${running.url} — e.g.\n`);
+      process.stderr.write(`    Claude Code: claude mcp add --transport http construct ${running.url}\n`);
+      process.stderr.write(`    Codex:       codex mcp add construct --url ${running.url}\n`);
+      process.stderr.write(`    OpenCode:    opencode mcp add construct --url ${running.url}\n`);
       for (const sig of ["SIGINT", "SIGTERM"] as const) {
         process.once(sig, () => {
           void running.close().then(() => process.exit(0));

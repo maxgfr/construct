@@ -17,8 +17,9 @@ page), **extraction** turns a page into text (the last section).
 2. **DuckDuckGo HTML (no Docker).** Scrapes `html.duckduckgo.com/html` and
    decodes the real URLs from DDG's redirector. Autonomous and keyless; a bit
    fragile if DDG changes its markup.
-3. **Claude WebSearch (harness).** If neither keyless engine returns results,
-   the angle emits a note telling you to use your built-in **WebSearch** to find
+3. **The agent's built-in web search (host).** If neither keyless engine returns
+   results, the angle emits a note telling you to use your host's built-in **web
+   search** tool to find
    URLs, then ground them by pinning the pages into a `research` re-run (the
    `web` drill only prints — `research --url` is what persists to the dossier):
    ```
@@ -27,21 +28,22 @@ page), **extraction** turns a page into text (the last section).
 
 ## Pinning an engine
 
-`--web-engine searxng|ddg|claude|firecrawl|auto`:
+`--web-engine searxng|ddg|host|firecrawl|auto`:
 - `searxng` — only the local instance (errors with a hint if it's down).
 - `ddg` — only DuckDuckGo scraping.
-- `claude` — skip keyless discovery; just emit the WebSearch hint (use when you
-  want to drive discovery yourself and feed `--url`).
+- `host` — skip keyless discovery; just emit the web-search hint (use when you
+  want to drive discovery yourself with the agent's built-in web search and feed
+  `--url`). `claude` is still accepted as a deprecated alias of `host`.
 - `firecrawl` — Firecrawl's own `/search` (keyless too: it cascades to the
   `searxng` container, then to DuckDuckGo, internally). **Explicit only** — it
   rides on the heavy `extract` Docker profile, so `auto` never probes it. Worth
   pinning when the extraction stack is already up.
-- `auto` (default) — SearXNG → DuckDuckGo → WebSearch hint. Unchanged.
+- `auto` (default) — SearXNG → DuckDuckGo → host web-search hint. Unchanged.
 
 ## Grounding specific pages
 
 You can always ground exact pages without discovery — useful after your own
-WebSearch. **Two different commands, and only one of them grounds:**
+web search. **Two different commands, and only one of them grounds:**
 
 ```
 # INSPECT — fetches, extracts, prints to stdout. Persists NOTHING.

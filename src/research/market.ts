@@ -2,7 +2,7 @@ import type { RawItem, ResearchContext, SourceResult } from "../types.js";
 import { discover, webFetchUrls } from "./web.js";
 
 // The `market` angle: discover competitor / market pages on the open web
-// (keyless: SearXNG → DuckDuckGo → WebSearch hint) and ground excerpts from
+// (keyless: SearXNG → DuckDuckGo → host web-search hint) and ground excerpts from
 // them. This is how the SRD's positioning and competitive landscape rest on
 // real signal rather than the model's memory.
 export async function marketAngle(ctx: ResearchContext): Promise<SourceResult[]> {

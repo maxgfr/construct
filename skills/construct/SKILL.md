@@ -116,7 +116,8 @@ Three behaviours worth knowing before they surprise you:
 **Conventions.** `--out <run>` (alias `--run`); `--q <focus>` (alias
 `--question`). `--refresh` ignores the page cache and re-clones OSS repos;
 `--offline` works from the cache alone and reports a miss honestly.
-`--web-engine auto|searxng|ddg|claude|firecrawl` pins discovery (`firecrawl` is
+`--web-engine auto|searxng|ddg|host|firecrawl` pins discovery (`host` hands it to
+your built-in web search; `claude` is a deprecated alias of `host`; `firecrawl` is
 explicit-only — `auto` never probes it); `--firecrawl <url|off>` points the
 extraction layer elsewhere, or forces the built-in extractor. `--concurrency <n>`
 (default 4) bounds in-flight fetches per angle; `--max-tech <n>` (default 3) how
@@ -182,7 +183,7 @@ loop to completion; only pause to ask the user a real decision.
    gap (the engine emits this ready to launch:
    `node scripts/construct.mjs orchestrate --out <run> --phase research`);
    each gets the brief one-liner, the gap, its drill command and its own
-   WebSearch, and returns a ≤5-line summary plus URLs worth grounding. Subagents
+   web search, and returns a ≤5-line summary plus URLs worth grounding. Subagents
    MUST NOT write into the run folder — drills print to stdout; only
    `construct research` writes the dossier, and only YOU run it. Fold findings
    in with a single research re-run that PINS the proven URLs:
@@ -308,7 +309,7 @@ loop to completion; only pause to ask the user a real decision.
 | `render` refuses: "requirements/prd exists" | A previous render used `--prd`. Re-pass `--prd` to regenerate it, or `--no-prd` to delete it deliberately. |
 | `check --semantic` exits 1 with no obvious cause | It is fail-closed. Run `review`, adjudicate every pair, `review --apply`, *then* `--semantic`. A re-render since the review also invalidates it. |
 | `orchestrate --phase <p>` exits 2 | That phase's worklist does not exist yet; the message names the command that produces it. |
-| Research returns nothing | Sharpen vague `candidateTech`/`competitors` and re-run. Then use your own WebSearch and pin the pages: `research --url <u,...>`. **Stop after two empty attempts** — record an assumption or an `openQuestion` and move on. A thin, honest SRD beats a fabricated citation. |
+| Research returns nothing | Sharpen vague `candidateTech`/`competitors` and re-run. Then use your own web search and pin the pages: `research --url <u,...>`. **Stop after two empty attempts** — record an assumption or an `openQuestion` and move on. A thin, honest SRD beats a fabricated citation. |
 | Tests reference FR ids the SRD no longer has | A re-render renumbered them. Retag the tests; `verify` lists the stale ids. |
 | A run is unexpectedly slow | `construct cache status`. A cold cache costs a full fetch per page; `--offline` works from the cache alone. Per-angle cost is in `evidence/meta.json` and at the foot of `EVIDENCE.md`. |
 
@@ -361,9 +362,9 @@ node scripts/construct.mjs orchestrate --out <run> [--phase research|claim-revie
 
 | Your harness | How to run each phase |
 |---|---|
-| Has the Workflow tool | `orchestrate --phase <p>`, then `Workflow({ scriptPath: "<run>/orchestration/<p>.workflow.mjs" })` |
-| Subagents, no Workflow tool | Same `orchestrate`; dispatch one subagent per batch per `<run>/orchestration/agents/<role>.md` |
-| Eco mode, or no subagents | `orchestrate --eco` → follow `<run>/orchestration/RUNBOOK.md` sequentially |
+| Can spawn subagents (any host) | `orchestrate --phase <p>`; dispatch one subagent per batch, each given its `<run>/orchestration/agents/<role>.md` contract |
+| Single agent, or eco mode | `orchestrate --eco` → follow `<run>/orchestration/RUNBOOK.md` sequentially |
+| Optional — Claude Code | Same `orchestrate --phase <p>`, then launch `<run>/orchestration/<p>.workflow.mjs` with the Workflow tool (`Workflow({ scriptPath: … })`) for one-call parallel fan-out |
 
 **Two rules survive every tier.** Subagents never write the run folder — they return
 fragments and YOU fold them in (builders write code only in their own git worktree). And
@@ -393,8 +394,9 @@ evidence/      EVIDENCE.md · evidence.json · meta.json · ids.json (the [E#]
                ledger — do not hand-edit; it is what keeps citations stable)
 VERIFY.md · VERIFY.todo.json · VERIFY.json   (the claim-support worklist and its
                adjudicated ledger — written by `review` / `review --apply`)
-orchestration/ <phase>.workflow.mjs · agents/<role>.md · RUNBOOK.md
-               (written by `orchestrate`; `out/` is where subagents may return)
+orchestration/ agents/<role>.md · RUNBOOK.md · <phase>.workflow.mjs (the
+               optional Claude Code Workflow-tool script) — written by
+               `orchestrate`; `out/` is where subagents may return
 brief.json · SRD.json
 ```
 

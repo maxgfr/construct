@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, rmSync, cpSync, readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -720,6 +720,31 @@ describe("e2e: error handling never leaks a stack trace", () => {
     const r = cli(args);
     expect(r.status).toBe(1);
     expect((r.stderr + r.stdout).toLowerCase()).toContain(needle.toLowerCase());
+    noStackTrace(r.stderr + r.stdout);
+  });
+});
+
+describe("e2e: --web-engine host, and the deprecated `claude` alias", () => {
+  // `host` runs no keyless engine, so these drills never touch the network.
+  const drill = (engine: string) =>
+    spawnSync(process.execPath, [BIN, "web", "--out", seeded(), "--web-engine", engine, "--q", "x", "--offline", "--json"], { encoding: "utf8" });
+
+  it("accepts `host`", () => {
+    const r = drill("host");
+    expect(r.status).toBe(0);
+    expect(r.stderr).not.toMatch(/deprecated/);
+  });
+
+  it("still accepts `claude`, mapped to `host` with a deprecation note", () => {
+    const r = drill("claude");
+    expect(r.status).toBe(0);
+    expect(r.stderr).toMatch(/--web-engine claude is deprecated — use "host"/);
+  });
+
+  it("lists `host` among the valid engines on a bad value", () => {
+    const r = cli(["web", "--out", seeded(), "--web-engine", "bogus", "--q", "x"]);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/expected: auto, searxng, ddg, host, firecrawl/);
     noStackTrace(r.stderr + r.stdout);
   });
 });

@@ -35,7 +35,7 @@ stack is up.
      docs page(s); fetch and PRINT them, no discovery, never trimmed (to ground
      them, pin into a research re-run: `research --out <run> --docs-url <u,...>`).
    - `construct so   --out <run> --q "<tech> <known failure mode>"`
-   Or use your own **WebSearch**, then ground the page:
+   Or use your own **web search** tool, then ground the page:
    `construct web --out <run> --url <url>`.
    All drills honour `--per-source <n>` (default 6); raise it to dig deeper on
    one thread, lower it to keep a bloated dossier focused.
@@ -74,7 +74,7 @@ items. Recovery path, in order:
    extractor changed and re-fetches instead of replaying the thin text.
 1. Re-check the brief: vague `candidateTech`/`competitors` produce vague
    queries. Sharpen them, re-run `research`.
-2. Search yourself (your own WebSearch), then ground the best pages by pinning
+2. Search yourself (your own web search tool), then ground the best pages by pinning
    them into a `research` re-run: `construct research --out <run> --url <u,...>`
    (add `--docs-url <d,...>` for docs pages). The `web`/`tech` drills only print
    to stdout — `research --url`/`--docs-url` is what persists to the dossier.
