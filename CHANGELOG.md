@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [3.22.0](https://github.com/maxgfr/construct/compare/v3.21.0...v3.22.0) (2026-10-20)
+
+
+### Features
+
+* make the skill agent-neutral, generic path first ([#24](https://github.com/maxgfr/construct/issues/24)) ([7ad111b](https://github.com/maxgfr/construct/commit/7ad111b41a843eae07a38c3dbbeb0c7c609c685a))
+
 # [3.21.0](https://github.com/maxgfr/construct/compare/v3.20.9...v3.21.0) (2026-10-08)
 
 

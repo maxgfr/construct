@@ -7,7 +7,7 @@ import { pathToFileURL as pathToFileURL3, fileURLToPath as fileURLToPath3 } from
 import { realpathSync as realpathSync8 } from "fs";
 
 // src/types.ts
-var VERSION = "3.21.0";
+var VERSION = "3.22.0";
 var ALL_SOURCE_KINDS = ["market", "oss", "docs", "so", "issue", "pr"];
 var ID_LEDGER_SCHEMA_VERSION = 1;
 var WEB_ENGINE_INPUTS = ["auto", "searxng", "ddg", "host", "firecrawl", "claude"];
