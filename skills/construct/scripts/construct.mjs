@@ -44904,10 +44904,12 @@ Commands:
              default; --run-tests executes the declared test commands).
   status     Show what exists in a run (brief / evidence / SRD / check).
   orchestrate Emit the run's multi-agent orchestration from its CURRENT state
-             into <run>/orchestration/: one launchable workflow script per
-             ready fan-out phase (research gaps \xB7 claim-review pairs \xB7 the
-             adr-judges 3-lens panel \xB7 build frontier tasks), the dispatch
-             contracts (agents/<role>.md) and a sequential RUNBOOK.md fallback.
+             into <run>/orchestration/: the agents/<role>.md dispatch
+             contracts any host's subagents can run (research gaps \xB7
+             claim-review pairs \xB7 the adr-judges 3-lens panel \xB7 build
+             frontier tasks) + a sequential RUNBOOK.md for a single agent,
+             plus \u2014 optionally, for Claude Code's Workflow tool \u2014 one
+             launchable <phase>.workflow.mjs per ready fan-out phase.
              Subagents RETURN fragments; you stay the sole writer of the run
              folder (references/orchestration.md). Exits 2 when the named
              phase's worklist does not exist yet \u2014 and says which command
