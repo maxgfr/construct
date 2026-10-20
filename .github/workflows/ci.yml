@@ -76,8 +76,10 @@ jobs:
         run: |
           WORK="$(mktemp -d)"
           cd "$WORK"
-          npx --yes skills add "$GITHUB_WORKSPACE" --skill construct --agent claude-code --copy -y
-          DIR=.claude/skills/construct
+          # `universal` is the agent-neutral target: the shared .agents/skills/
+          # directory every Agent Skills host reads, not one vendor's folder.
+          npx --yes skills add "$GITHUB_WORKSPACE" --skill construct --agent universal --copy -y
+          DIR=.agents/skills/construct
           test -f "$DIR/SKILL.md"            || { echo "::error::SKILL.md not installed"; exit 1; }
           test -f "$DIR/scripts/construct.mjs" || { echo "::error::engine not bundled — skills add dropped scripts/"; exit 1; }
           test -d "$DIR/references"          || { echo "::error::references/ not bundled"; exit 1; }

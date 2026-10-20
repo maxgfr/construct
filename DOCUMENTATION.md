@@ -46,7 +46,7 @@ dossier (`dossier.ts`) to `<run>/evidence/`.
 
 | Angle | Module | Emits | Reuses |
 |-------|--------|-------|--------|
-| market | `market.ts` | `market` | `web.ts` (SearXNG/DDG/WebSearch), `fetch.ts` |
+| market | `market.ts` | `market` | `web.ts` (SearXNG/DDG/host web search), `fetch.ts` |
 | oss | `oss.ts` | `oss`, `issue`, `pr` | `clone.ts`, `walk.ts`, `providers/*`, `fetch.ts` |
 | tech | `tech.ts` | `docs`, `so` | `web.ts`, `stackoverflow.ts`, `fetch.ts` |
 | semantic | `semantic.ts` | (rescoring) | Ollama embeddings + in-process cosine |
@@ -146,9 +146,10 @@ tags after an id shift are flagged). `--run-tests` opts into executing
 
 ### `orchestrate`  (`src/orchestrate.ts`, `src/orchestrate-templates.ts`)
 Emits the run's multi-agent orchestration from its CURRENT file-backed state
-into `<run>/orchestration/`: one launchable `<phase>.workflow.mjs` per ready
-fan-out phase, the dispatch contracts (`agents/<role>.md`, all four roles,
-idempotent) and a sequential `RUNBOOK.md` fallback (always). The four phases
+into `<run>/orchestration/`: the dispatch contracts (`agents/<role>.md`, all
+four roles, idempotent — what any host's subagents run), a sequential
+`RUNBOOK.md` for a single agent (always), and — optionally, for Claude Code's
+Workflow tool — one launchable `<phase>.workflow.mjs` per ready fan-out phase. The four phases
 mechanise the fan-out patterns of `references/orchestration.md`: `research`
 (one researcher per `analyze` gap — reuses `analyzeRun` internally, since
 analyze prints rather than persists), `claim-review` (one skeptic per

@@ -10,6 +10,10 @@ import { realpathSync as realpathSync8 } from "fs";
 var VERSION = "3.21.0";
 var ALL_SOURCE_KINDS = ["market", "oss", "docs", "so", "issue", "pr"];
 var ID_LEDGER_SCHEMA_VERSION = 1;
+var WEB_ENGINE_INPUTS = ["auto", "searxng", "ddg", "host", "firecrawl", "claude"];
+function normalizeWebEngine(value) {
+  return value === "claude" ? "host" : value;
+}
 var BRIEF_SCHEMA_VERSION = 1;
 var BRAINSTORM_SCHEMA_VERSION = 1;
 var SRD_SCHEMA_VERSION = 1;
@@ -8727,9 +8731,9 @@ async function discover(query2, engine, n) {
     if (d?.length) return { urls: d, via: "duckduckgo", notes };
     if (engine === "ddg") notes.push("DuckDuckGo returned no results.");
   }
-  if (engine === "claude" || engine === "auto") {
+  if (engine === "host" || engine === "auto") {
     notes.push(
-      "No keyless engine returned results. Use your built-in WebSearch to find URLs, then ground them with `construct research --out <run> --url <url,...>` (the `web` drill only prints \u2014 `research --url` is what persists them to the dossier)."
+      "No keyless engine returned results. Use the agent's built-in web search to find URLs, then ground them with `construct research --out <run> --url <url,...>` (the `web` drill only prints \u2014 `research --url` is what persists them to the dossier)."
     );
   }
   return { urls: [], via: "none", notes };
@@ -39107,7 +39111,7 @@ Product one-liner: ${product}
 Your prompt lists your gaps (\`GAPS\`), each with its matching drill command. For EACH of your gaps:
 
 1. Run the drill (\`node ${engineAbs} web|oss|tech|so ... [--json]\`) and read the items. Drills print evidence to stdout and never write the dossier \u2014 they are safe to run in parallel.
-2. Use your own WebSearch for what the drill misses (competitor pages, docs, issue threads, comparisons).
+2. Use your own web search tool for what the drill misses (competitor pages, docs, issue threads, comparisons).
 3. Judge relevance against the product one-liner and the gap \u2014 keep only what would actually ground this claim.
 
 Return (structured output): \`{ "findings": [{ "gap", "summary", "urls" }] }\` \u2014 your GAPS only. Per gap: a \u22645-line summary of what was found and why it matters to this product, and the URLs worth grounding, best first. The orchestrator folds ALL returned URLs into ONE pinned \`research\` re-run (a research run rebuilds the dossier from exactly the angles/URLs it is given), then re-runs \`analyze\`.
@@ -39177,7 +39181,7 @@ ${status}
 ## The loop (play every role yourself, one unit at a time)
 
 1. **Interview \u2192 brief** (if not done): \`${engine} init --idea "<one-liner>" --out ${runAbs}\`, then fill \`${join39(runAbs, "brief.json")}\` one question at a time (references/interview-playbook.md).
-2. **Research, then dig every gap** \u2014 \`${engine} research --out ${runAbs}\` builds the dossier; \`${engine} analyze --out ${runAbs}\` names each gap + its drill command. For EVERY gap, apply \`${join39(agents, "researcher.md")}\` yourself (run the drill, WebSearch what it misses, keep the URLs worth grounding). Fold in serially with ONE pinned re-run: \`${engine} research --out ${runAbs} --angles market,oss,tech --url <u,...>\` \u2192 re-run \`analyze\`. Loop until clean or the user stops you.
+2. **Research, then dig every gap** \u2014 \`${engine} research --out ${runAbs}\` builds the dossier; \`${engine} analyze --out ${runAbs}\` names each gap + its drill command. For EVERY gap, apply \`${join39(agents, "researcher.md")}\` yourself (run the drill, web-search what it misses, keep the URLs worth grounding). Fold in serially with ONE pinned re-run: \`${engine} research --out ${runAbs} --angles market,oss,tech --url <u,...>\` \u2192 re-run \`analyze\`. Loop until clean or the user stops you.
 3. **Render**: \`${engine} render --out ${runAbs} --level complex\`, then enrich the SRD (SKILL.md step 4).
 4. **Claim-support review** \u2014 \`${engine} review --out ${runAbs}\` writes \`${join39(runAbs, "VERIFY.todo.json")}\`. For EVERY pair, apply \`${join39(agents, "claim-reviewer.md")}\` yourself (verdict + note into a \`verdicts.json\`). Then fold: \`${engine} review --apply verdicts.json --out ${runAbs}\` and gate: \`${engine} check --out ${runAbs} --semantic\` (must exit 0 before presenting).
 5. **Judge panel \u2014 only for ONE genuinely contested ADR** \u2014 apply \`${join39(agents, "adr-judge.md")}\` yourself three times (feasibility / operations-cost / user-value) over the pasted ADR + its cited evidence. Majority (\u22652 lenses \u22653) \u2192 one line per lens under *Alternatives considered*, flip \`proposed \u2192 accepted\` in \`${join39(runAbs, "SRD.json")}\`, re-emit: \`${engine} render --out ${runAbs} --from-srd\`.
@@ -39186,7 +39190,7 @@ ${status}
 The adversarial SRD review (Pattern 2) stays a single fresh-eyes pass by design \u2014 run it
 per references/adversarial-review.md; it is deliberately not a fan-out and not emitted here.
 
-With subagents available, prefer the emitted workflows instead: \`orchestrate --out ${runAbs} --phase <p>\` then \`Workflow({ scriptPath: "${join39(runAbs, "orchestration", "<p>.workflow.mjs")}" })\` \u2014 you stay the sole writer either way.
+With subagents available, fan out instead: \`orchestrate --out ${runAbs} --phase <p>\`, then dispatch one subagent per batch with your host's subagent tool, each given its \`${agents}/<role>.md\` contract. Optional \u2014 Claude Code: launch \`${join39(runAbs, "orchestration", "<p>.workflow.mjs")}\` with the Workflow tool (\`Workflow({ scriptPath: "${join39(runAbs, "orchestration", "<p>.workflow.mjs")}" })\`) for one-call parallel fan-out. You stay the sole writer either way.
 `
   ];
 }
@@ -40038,8 +40042,10 @@ Options:
   --list               For 'orchestrate': print the phases + readiness as JSON
   --run-tests          For 'verify': also execute testCommand + per-task verify commands
   --strict             For 'verify': a built must-have FR with no referencing test FAILS
-  --web-engine <e>     auto | searxng | ddg | claude | firecrawl (default: auto;
-                       'firecrawl' is explicit-only \u2014 'auto' never probes it)
+  --web-engine <e>     auto | searxng | ddg | host | firecrawl (default: auto;
+                       'host' = the agent's built-in web search; 'claude' is
+                       a deprecated alias of 'host'; 'firecrawl' is
+                       explicit-only \u2014 'auto' never probes it)
   --firecrawl <url>    Firecrawl base URL, or 'off' to force the built-in
                        extractor        (default: $CONSTRUCT_FIRECRAWL or
                        http://localhost:3002)
@@ -40199,7 +40205,9 @@ function buildResearchContext(p, runDir, angles) {
   if (!Number.isFinite(maxTech) || maxTech <= 0) fail("invalid --max-tech");
   setCacheMode({ refresh: p.bools.has("refresh"), offline: p.bools.has("offline") });
   if (p.values.firecrawl) configureFirecrawl({ base: p.values.firecrawl });
-  const webEngine = oneOf("web-engine", p.values["web-engine"] ?? "auto", ["auto", "searxng", "ddg", "claude", "firecrawl"]);
+  const webEngineInput = oneOf("web-engine", p.values["web-engine"] ?? "auto", WEB_ENGINE_INPUTS);
+  if (webEngineInput === "claude") process.stderr.write('construct: --web-engine claude is deprecated \u2014 use "host" (same behaviour)\n');
+  const webEngine = normalizeWebEngine(webEngineInput);
   if (p.values.seeds) brief.ossSeeds = csv(p.values.seeds);
   return {
     brief,
@@ -40529,15 +40537,19 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
       for (const n of res.notices) process.stderr.write(`construct orchestrate: note \u2014 ${n}
 `);
       const workflows = res.written.filter((w) => w.endsWith(".workflow.mjs"));
+      const orchDir = join43(runDir, "orchestration");
       if (workflows.length) {
         process.stderr.write("\n");
-        for (const w of workflows) process.stderr.write(`Launch: Workflow({ scriptPath: ${JSON.stringify(w)} })
-`);
         process.stderr.write(
-          "Then fold the returned fragments in yourself and run the fold command named at the tail of each workflow (you stay the sole writer).\n"
+          `Next: dispatch one subagent per batch with your host's subagent tool, each given its contract from ${join43(orchDir, "agents")}/<role>.md \u2014 or, single agent, re-run with --eco and follow ${join43(orchDir, "RUNBOOK.md")} sequentially.
+`
         );
+        process.stderr.write("Optional \u2014 Claude Code: launch the emitted workflow with the Workflow tool for one-call parallel fan-out:\n");
+        for (const w of workflows) process.stderr.write(`  Workflow({ scriptPath: ${JSON.stringify(w)} })
+`);
+        process.stderr.write("Either way, fold the returned fragments in yourself and run the fold command named in RUNBOOK.md (you stay the sole writer).\n");
       } else {
-        process.stderr.write(`Follow ${join43(runDir, "orchestration", "RUNBOOK.md")} sequentially (the eco path).
+        process.stderr.write(`Follow ${join43(orchDir, "RUNBOOK.md")} sequentially (the eco path).
 `);
       }
       return;
@@ -40582,7 +40594,13 @@ ${v.errors.map((e) => "  - " + e).join("\n")}`);
       }
       process.stderr.write(`construct: MCP server listening on ${running.url}
 `);
-      process.stderr.write(`  client: claude mcp add --transport http construct ${running.url}
+      process.stderr.write(`  connect any MCP client to ${running.url} \u2014 e.g.
+`);
+      process.stderr.write(`    Claude Code: claude mcp add --transport http construct ${running.url}
+`);
+      process.stderr.write(`    Codex:       codex mcp add construct --url ${running.url}
+`);
+      process.stderr.write(`    OpenCode:    opencode mcp add construct --url ${running.url}
 `);
       for (const sig of ["SIGINT", "SIGTERM"]) {
         process.once(sig, () => {

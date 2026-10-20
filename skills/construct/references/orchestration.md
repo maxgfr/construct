@@ -2,12 +2,14 @@
 
 > **The engine now EMITS these patterns.** `construct orchestrate --out <run>
 > [--phase research|claim-review|adr-judges|build] [--adr <id>] [--eco] [--list]`
-> generates, from the run's CURRENT state, one launchable workflow script per
-> fan-out pattern below (Pattern 1 → `research`, Pattern 4 → `claim-review`,
-> Pattern 3 → `adr-judges`, Pattern 5 → `build`), the dispatch contracts
+> generates, from the run's CURRENT state, the dispatch contracts
 > (`<run>/orchestration/agents/<role>.md`, each ending with the one-writer rule)
-> and a sequential `RUNBOOK.md` for tier 3 — absolute paths and the real
-> worklist units baked in. Pattern 2 (the adversarial review) is deliberately
+> that any host's subagents run, a sequential `RUNBOOK.md` for a single agent
+> (tier 3), and — optional, for Claude Code — one `<phase>.workflow.mjs` per
+> fan-out pattern below (Pattern 1 → `research`, Pattern 4 → `claim-review`,
+> Pattern 3 → `adr-judges`, Pattern 5 → `build`) to launch with the Workflow
+> tool for one-call parallel fan-out — absolute paths and the real worklist
+> units baked in. Pattern 2 (the adversarial review) is deliberately
 > not emitted: it is ONE fresh-eyes reviewer, not a fan-out. The prose below
 > stays the source of truth at every tier.
 
@@ -17,17 +19,20 @@ below is a **dynamic workflow** — a shape (parallel fan-out, bounded loop, or
 serial reduce) wrapped around construct's deterministic commands — and you run
 it at whichever of three tiers your environment supports:
 
-1. **Workflow primitive** — if your harness offers a declarative orchestration
-   construct (a typed pipeline / parallel-map / loop step with built-in
-   concurrency control), express the pattern in it: each role becomes a step
-   with an explicit input and output contract, and the engine commands are the
-   leaf calls.
-2. **Parallel subagents** — if your harness offers a spawn primitive (a
-   Task/Agent-style tool) but no declarative workflow, drive the same fan-out
-   and serial fold-in by hand.
-3. **Sequential self-pass** — if neither exists, play each role yourself, one at
-   a time, switching perspective explicitly. The role prompts work unchanged as
-   personal checklists.
+1. **Parallel subagents (the default)** — if your host can spawn subagents (a
+   Task/Agent-style tool, whatever it is called), dispatch one per batch with
+   its `agents/<role>.md` contract and do the serial fold-in yourself.
+2. **Workflow primitive (optional)** — if your host also offers a declarative
+   orchestration construct (a typed pipeline / parallel-map / loop step with
+   built-in concurrency control), express the pattern in it: each role becomes
+   a step with an explicit input and output contract, and the engine commands
+   are the leaf calls. Optional — Claude Code: launch the emitted
+   `<run>/orchestration/<phase>.workflow.mjs` with the Workflow tool for
+   one-call parallel fan-out.
+3. **Sequential self-pass** — single agent, no subagents: `orchestrate --eco`
+   and follow `RUNBOOK.md`, playing each role yourself, one at a time, switching
+   perspective explicitly. The role prompts work unchanged as personal
+   checklists.
 
 **The prose is tier-agnostic on purpose.** A workflow step, a spawned subagent,
 and a self-pass are three executions of the *same* role contract and the *same*
@@ -71,7 +76,7 @@ carries exactly:
 2. the gap, verbatim (e.g. `tech: "PostgreSQL" has no docs/StackOverflow grounding`),
 3. the matching drill command from `analyze` (run it with
    `node scripts/construct.mjs ... --json` and read the items),
-4. permission to use its own WebSearch for what the drill misses,
+4. permission to use its own web search tool for what the drill misses,
 5. the output contract: *return only* (a) a ≤5-line summary of what was
    found and why it matters to this product, and (b) a list of URLs worth
    grounding, best first. **Do not write any file.**

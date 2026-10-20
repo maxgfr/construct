@@ -37,8 +37,8 @@ describe("SKILL.md is installable by the `skills` CLI", () => {
     expect((data.description as string).length).toBeGreaterThan(0);
   });
 
-  // Claude Code caps skill descriptions at 1024 characters when matching a
-  // request to a skill; a longer description risks truncation at the exact
+  // The Agent Skills spec caps skill descriptions at 1024 characters, and hosts
+  // match a request to a skill on it; a longer description risks truncation at the exact
   // moment the skill needs to be recognized.
   it("keeps the description under the 1024-char matcher limit", () => {
     const data = parse(frontmatter) as Record<string, unknown>;
@@ -101,7 +101,7 @@ describe("the shipped bundle documents the engine it ships", () => {
   // The `mcp` surface is exempt on the same reasoning that motivates these
   // guards. They exist because a command or flag the agent cannot see is one it
   // cannot use — but the agent driving SKILL.md uses the CLI, and
-  // `construct mcp` serves OTHER hosts (Cursor, Zed, Claude Desktop) that never
+  // `construct mcp` serves OTHER hosts (Cursor, Zed, desktop chat apps) that never
   // read SKILL.md. Documenting it there would push this agent toward a path it
   // has no use for. It is documented in README.md instead, which is where
   // someone wiring up an MCP client actually looks.

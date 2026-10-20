@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { discover, resetDiscoveryProbes, webFetchUrls } from "../src/research/web.js";
 import { marketAngle } from "../src/research/market.js";
 import { runResearch } from "../src/research/registry.js";
+import { WEB_ENGINE_INPUTS, normalizeWebEngine } from "../src/types.js";
 
 // Build a minimal Response-like object for the global fetch mock.
 function res(body: string, opts: { ok?: boolean; status?: number; contentType?: string } = {}) {
@@ -51,30 +52,49 @@ describe("discover (three-tier keyless web search)", () => {
     expect(d.urls.some((u) => u.includes("duckduckgo.com"))).toBe(false);
   });
 
-  it("emits a WebSearch hint when no keyless engine returns results", async () => {
+  it("emits a host web-search hint when no keyless engine returns results", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => res("", { ok: false, status: 404 })),
     );
     const d = await discover("x", "auto", 5);
     expect(d.urls).toEqual([]);
-    expect(d.notes.join(" ")).toMatch(/built-in WebSearch/i);
+    expect(d.notes.join(" ")).toMatch(/built-in web search/i);
+  });
+});
+
+describe("the `host` web engine (formerly `claude`)", () => {
+  it("skips keyless discovery and only emits the host web-search hint", async () => {
+    const fetchMock = vi.fn(async () => res("", { ok: false, status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const d = await discover("x", "host", 5);
+    expect(d).toMatchObject({ urls: [], via: "none" });
+    expect(d.notes.join(" ")).toMatch(/built-in web search/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("still accepts `claude` as a deprecated alias of `host`", () => {
+    expect(WEB_ENGINE_INPUTS).toContain("host");
+    expect(WEB_ENGINE_INPUTS).toContain("claude");
+    expect(normalizeWebEngine("claude")).toBe("host");
+    expect(normalizeWebEngine("host")).toBe("host");
+    expect(normalizeWebEngine("auto")).toBe("auto");
   });
 });
 
 describe("URL-grounding guidance points at the command that actually persists", () => {
   // construct-ERR-1: web|oss|tech|so are PRINT-ONLY (printDrill writes stdout,
   // persists nothing); only `construct research --url` pins pages into the
-  // dossier. The WebSearch fallback note must therefore name `research --url`,
+  // dossier. The host web-search fallback note must therefore name `research --url`,
   // NOT the print-only `web --url` drill (which leaves the claim ungrounded).
-  it("the WebSearch fallback note names `research --url` (persists), not the print-only `web --url` drill", async () => {
+  it("the host web-search fallback note names `research --url` (persists), not the print-only `web --url` drill", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => res("", { ok: false, status: 404 })),
     );
     const d = await discover("x", "auto", 5);
     const note = d.notes.join(" ");
-    expect(note).toMatch(/built-in WebSearch/i);
+    expect(note).toMatch(/built-in web search/i);
     // Names the command that ACTUALLY grounds (writes the dossier)…
     expect(note).toMatch(/construct research[^`]*--url/);
     // …and does NOT tell the user to "ground" with the print-only web drill.

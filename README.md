@@ -23,7 +23,7 @@ by Conventional Commits.
 
 1. **Interview** the user about the product (one question at a time) → `brief.json`.
 2. **Research** the idea across keyless angles → an evidence dossier with `[E#]` ids:
-   - **market** — competitors & positioning (SearXNG → DuckDuckGo → your WebSearch;
+   - **market** — competitors & positioning (SearXNG → DuckDuckGo → your agent's built-in web search;
      pages cleaned through a local Firecrawl when its stack is up),
    - **oss** — comparable open-source projects + their issues/PRs (GitHub/GitLab),
    - **tech** — candidate-technology docs + StackOverflow pitfalls,
@@ -54,6 +54,10 @@ No API keys. No `npm install` at skill-use time.
 ```
 npx skills add maxgfr/construct
 ```
+
+`skills add` detects the agents you use and installs for them; pass
+`-a <agent>` (e.g. `-a claude-code`, `-a codex`, `-a opencode`) to pick one
+explicitly. The skill is agent-neutral: any host that loads Agent Skills can run it.
 
 ## Use (standalone CLI)
 
@@ -112,13 +116,20 @@ The skill shells out to the CLI and parses its output. An MCP server skips both:
 your agent calls construct as typed tools, with JSON schemas in and structured
 results out. Same engine, same page cache, no wrapper.
 
-```bash
-# stdio — the default, and what Claude Code / Claude Desktop / Cursor expect
-claude mcp add construct -- node /abs/path/to/scripts/construct.mjs mcp
+Any MCP client works; register it with whichever host you use.
 
-# or over HTTP, on loopback
+```bash
+# stdio — the default; the server is just this command:
+#   node /abs/path/to/scripts/construct.mjs mcp
+claude mcp add construct -- node /abs/path/to/scripts/construct.mjs mcp     # Claude Code
+codex mcp add construct -- node /abs/path/to/scripts/construct.mjs mcp      # Codex
+opencode mcp add construct -- node /abs/path/to/scripts/construct.mjs mcp   # OpenCode
+
+# or over HTTP, on loopback — any client takes the URL
 node scripts/construct.mjs mcp --transport http --port 7342
-claude mcp add --transport http construct http://127.0.0.1:7342/mcp
+claude mcp add --transport http construct http://127.0.0.1:7342/mcp         # Claude Code
+codex mcp add construct --url http://127.0.0.1:7342/mcp                      # Codex
+opencode mcp add construct --url http://127.0.0.1:7342/mcp                   # OpenCode
 ```
 
 ```jsonc

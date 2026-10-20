@@ -129,7 +129,7 @@ Product one-liner: ${product}
 Your prompt lists your gaps (\`GAPS\`), each with its matching drill command. For EACH of your gaps:
 
 1. Run the drill (\`node ${engineAbs} web|oss|tech|so ... [--json]\`) and read the items. Drills print evidence to stdout and never write the dossier — they are safe to run in parallel.
-2. Use your own WebSearch for what the drill misses (competitor pages, docs, issue threads, comparisons).
+2. Use your own web search tool for what the drill misses (competitor pages, docs, issue threads, comparisons).
 3. Judge relevance against the product one-liner and the gap — keep only what would actually ground this claim.
 
 Return (structured output): \`{ "findings": [{ "gap", "summary", "urls" }] }\` — your GAPS only. Per gap: a ≤5-line summary of what was found and why it matters to this product, and the URLs worth grounding, best first. The orchestrator folds ALL returned URLs into ONE pinned \`research\` re-run (a research run rebuilds the dossier from exactly the angles/URLs it is given), then re-runs \`analyze\`.
@@ -205,7 +205,7 @@ ${status}
 ## The loop (play every role yourself, one unit at a time)
 
 1. **Interview → brief** (if not done): \`${engine} init --idea "<one-liner>" --out ${runAbs}\`, then fill \`${join(runAbs, "brief.json")}\` one question at a time (references/interview-playbook.md).
-2. **Research, then dig every gap** — \`${engine} research --out ${runAbs}\` builds the dossier; \`${engine} analyze --out ${runAbs}\` names each gap + its drill command. For EVERY gap, apply \`${join(agents, "researcher.md")}\` yourself (run the drill, WebSearch what it misses, keep the URLs worth grounding). Fold in serially with ONE pinned re-run: \`${engine} research --out ${runAbs} --angles market,oss,tech --url <u,...>\` → re-run \`analyze\`. Loop until clean or the user stops you.
+2. **Research, then dig every gap** — \`${engine} research --out ${runAbs}\` builds the dossier; \`${engine} analyze --out ${runAbs}\` names each gap + its drill command. For EVERY gap, apply \`${join(agents, "researcher.md")}\` yourself (run the drill, web-search what it misses, keep the URLs worth grounding). Fold in serially with ONE pinned re-run: \`${engine} research --out ${runAbs} --angles market,oss,tech --url <u,...>\` → re-run \`analyze\`. Loop until clean or the user stops you.
 3. **Render**: \`${engine} render --out ${runAbs} --level complex\`, then enrich the SRD (SKILL.md step 4).
 4. **Claim-support review** — \`${engine} review --out ${runAbs}\` writes \`${join(runAbs, "VERIFY.todo.json")}\`. For EVERY pair, apply \`${join(agents, "claim-reviewer.md")}\` yourself (verdict + note into a \`verdicts.json\`). Then fold: \`${engine} review --apply verdicts.json --out ${runAbs}\` and gate: \`${engine} check --out ${runAbs} --semantic\` (must exit 0 before presenting).
 5. **Judge panel — only for ONE genuinely contested ADR** — apply \`${join(agents, "adr-judge.md")}\` yourself three times (feasibility / operations-cost / user-value) over the pasted ADR + its cited evidence. Majority (≥2 lenses ≥3) → one line per lens under *Alternatives considered*, flip \`proposed → accepted\` in \`${join(runAbs, "SRD.json")}\`, re-emit: \`${engine} render --out ${runAbs} --from-srd\`.
@@ -214,7 +214,7 @@ ${status}
 The adversarial SRD review (Pattern 2) stays a single fresh-eyes pass by design — run it
 per references/adversarial-review.md; it is deliberately not a fan-out and not emitted here.
 
-With subagents available, prefer the emitted workflows instead: \`orchestrate --out ${runAbs} --phase <p>\` then \`Workflow({ scriptPath: "${join(runAbs, "orchestration", "<p>.workflow.mjs")}" })\` — you stay the sole writer either way.
+With subagents available, fan out instead: \`orchestrate --out ${runAbs} --phase <p>\`, then dispatch one subagent per batch with your host's subagent tool, each given its \`${agents}/<role>.md\` contract. Optional — Claude Code: launch \`${join(runAbs, "orchestration", "<p>.workflow.mjs")}\` with the Workflow tool (\`Workflow({ scriptPath: "${join(runAbs, "orchestration", "<p>.workflow.mjs")}" })\`) for one-call parallel fan-out. You stay the sole writer either way.
 `,
   ];
 }

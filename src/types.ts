@@ -72,10 +72,24 @@ export interface SourceResult {
   notes: string[];
 }
 
-// Which web-discovery engine to use; "auto" tries searxng → ddg → claude.
-// "firecrawl" is EXPLICIT-ONLY: it needs the heavy `extract` Docker profile, so
-// `auto` must never probe for it (see research/web.ts::discover).
-export type WebEngine = "auto" | "searxng" | "ddg" | "claude" | "firecrawl";
+// Which web-discovery engine to use; "auto" tries searxng → ddg → host.
+// "host" runs no engine of its own: it hands discovery to the agent's built-in
+// web search (whatever host runs the skill). "firecrawl" is EXPLICIT-ONLY: it
+// needs the heavy `extract` Docker profile, so `auto` must never probe for it
+// (see research/web.ts::discover).
+export type WebEngine = "auto" | "searxng" | "ddg" | "host" | "firecrawl";
+
+/** Every engine name `--web-engine` accepts, the deprecated alias included. */
+export const WEB_ENGINE_INPUTS = ["auto", "searxng", "ddg", "host", "firecrawl", "claude"] as const;
+
+/**
+ * Map a `--web-engine` value onto its canonical engine. `claude` was the
+ * pre-rename name of `host` and is still accepted, so existing scripts and
+ * pinned invocations keep working.
+ */
+export function normalizeWebEngine(value: (typeof WEB_ENGINE_INPUTS)[number]): WebEngine {
+  return value === "claude" ? "host" : value;
+}
 
 // Context handed to every research angle for a run.
 export interface ResearchContext {
