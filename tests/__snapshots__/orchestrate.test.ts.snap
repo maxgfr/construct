@@ -35,17 +35,21 @@ With subagents available, fan out instead: \`orchestrate --out <RUN> --phase <p>
 
 
 The subagents return fragments; **you** are the sole writer. Each phase below
-either fans out through its \`*.workflow.mjs\` or runs sequentially here — the
-fold at the end of a phase is yours either way.
+fans out through its \`agents/<role>.md\` contract — one subagent per batch, on
+any host that has subagents — or runs sequentially here. The fold at the end
+of a phase is yours either way.
 
 ## adr-judges
 
 3 item(s) in \`<RUN>/srd/manifest.json\`.
 
-Fan out: \`Workflow({ scriptPath: "<RUN>/orchestration/adr-judges.workflow.mjs" })\`
-(3 agent(s) of at most 1 item(s), contract \`agents/adr-judge.md\`).
+Fan out: dispatch one subagent per batch with the contract \`agents/adr-judge.md\`
+(3 agent(s) of at most 1 item(s)): 'feasibility' · 'operations-cost' · 'user-value'.
 
 Sequentially instead: play \`agents/adr-judge.md\` yourself over 'feasibility,operations-cost,user-value'.
+
+Optional — Claude Code: launch \`adr-judges.workflow.mjs\` (emitted unless \`--eco\`) with the
+Workflow tool for one-call parallel fan-out — \`Workflow({ scriptPath: "<RUN>/orchestration/adr-judges.workflow.mjs" })\`.
 
 Then fold, as the sole writer:
 
@@ -57,8 +61,11 @@ Then fold, as the sole writer:
 exports[`orchestrate — contracts & runbook > golden shape (paths normalized) > adr-judges.workflow.mjs 1`] = `
 "export const meta = {"name":"construct-adr-judges","description":"Judge ONE contested ADR through the 3-lens panel (feasibility / operations & cost / user value); majority reduce","phases":[{"title":"Judge panel"}]}
 
-// NOT a plain Node script: launch it with the Workflow tool —
+// Optional Claude Code fast path — NOT a plain Node script: launch it with the
+// Workflow tool for a one-call parallel fan-out:
 // Workflow({ scriptPath: "<RUN>/orchestration/adr-judges.workflow.mjs" }).
+// Any other host: dispatch one subagent per batch with
+// <RUN>/orchestration/agents/adr-judge.md, or follow RUNBOOK.md alone.
 //
 // Emitted by \`construct orchestrate\` from the CURRENT worklist. The worklist is the
 // source of truth: if it changes, re-run \`construct orchestrate --phase adr-judges\`
@@ -133,8 +140,11 @@ Drill commands never write the dossier — \`web|oss|tech|so\` print evidence to
 exports[`orchestrate — contracts & runbook > golden shape (paths normalized) > research.workflow.mjs 1`] = `
 "export const meta = {"name":"construct-research","description":"Research the 6 evidence gap(s) construct analyze found (fan-out; the orchestrator folds URLs into ONE pinned research re-run)","phases":[{"title":"Research fan-out"}]}
 
-// NOT a plain Node script: launch it with the Workflow tool —
+// Optional Claude Code fast path — NOT a plain Node script: launch it with the
+// Workflow tool for a one-call parallel fan-out:
 // Workflow({ scriptPath: "<RUN>/orchestration/research.workflow.mjs" }).
+// Any other host: dispatch one subagent per batch with
+// <RUN>/orchestration/agents/researcher.md, or follow RUNBOOK.md alone.
 //
 // Emitted by \`construct orchestrate\` from the CURRENT worklist. The worklist is the
 // source of truth: if it changes, re-run \`construct orchestrate --phase research\`

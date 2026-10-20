@@ -1,7 +1,11 @@
+import { EventEmitter } from 'node:events';
+import { Socket } from 'node:net';
+import { SpawnOptions } from 'node:child_process';
+import { FileHandle } from 'node:fs/promises';
 import { Readable, Writable } from 'node:stream';
 import { Server } from 'node:http';
 
-declare const ENGINE_VERSION = "1.26.1";
+declare const ENGINE_VERSION = "1.34.1";
 
 interface Brand {
     /** Human-readable engine consumer, used in notes and diagnostics. */
@@ -30,6 +34,17 @@ interface Brand {
      * two. Declaring the directory it already uses makes adoption free.
      */
     repoDir?: string;
+    /**
+     * Home of the dedicated browser: its profiles (logins live there), the saved
+     * session and the snapshots' refs. Defaults to `~/.<name>/browser`.
+     *
+     * Under the home directory rather than the temp dir on purpose: a tmp sweeper
+     * would silently log the user out of every site, and a login is the one thing
+     * the user cannot regenerate by re-running the command. A consumer that
+     * already keeps such state somewhere declares it here instead of having it
+     * orphaned.
+     */
+    browserDir?: string;
     /**
      * How long a cached page stays fresh. Defaults to 24h.
      *
@@ -138,12 +153,14 @@ declare function assessPdfText(text: string): PdfVerdict;
  * Judge extracted text. Returns `{ ok: true }` when the text is safe to cite,
  * else a short reason the caller can put in a dossier note. `emptyReason` names
  * what an empty extraction means for the format at hand — a PDF with no text
- * layer was probably scanned, an empty .docx conversion means something else.
+ * layer was probably scanned, an empty .docx conversion means something else —
+ * and `undecodable` what binary output does: a PDF stream left encoded, or an
+ * office converter handing back the file itself.
  *
  * Deliberately independent of length: the failure this guards against produces
  * HUNDREDS of kilobytes, which is exactly what a length-gated check misses.
  */
-declare function assessExtractedText(text: string, emptyReason: string): PdfVerdict;
+declare function assessExtractedText(text: string, emptyReason: string, undecodable?: string): PdfVerdict;
 
 /** Test seam: forget the per-process OCR budget. */
 declare function resetOcrBudget(): void;
@@ -591,7 +608,7 @@ declare function formatStamp(seconds: number): string;
 /** The transcript as Markdown: header, chapters, stamped paragraphs. Empty when there is no transcript. */
 declare function transcriptMarkdown(t: VideoTranscript): string;
 
-/** Where video runs live: `--out`, else `<PREFIX>_VIDEO_DIR`, else `<tmp>/<brand>/video`. */
+/** Where video runs live: `--out`, else `<PREFIX>_VIDEO_DIR`, else `<tmp>/<brand>-<uid>/video`. */
 declare function videoRoot(out?: string): string;
 /** meta.json: the video's metadata plus how and when its transcript was made. */
 interface VideoRunMeta extends VideoMeta {
@@ -701,6 +718,7 @@ type FramesResult = {
     candidates: number;
     duplicates: number;
     effort: FrameEffort;
+    note: string;
 } | {
     ok: false;
     reason: string;
@@ -785,25 +803,452 @@ declare function fetchVideoCorpus(url: string, root: string, opts?: VideoLadderO
     onVideo?: (done: number, total: number, title: string) => void;
 }): Promise<CorpusResult>;
 
-declare const PDF_INSPECTOR_SPEC = "@firecrawl/pdf-inspector@1";
-declare const ANYDOC_SPEC = "@firecrawl/anydoc@0.1";
-interface RunResult {
-    ok: boolean;
-    stdout: string;
-    /** Short cause when `ok` is false: "not installed", "timed out", "exit 2"… */
-    error?: string;
-    /** What the tool wrote to stderr — its first and last ~1 KB — when `ok` is false and it wrote any. */
-    stderr?: string;
+interface WsOptions {
+    /** Handshake budget (default 10 s). */
+    connectTimeoutMs?: number;
+    /** How long `close()` waits for the peer before dropping the socket (default 2 s). */
+    closeTimeoutMs?: number;
+    /** Largest message accepted, fragments included (default 64 MiB). */
+    maxMessageSize?: number;
 }
 /**
- * Spawn `cmd args…`, write `input` to its stdin, resolve with its stdout.
- * Never throws and never leaves a child behind: a missing binary, a non-zero
- * exit and a timeout all come back as `{ ok: false, error }` — with the tail
- * of stderr, when the tool wrote one, so a caller can say WHY.
+ * An open connection. Events: `'message'` (string), `'close'` ({ code, reason },
+ * emitted once) and `'error'` (Error, followed by `'close'`).
  */
-declare function runWithInput(cmd: string, args: string[], input: Buffer, timeoutMs: number, opts?: {
-    env?: NodeJS.ProcessEnv;
-}): Promise<RunResult>;
+declare class WsClient extends EventEmitter {
+    private readonly socket;
+    private readonly parser;
+    private readonly max;
+    private readonly closeTimeoutMs;
+    private fragments;
+    private fragmentBytes;
+    private started;
+    private closing;
+    private done;
+    constructor(socket: Socket, opts?: WsOptions, head?: Buffer);
+    send(text: string): void;
+    /** Send a close frame, then wait (bounded) for the peer to answer or hang up. */
+    close(code?: number, reason?: string): Promise<void>;
+    /** Drop the socket without a closing handshake. */
+    terminate(): void;
+    private writeClose;
+    private feed;
+    private deliver;
+    /** Handle one frame; returns the text of a message it completed. */
+    private onFrame;
+    /** Protocol or socket failure: tell the peer why (when we can), surface the error, close. */
+    private fail;
+    private finish;
+}
+
+/** What the client needs from a socket; `WsClient` satisfies it, tests may inject their own. */
+type CdpSocket = Pick<WsClient, "send" | "on" | "terminate"> & {
+    close(code?: number, reason?: string): Promise<void> | void;
+};
+type CdpConnector = (url: string, opts: {
+    timeoutMs: number;
+}) => Promise<CdpSocket>;
+interface CdpConnectOptions {
+    timeoutMs?: number;
+    /** Replaces the real WebSocket connector (tests). */
+    transport?: CdpConnector;
+}
+interface CdpSendOptions {
+    sessionId?: string;
+    timeoutMs?: number;
+}
+interface CdpOnceOptions {
+    predicate?: (params: any) => boolean;
+    timeoutMs?: number;
+    sessionId?: string;
+}
+type CdpHandler = (params: any) => void;
+/** A client bound to one flat-mode session. */
+interface CdpSession {
+    readonly sessionId: string;
+    send<T = unknown>(method: string, params?: object, opts?: {
+        timeoutMs?: number;
+    }): Promise<T>;
+    on(method: string, handler: CdpHandler): void;
+    off(method: string, handler: CdpHandler): void;
+    once(method: string, opts?: Omit<CdpOnceOptions, "sessionId">): Promise<any>;
+}
+declare class CdpClient {
+    private readonly ws;
+    private nextId;
+    private readonly pending;
+    private readonly handlers;
+    private readonly closeHandlers;
+    private isClosed;
+    private constructor();
+    static connect(wsUrl: string, opts?: CdpConnectOptions): Promise<CdpClient>;
+    get closed(): boolean;
+    send<T = unknown>(method: string, params?: object, opts?: CdpSendOptions): Promise<T>;
+    on(method: string, handler: CdpHandler, sessionId?: string): void;
+    off(method: string, handler: CdpHandler, sessionId?: string): void;
+    /** Resolve with the params of the next matching event; reject on timeout or when the socket closes. */
+    once(method: string, opts?: CdpOnceOptions): Promise<any>;
+    /** A view of this client bound to one session (`Target.attachToTarget({ flatten: true })`). */
+    session(sessionId: string): CdpSession;
+    /** Run `handler` once the connection is closed (at once if it already is). Returns its unsubscribe. */
+    onClose(handler: () => void): () => void;
+    /** Close the connection (the browser keeps running). */
+    close(): Promise<void>;
+    private onMessage;
+    private onClosed;
+}
+
+type BrowserKind = "chrome" | "brave" | "chromium" | "edge";
+interface BrowserBinary {
+    kind: BrowserKind;
+    path: string;
+}
+interface DetectOptions {
+    /** Tried first, before the usual order. */
+    prefer?: BrowserKind;
+    /** This kind only: null when it is not installed, never another one instead. */
+    kind?: BrowserKind;
+    /** Reads `<PREFIX>_<suffix>`; defaults to the brand's own environment. */
+    env?: (suffix: string) => string | undefined;
+    /** The system environment (`PATH`, `ProgramFiles`, `LOCALAPPDATA`); defaults to `process.env`. */
+    processEnv?: Record<string, string | undefined>;
+    platform?: NodeJS.Platform;
+    /** The home directory `~/Applications` is looked up in. */
+    home?: string;
+    /** Whether a path is a launchable file. */
+    exists?: (path: string) => boolean;
+}
+/**
+ * The browser to launch: `<PREFIX>_BROWSER_BIN` if set; else that `kind` only
+ * (`<PREFIX>_BROWSER_KIND` when neither `kind` nor `prefer` is given); else
+ * `prefer`, then Chrome, Brave, Chromium, Edge. `null` when none is installed.
+ *
+ * An explicit path that does not exist throws rather than falling through: a
+ * user who named a binary and was handed a different one would drive the wrong
+ * browser without knowing it.
+ */
+declare function detectBrowserBinary(opts?: DetectOptions): BrowserBinary | null;
+
+interface BrowserVersion {
+    Browser?: string;
+    "Protocol-Version"?: string;
+    "User-Agent"?: string;
+    webSocketDebuggerUrl: string;
+    [key: string]: unknown;
+}
+interface TargetInfo {
+    id: string;
+    type: string;
+    title?: string;
+    url: string;
+    webSocketDebuggerUrl?: string;
+    [key: string]: unknown;
+}
+interface CdpEndpoint {
+    host: string;
+    port: number;
+    /** Set when the input was a `ws://` URL. */
+    wsUrl?: string;
+}
+/** Throw unless `host` is a loopback name (127.0.0.1, ::1 or localhost). Returns it without brackets. */
+declare function assertLoopback(host: string): string;
+/**
+ * A browser socket URL a DevTools endpoint handed back (/json/version, /json/new),
+ * refused unless it is ws:// on loopback too: the HTTP hop being local says
+ * nothing of where its answer points. Returned as given.
+ */
+declare function loopbackSocketUrl(wsUrl: string): string;
+/** Accepts `9222`, `127.0.0.1:9222`, `http://localhost:9222`, `ws://[::1]:9222/devtools/browser/x`. */
+declare function parseCdpEndpoint(input: string): CdpEndpoint;
+/**
+ * The address to dial for a loopback host. `localhost` is dialled as 127.0.0.1:
+ * Node >= 17 keeps the resolver's order, which often puts ::1 first, while
+ * Chrome's DevTools server listens on 127.0.0.1 only — so `localhost:9222`
+ * would be refused against a browser that is plainly running.
+ */
+declare function dialHost(host: string): string;
+declare function getVersion(port: number, host?: string): Promise<BrowserVersion>;
+declare function listTargets(port: number, host?: string): Promise<TargetInfo[]>;
+declare function listPages(port: number, host?: string): Promise<TargetInfo[]>;
+/** Open a tab. Chrome >= 111 wants PUT; older and other builds only answer GET. */
+declare function newTarget(port: number, url?: string, host?: string): Promise<TargetInfo>;
+declare function closeTarget(port: number, id: string, host?: string): Promise<void>;
+declare function activateTarget(port: number, id: string, host?: string): Promise<void>;
+/** True when something answers DevTools on `port`. Never throws. */
+declare function isPortAlive(port: number, host?: string): Promise<boolean>;
+
+type discovery_BrowserVersion = BrowserVersion;
+type discovery_CdpEndpoint = CdpEndpoint;
+type discovery_TargetInfo = TargetInfo;
+declare const discovery_activateTarget: typeof activateTarget;
+declare const discovery_assertLoopback: typeof assertLoopback;
+declare const discovery_closeTarget: typeof closeTarget;
+declare const discovery_dialHost: typeof dialHost;
+declare const discovery_getVersion: typeof getVersion;
+declare const discovery_isPortAlive: typeof isPortAlive;
+declare const discovery_listPages: typeof listPages;
+declare const discovery_listTargets: typeof listTargets;
+declare const discovery_loopbackSocketUrl: typeof loopbackSocketUrl;
+declare const discovery_newTarget: typeof newTarget;
+declare const discovery_parseCdpEndpoint: typeof parseCdpEndpoint;
+declare namespace discovery {
+  export { type discovery_BrowserVersion as BrowserVersion, type discovery_CdpEndpoint as CdpEndpoint, type discovery_TargetInfo as TargetInfo, discovery_activateTarget as activateTarget, discovery_assertLoopback as assertLoopback, discovery_closeTarget as closeTarget, discovery_dialHost as dialHost, discovery_getVersion as getVersion, discovery_isPortAlive as isPortAlive, discovery_listPages as listPages, discovery_listTargets as listTargets, discovery_loopbackSocketUrl as loopbackSocketUrl, discovery_newTarget as newTarget, discovery_parseCdpEndpoint as parseCdpEndpoint };
+}
+
+/** The slice of a child process the launcher uses. */
+interface SpawnedProcess {
+    pid?: number;
+    kill(signal?: NodeJS.Signals | number): boolean;
+    on(event: "exit", listener: (code: number | null, signal: NodeJS.Signals | null) => void): unknown;
+    /** A binary that cannot be started emits this instead of "exit"; unheard, it would crash the process. */
+    on(event: "error", listener: (err: Error) => void): unknown;
+    unref(): void;
+}
+/** The slice of node:fs/promises the state and launch code use. */
+interface BrowserFs {
+    readFile(path: string, encoding: BufferEncoding): Promise<string>;
+    writeFile(path: string, data: string | Uint8Array, opts?: {
+        mode?: number;
+    }): Promise<void>;
+    rename(from: string, to: string): Promise<void>;
+    mkdir(path: string, opts?: {
+        recursive?: boolean;
+        mode?: number;
+    }): Promise<unknown>;
+    rm(path: string, opts?: {
+        recursive?: boolean;
+        force?: boolean;
+    }): Promise<void>;
+    stat(path: string): Promise<{
+        isFile(): boolean;
+        isDirectory(): boolean;
+        mtimeMs: number;
+        size: number;
+    }>;
+    /** `open(path, "wx")` is how the lock file is created: it fails if the file exists. */
+    open(path: string, flags: string, mode?: number): Promise<Pick<FileHandle, "writeFile" | "close">>;
+}
+interface BrowserDeps {
+    spawn(cmd: string, args: string[], opts: SpawnOptions): SpawnedProcess;
+    fs: BrowserFs;
+    now(): number;
+    sleep(ms: number): Promise<void>;
+    connectCdp(wsUrl: string): Promise<CdpClient>;
+    discovery: typeof discovery;
+    /** Which browser to launch when no binary is named (`detectBrowserBinary`): of that `kind` only, when one is given. */
+    detectBrowser(kind?: BrowserKind): BrowserBinary | null;
+    /** Signal a process we launched in an earlier call, known only by its pid. */
+    kill(pid: number, signal: NodeJS.Signals): void;
+    /** Whether the process `pid` is still running: closing waits on it. */
+    alive(pid: number): boolean;
+    /** Reads `WEBINDEX_<name>` (brand-aware), like the rest of the library. */
+    env(name: string): string | undefined;
+    platform: NodeJS.Platform;
+}
+
+interface LaunchOptions {
+    /** An already-running browser: a port, `host:port` or URL (loopback only). */
+    cdp?: string | number;
+    /** Dedicated profile name; `default` when unset. */
+    profile?: string;
+    headless?: boolean;
+    /** The browser binary; detected when unset. */
+    binary?: string;
+    /** The kind of browser to launch (`--browser-kind`); BROWSER_KIND, then the profile's own kind, when unset. */
+    kind?: BrowserKind;
+    /**
+     * Never a saved browser this library did not launch (one `attach` or `--cdp`
+     * named): the user lent it for the agent's session, not for reads in the
+     * background. Ours is used, or launched, instead. An explicit `cdp` still wins.
+     */
+    ownOnly?: boolean;
+    deps?: Partial<BrowserDeps>;
+}
+interface Endpoint {
+    /** Loopback address to dial (never `localhost`, see `dialHost`). */
+    host: string;
+    port: number;
+    /** True only for a browser this library started: only that one may be closed. */
+    launchedByUs: boolean;
+    /** True only from the call that started the browser: a reuse of one already running never says so. */
+    spawned?: boolean;
+    pid?: number;
+    profile: string;
+    headless: boolean;
+    /** What the launch has to tell the user (extensions the browser will not load); only from the call that spawned it. */
+    notes?: string[];
+}
+
+interface OpenOptions extends LaunchOptions {
+    /** Work in a fresh tab instead of the one used last time. */
+    newTab?: boolean;
+    /** Navigate there once attached. */
+    url?: string;
+    /**
+     * Work in a fresh tab that is nobody's: session.json is never written, so
+     * the agent's current tab and tab ids stay as they were. The caller closes
+     * the tab when done (a page read for `fetch`, see read.ts).
+     */
+    scratch?: boolean;
+}
+type WaitUntil = "load" | "domcontentloaded" | "none";
+interface NavigateOptions {
+    /** Which lifecycle event of the new document to wait for; `load` by default. */
+    waitUntil?: WaitUntil;
+    timeoutMs?: number;
+}
+interface NavigationResult {
+    url: string;
+    /** Identifies the document; refs taken on another one are stale. */
+    loaderId: string;
+    /** The HTTP status of the document, when the page exposes it. */
+    status?: number;
+    /** The new document committed but did not finish loading in time (see navigate). */
+    note?: string;
+}
+interface BrowserTab {
+    id: string;
+    targetId: string;
+    url: string;
+    title: string;
+    active: boolean;
+}
+interface BrowserStatus {
+    alive: boolean;
+    port?: number;
+    launchedByUs?: boolean;
+    profile?: string;
+    headless?: boolean;
+    targetId?: string;
+    url?: string;
+    title?: string;
+    tabs?: BrowserTab[];
+}
+interface CloseOptions {
+    /** Also wipe the refs and network logs of every tab, not only ours. */
+    all?: boolean;
+}
+/** A JavaScript dialog as the page announces it (Page.javascriptDialogOpening). */
+interface DialogEvent {
+    type: string;
+    message: string;
+    url?: string;
+}
+/** Hears a dialog, with the page session that heard it: the one that can answer it. */
+type DialogListener = (d: DialogEvent, page: CdpSession) => void;
+declare class BrowserSession {
+    /** The browser-level connection. */
+    readonly cdp: CdpClient;
+    private readonly endpoint;
+    private readonly wsBrowserUrl;
+    private readonly deps;
+    /** A scratch tab's session: it saves nothing. */
+    private readonly scratch;
+    private tabs;
+    private current;
+    /** Targets closed by this session that /json/list may still report for a moment. */
+    private readonly closed;
+    /** Dialog listeners, each bound to the current tab's session and moved with it. */
+    private readonly dialogListeners;
+    private ended;
+    /** @internal use openBrowserSession */
+    constructor(
+    /** The browser-level connection. */
+    cdp: CdpClient, endpoint: Endpoint, wsBrowserUrl: string, deps: BrowserDeps, targetId: string, sessionId: string, tabs: Record<string, string>, 
+    /** A scratch tab's session: it saves nothing. */
+    scratch?: boolean);
+    get port(): number;
+    get host(): string;
+    get launchedByUs(): boolean;
+    /** Whether opening this session started the browser (not a reuse of one already running). */
+    get spawned(): boolean;
+    /** The browser-level socket URL: its path names this run of the browser and no other. */
+    get browserSocket(): string;
+    get pid(): number | undefined;
+    get profile(): string;
+    get headless(): boolean;
+    /** What the launch had to say (extensions the browser will not load), once: the next call gets nothing. */
+    takeNotes(): string[];
+    get targetId(): string;
+    get sessionId(): string;
+    /** The current tab's flat session. It changes with selectTab/newTab/closeTab: read it, do not keep it. */
+    get page(): CdpSession;
+    /** Write session.json (port, ownership, current tab, tab ids). A no-op once shut down, and for a scratch tab. */
+    save(): void;
+    private frame;
+    currentUrl(): Promise<string>;
+    loaderId(): Promise<string>;
+    title(): Promise<string>;
+    /** The document's HTTP status from the Navigation Timing entry; undefined when the page does not say. */
+    private responseStatus;
+    private loaded;
+    /**
+     * Start recording navigation events BEFORE the command that causes them: the
+     * browser may report the new document's lifecycle before it answers the
+     * command itself, and an event listened for too late never comes again.
+     */
+    private watch;
+    /**
+     * Load `url` in the current tab and wait for the new document's `load` (or
+     * `DOMContentLoaded`, or nothing). The tab's refs are cleared: they named
+     * nodes of the document that is going away. A navigation the browser refuses
+     * (`errorText`: DNS failure, refused connection…) rejects, and so does one
+     * that did not even commit in time. One that committed but has not loaded
+     * (a cold server, a render-blocking script that holds even DOMContentLoaded)
+     * is the page now, still loading: it resolves, with a `note`.
+     */
+    navigate(url: string, opts?: NavigateOptions): Promise<NavigationResult>;
+    /**
+     * Run a history move or a reload and wait until the main frame shows another
+     * document (or the same one, scrolled). One that committed but has not loaded
+     * in time resolves with a `note`, as in navigate.
+     */
+    private settle;
+    private history;
+    back(opts?: {
+        timeoutMs?: number;
+    }): Promise<NavigationResult>;
+    forward(opts?: {
+        timeoutMs?: number;
+    }): Promise<NavigationResult>;
+    reload(opts?: {
+        timeoutMs?: number;
+    }): Promise<NavigationResult>;
+    /** The browser's tabs with their stable short ids; the map is refreshed and saved. */
+    listTabs(): Promise<BrowserTab[]>;
+    /**
+     * Hear the JavaScript dialogs of whichever tab is current, across tab
+     * switches, each with the page session that can answer it. Returns its unsubscribe.
+     */
+    onDialog(listener: DialogListener): () => void;
+    private hookDialogs;
+    /** Move this session onto another tab: attach to it, let go of the old one, bring it to the front. */
+    private switchTo;
+    selectTab(id: string): Promise<BrowserTab>;
+    /** Open a tab, make it current and, given a url, load it. */
+    newTab(url?: string, opts?: NavigateOptions): Promise<BrowserTab>;
+    /**
+     * Close a tab and forget its refs and network log. Closing the current tab
+     * moves to another one first; closing the last opens a blank one, since a
+     * browser left with no tab may quit.
+     */
+    closeTab(id: string): Promise<void>;
+    /** Close the socket only. The browser and its tabs keep running; the next call reconnects. */
+    detach(): Promise<void>;
+    /**
+     * End the session. A browser we launched is closed (`Browser.close`, then
+     * SIGTERM to its pid if it refuses); one we attached to is left running. Either
+     * way session.json and our tabs' refs and network logs go (every tab's with `all`).
+     */
+    shutdown(opts?: CloseOptions): Promise<void>;
+    status(): Promise<BrowserStatus>;
+}
+/**
+ * Connect to the browser (attaching to, reusing or launching one by the launch
+ * policy) and attach to a tab: a new one when asked (or a scratch one), else
+ * the saved one if it still exists, else the first page, else a fresh one.
+ */
+declare function openBrowserSession(opts?: OpenOptions): Promise<BrowserSession>;
 
 /**
  * Decode named and decimal/hex numeric character references, in ONE
@@ -821,6 +1266,11 @@ declare function runWithInput(cmd: string, args: string[], input: Buffer, timeou
  * than guessed at or blanked.
  */
 declare function decodeEntities(s: string): string;
+
+/** When fetchAndExtract renders a page in the browser: every time, only when the built-in read fails, or never. */
+type BrowserFetchMode = "always" | "fallback" | "off";
+
+declare function looksLikeJunkExtraction(text: string): string | undefined;
 
 /**
  * A realistic desktop-browser User-Agent. Several keyless web endpoints (DDG,
@@ -960,6 +1410,12 @@ declare function httpJson(method: string, url: string, body?: unknown, opts?: {
     retries?: number;
     /** Response cap in bytes; over it the transfer is cancelled and the call fails. Default 4 MB. */
     maxBytes?: number;
+    /**
+     * Abandons the request, and any retry after it, as httpGet's does: the
+     * answer is `error: "cancelled"`. How an MCP cancel reaches Ollama, Qdrant
+     * and the Wayback API.
+     */
+    signal?: AbortSignal;
 }): Promise<{
     ok: boolean;
     status: number;
@@ -986,6 +1442,11 @@ declare function htmlCanonicalUrl(html: string): string | undefined;
  * Inline scripts count as characters but are not text: a sidebar holding a chat
  * widget's JSON outscored the article, and a `__NEXT_DATA__` blob outside
  * `<main>` inflated the page until the size gate refused the real region.
+ *
+ * A candidate that is mostly link text — a row of related-article cards, which
+ * news sites mark up as `<article>`s while the story itself sits in a plain
+ * `<div>` — does not win on length alone: the prose under the page's `<h1>`
+ * does, those lists cut out, when there is enough of it.
  */
 declare function extractMainHtml(html: string): string;
 declare const PDF_URL_RE: RegExp;
@@ -1000,7 +1461,7 @@ declare const PDF_URL_RE: RegExp;
  * preferred rung — whenever a Firecrawl container happens to be up.
  */
 declare function looksLikePdfUrl(url: string): boolean;
-type ExtractorId = "native" | "firecrawl" | "pdf-inspector" | "pdftotext" | "anydoc" | "ocr" | "builtin" | "manual-subs" | "auto-subs" | "whisper";
+type ExtractorId = "native" | "firecrawl" | "pdf-inspector" | "pdftotext" | "anydoc" | "ocr" | "builtin" | "manual-subs" | "auto-subs" | "whisper" | "browser";
 interface ExtractResult {
     text: string;
     consentDropped?: number;
@@ -1050,7 +1511,7 @@ declare function fetchAndExtract(url: string, opts?: {
     firecrawl?: string;
     /** Extra request headers for the built-in path — how the cache sends
      *  `if-none-match` / `if-modified-since`. Firecrawl does its own fetching and
-     *  ignores these, which is why a revalidating caller skips it. */
+     *  would ignore these, so a fetch carrying them skips it. */
     headers?: Record<string, string>;
     /** Check the initial URL and each redirect; disables remote extraction. */
     authorizeUrl?: (url: string) => Promise<boolean>;
@@ -1089,6 +1550,15 @@ declare function fetchAndExtract(url: string, opts?: {
     /** Passed to httpGet: told before a transient answer is waited out and retried. */
     onBackOff?: (url: string, waitMs: number) => void;
     /**
+     * Render the page in the dedicated browser (see src/browser/read.ts):
+     * `always` for every web page, ahead of Firecrawl; `fallback` only when the
+     * built-in read was refused (HTTP 0/401/403/429/503), came back a consent
+     * or anti-bot wall, or found almost no text — the better read is kept.
+     * `<PREFIX>_BROWSER_FETCH` by default; off unless set. Never with
+     * `authorizeUrl`, and never for a PDF, an office document or a video.
+     */
+    browser?: BrowserFetchMode;
+    /**
      * Abandons the fetch: the built-in request is aborted, and no extraction
      * ladder starts after it. A Firecrawl request already sent finishes — it is
      * short, and an aborted one would read to the probe as a Firecrawl that is
@@ -1096,18 +1566,32 @@ declare function fetchAndExtract(url: string, opts?: {
      */
     signal?: AbortSignal;
 }): Promise<ExtractResult>;
+/**
+ * Read an HTML page the way fetchAndExtract reads one: main-content isolation
+ * (unless `fullPage`), text or Markdown, consent lines dropped on request, and
+ * the title, canonical URL and description off the whole page. `finalUrl` is
+ * the address the HTML came from, which relative links and the canonical are
+ * resolved against. For a caller that already holds the HTML — a page a
+ * browser rendered — and wants the same text a fetch would have given.
+ */
+declare function extractFromHtml(html: string, finalUrl: string, opts?: {
+    format?: "text" | "markdown";
+    fullPage?: boolean;
+    stripConsent?: boolean;
+    keepHtml?: boolean;
+}): Pick<ExtractResult, "text" | "consentDropped" | "title" | "canonical" | "metaDescription" | "html">;
 declare const DEAD_LINK_STATUS: Set<number>;
 declare function rescueViaWayback(url: string, opts?: {
     acceptLanguage?: string;
     firecrawl?: string;
     authorizeUrl?: (url: string) => Promise<boolean>;
+    signal?: AbortSignal;
 }): Promise<{
     text: string;
     title?: string;
     snapshotUrl: string;
     timestamp: string;
 } | undefined>;
-declare function looksLikeJunkExtraction(text: string): string | undefined;
 /**
  * Drop consent-banner lines from extracted text, and say how many went.
  *
@@ -1149,6 +1633,237 @@ declare function focusedSnippet(text: string, question: string, opts?: {
 }): string;
 declare function bestExcerpt(text: string, question: string, maxChars?: number): string;
 declare function capExtract(text: string, depth: "summary" | "standard" | "deep"): string;
+
+interface ReadPageOptions extends LaunchOptions {
+    /** As fetchAndExtract's: the shape of the text. */
+    format?: "text" | "markdown";
+    fullPage?: boolean;
+    stripConsent?: boolean;
+    keepHtml?: boolean;
+    /**
+     * The whole render, from the moment a tab is free; BROWSER_TIMEOUT_MS
+     * (30 s) by default. The tab is closed when it runs out.
+     */
+    timeoutMs?: number;
+    /** Abandons the read, or the wait for a free tab. */
+    signal?: AbortSignal;
+    /**
+     * `load` reads as soon as the page has loaded; `idle` then waits for a quiet
+     * network for up to half the timeout. By default, load and up to 3 s of quiet.
+     * Waiting for quiet is never fatal: a page that keeps polling is read anyway.
+     */
+    waitUntil?: "load" | "idle";
+}
+interface CloseReadsOptions {
+    /** How long to wait for the reads still in flight in this process; 5 s by default. */
+    waitMs?: number;
+    /** The seams to close through; by default, the ones the launching read used. */
+    deps?: Partial<BrowserDeps>;
+}
+/**
+ * Close the browser that a read of this process launched, at the end of a
+ * consumer's run: once the reads still in flight here are done (or after
+ * `waitMs`), and only if the browser answering on its port is still that one
+ * (`Browser.close`, then SIGTERM to its pid if it refuses). A browser the reads
+ * only reused, one named with `cdp`, one an agent's session has taken over since,
+ * or nothing launched at all: `{ closed: false }`, untouched. Reads of other
+ * processes are not waited for. Never throws; a second call is a no-op.
+ */
+declare function closeBrowserReads(opts?: CloseReadsOptions): Promise<{
+    closed: boolean;
+}>;
+/**
+ * Render `url` in a scratch tab of the dedicated browser and extract it as
+ * fetchAndExtract would have (`extractor: "browser"`; `status` is the main
+ * document's HTTP status). Throws when the browser cannot be had or the page
+ * cannot be loaded, when the read runs out of time, and when it is cancelled.
+ */
+declare function readRenderedPage(url: string, opts?: ReadPageOptions): Promise<ExtractResult>;
+
+interface RefTable {
+    /** Document the refs belong to; a navigation changes it and makes them stale. */
+    loaderId: string;
+    url: string;
+    /** The number the next new ref gets (`e<next>`). */
+    next: number;
+    refs: Record<string, number>;
+    /** The refs that name a container only (a table, a figure…): to scope a snapshot or a screenshot to, never to click. */
+    containers?: string[];
+}
+
+/** A CDP Accessibility.AXValue, reduced to what we read. */
+interface AXValue {
+    type?: string;
+    value?: unknown;
+}
+/** A CDP Accessibility.AXNode, reduced to what we read. */
+interface AXNode {
+    nodeId: string;
+    ignored?: boolean;
+    role?: AXValue;
+    name?: AXValue;
+    value?: AXValue;
+    properties?: {
+        name: string;
+        value: AXValue;
+    }[];
+    childIds?: string[];
+    backendDOMNodeId?: number;
+    parentId?: string;
+}
+interface RenderOptions {
+    /** Only the nodes an agent acts on, flat (no indentation, no text, no `/url` lines, no containers). */
+    interactive?: boolean;
+    /** Cut the tree at a line boundary once it is longer than this (a first line longer than all of it is cut itself). No limit by default. */
+    maxChars?: number;
+    /** Render only the subtree of this node. */
+    rootBackendId?: number;
+    /** The refs seen so far; never mutated, an updated copy is returned. */
+    refs: RefTable;
+    /** Same-process iframe trees, keyed by the iframe's backendDOMNodeId as a string. */
+    frames?: Record<string, AXNode[]>;
+    /** The backendDOMNodeIds of the overlays over the page: rendered first, each under its own header. Ignored with rootBackendId. */
+    overlays?: number[];
+    /** What to print after the ref of a control, by its backendDOMNodeId: see fieldHint. */
+    hints?: Record<number, string>;
+}
+interface RenderResult {
+    text: string;
+    refs: RefTable;
+    truncated: boolean;
+    /** Refs visible in `text`: the controls', and in a full snapshot the containers' too. */
+    refCount: number;
+    /** The form controls rendered with no name, or with a name another one shares, in document order: their backendDOMNodeIds. */
+    unclear: number[];
+}
+/**
+ * Render AX nodes as a compact text tree (2 spaces per level, one node per line),
+ * giving refs to what an agent can act on and to the structural containers. In
+ * `interactive` mode only the nodes to act on are printed, flat; no landmark
+ * context is added, to keep it cheap.
+ */
+declare function renderSnapshot(nodes: AXNode[], opts: RenderOptions): RenderResult;
+interface SnapshotOptions {
+    interactive?: boolean;
+    maxChars?: number;
+    /** Render only this ref's subtree. */
+    ref?: string;
+    /** Render only the subtree of the first element this CSS selector matches. */
+    selector?: string;
+}
+interface SnapshotResult {
+    text: string;
+    url: string;
+    title: string;
+    loaderId: string;
+    refCount: number;
+    truncated: boolean;
+}
+
+type ChallengeKind = "datadome" | "cloudflare" | "recaptcha" | "hcaptcha" | "arkose" | "perimeterx" | "akamai" | "imperva" | "generic";
+interface Challenge {
+    kind: ChallengeKind;
+    /** A full-page interstitial the page cannot be used through, as opposed to a widget inside a normal page. */
+    blocking: boolean;
+    /** What matched, for the agent and the logs. */
+    signals: string[];
+}
+interface ChallengeSignature {
+    url: string;
+    title: string;
+    /** The first ~4 KB of `document.body.innerText`. */
+    text?: string;
+    frameUrls?: string[];
+    scriptUrls?: string[];
+    /** Names (never values) of the cookies script can see. */
+    cookieNames?: string[];
+    /** Which of CHALLENGE_SELECTORS matched an element. */
+    selectors?: string[];
+    /** The document's HTTP status, when the page exposes it. */
+    status?: number;
+}
+/**
+ * Decide from a probe whether the page is, or carries, an anti-bot challenge.
+ * `blocking` separates an interstitial (vendor interstitial title or frame,
+ * status 403/429/503, almost no text) from a widget inside a normal page (a
+ * reCAPTCHA checkbox on a login form).
+ */
+declare function classifyChallenge(sig: ChallengeSignature): Challenge | null;
+
+/**
+ * Where the browser keeps its state: `<PREFIX>_BROWSER_DIR`, then the brand's
+ * declared `browserDir`, then `~/.<name>/browser`.
+ */
+declare function browserHome(): string;
+
+interface NetworkEntry {
+    /** 1-based and stable within the log file. */
+    n: number;
+    /** ISO time the response finished. */
+    at: string;
+    method: string;
+    url: string;
+    status: number;
+    mime: string;
+    resourceType: string;
+    /** The request's postData, cut to 4 KiB. */
+    requestBody?: string;
+    /** Body size in bytes (the wire size when the body was not fetched). */
+    size: number;
+    json?: unknown;
+    text?: string;
+    bodyTruncated?: boolean;
+    error?: string;
+}
+
+interface DialogInfo {
+    /** "alert", "confirm", "prompt" or "beforeunload". */
+    type: string;
+    message: string;
+    /** The CLI dismissed it before its command ended: it is no longer open. */
+    dismissed?: boolean;
+    /** Someone closed it in the window before the CLI could dismiss it. */
+    closed?: boolean;
+}
+interface ActionResult {
+    ok: true;
+    action: string;
+    ref?: string;
+    /** The main frame loaded another document because of the action. */
+    navigated: boolean;
+    url: string;
+    title: string;
+    /** A dialog the action opened; it is still open. */
+    dialog?: DialogInfo;
+    /** An anti-bot challenge on the page after the action; null when none. */
+    challenge?: Challenge | null;
+    /** What the action yields: the value a field holds after fill or type, the options select chose, the scroll position. */
+    value?: unknown;
+    /** fill or type on a password field: its value is never echoed. */
+    valueHidden?: true;
+    /** The page the action or move landed on committed but was still loading when the wait ran out. */
+    note?: string;
+}
+
+declare const PDF_INSPECTOR_SPEC = "@firecrawl/pdf-inspector@1";
+declare const ANYDOC_SPEC = "@firecrawl/anydoc@0.1";
+interface RunResult {
+    ok: boolean;
+    stdout: string;
+    /** Short cause when `ok` is false: "not installed", "timed out", "exit 2"… */
+    error?: string;
+    /** What the tool wrote to stderr — its first and last ~1 KB — when `ok` is false and it wrote any. */
+    stderr?: string;
+}
+/**
+ * Spawn `cmd args…`, write `input` to its stdin, resolve with its stdout.
+ * Never throws and never leaves a child behind: a missing binary, a non-zero
+ * exit and a timeout all come back as `{ ok: false, error }` — with the tail
+ * of stderr, when the tool wrote one, so a caller can say WHY.
+ */
+declare function runWithInput(cmd: string, args: string[], input: Buffer, timeoutMs: number, opts?: {
+    env?: NodeJS.ProcessEnv;
+}): Promise<RunResult>;
 
 interface MarkdownOptions {
     /**
@@ -1621,6 +2336,10 @@ declare function simhash(text: string, opts?: {
  * silently dropped: this is an exported function, a caller may hold a wider
  * bigint, and answering "0 differing bits" for two values that differ is worse
  * than the 3 ns the guard costs.
+ *
+ * A negative operand is read as the signed 64-bit form of a SimHash — what a
+ * signed BIGINT column hands back. Taken as is, it has infinitely many set bits
+ * and the clearing loop never reached zero.
  */
 declare function hammingDistance(a: bigint, b: bigint): number;
 /**
@@ -1932,7 +2651,7 @@ interface RepoRef {
 }
 /**
  * Where clones live: `<PREFIX>_REPO_DIR`, then the brand's declared `repoDir`,
- * then `<tmpdir>/<name>/repos`.
+ * then `<tmpdir>/<name>-<uid>/repos`.
  *
  * The brand tier is what lets a consumer that already had a clone cache adopt
  * this module at all. Without it, adopting moves every checkout: the clones the
@@ -2089,6 +2808,16 @@ declare function normalizeRepoUrl(raw: unknown): string | undefined;
 declare function lookupPackage(registry: RegistryKind, name: string, version?: string): Promise<PackageFacts | undefined>;
 /** `lookupPackage`, with the registry's status and, for anything but a 404, why it failed. */
 declare function lookupPackageResult(registry: RegistryKind, name: string, version?: string): Promise<PackageLookup>;
+/**
+ * A package spec's registry prefix, the way lockfiles, `npx` and package
+ * managers write one: `npm:vitest`, `pypi:requests`, `crates:serde` (any
+ * case). The rest is the name, scope included (`npm:@scope/pkg`). No prefix,
+ * or one naming no registry here, leaves the name as it is.
+ */
+declare function splitRegistryPrefix(spec: string): {
+    registry?: RegistryKind;
+    name: string;
+};
 /**
  * Resolve a bare library name across the registries, in the order most likely to
  * be right, and return the first that knows it.
@@ -2650,7 +3379,7 @@ declare function searchViaSearxng(query: string, opts?: SearchOptions): Promise<
  */
 declare function search(query: string, opts?: SearchOptions): Promise<SearchResult>;
 
-declare const COMPOSE_YAML = "# Optional, fully-local, no-API-key stack for a semantic mode, web\n# search and content extraction. Start it with `{{CLI}} semantic up` (or\n# `docker compose --profile all up -d`). The published bundle stays\n# dependency-free \u2014 it only speaks HTTP to these containers on localhost;\n# nothing here is required for Tier-1 retrieval.\n#\n# Profiles let you start subsets:\n#   --profile semantic  \u2192 qdrant + ollama (vector search)\n#   --profile search    \u2192 searxng (web discovery)\n#   --profile all       \u2192 everything above\n#   --profile extract   \u2192 firecrawl (content cleaning; `{{CLI}} firecrawl up`)\n# \u2500\u2500 One stack, however many tools use it \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n# Any tool needing SearXNG or Firecrawl binds the SAME host ports. Run two from\n# separate compose projects and only one can ever be up: the second fails with\n# \"port is already allocated\", after leaving its sidecars running.\n#\n# So this file uses one fixed project name, one set of container names and one\n# set of volumes. A second tool bringing the stack up is a no-op against the\n# containers already running, and the whole thing costs one machine's worth of\n# RAM rather than one per tool.\n#\n# WARNING: any tool shipping its own copy of these service blocks must keep them\n# byte-identical. Docker compares the RESOLVED config, so a divergence makes an\n# up from one recreate the other's running containers.\n\nname: skills\n\nservices:\n  # Vector database \u2014 Apache-2.0, self-hosted, no key.\n  qdrant:\n    image: qdrant/qdrant:v1.18.2\n    container_name: skills-qdrant\n    ports:\n      - \"6333:6333\"\n    volumes:\n      - qdrant:/qdrant/storage\n    restart: unless-stopped\n    profiles: [\"semantic\", \"all\"]\n    healthcheck:\n      # The image ships no curl/wget \u2014 probe the REST port over bash's /dev/tcp.\n      test: [\"CMD-SHELL\", \"bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1\"]\n      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 15s\n\n  # Local embedding server \u2014 no key, no data leaves the machine. Pull the model\n  # once: `docker compose exec ollama ollama pull nomic-embed-text`\n  # (`{{CLI}} semantic up` does this for you).\n  ollama:\n    image: ollama/ollama:0.30.7\n    container_name: skills-ollama\n    ports:\n      - \"11434:11434\"\n    volumes:\n      - ollama:/root/.ollama\n    restart: unless-stopped\n    profiles: [\"semantic\", \"all\"]\n    healthcheck:\n      test: [\"CMD\", \"ollama\", \"list\"]\n      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 15s\n\n  # Self-hosted metasearch for keyless web discovery. JSON output is enabled in\n  # docker/searxng/settings.yml so the engine can be queried programmatically.\n  # Also backs Firecrawl's keyless /search through SEARXNG_ENDPOINT.\n  searxng:\n    image: searxng/searxng:2026.6.11-a1490676e\n    container_name: skills-searxng\n    ports:\n      - \"8888:8080\"\n    environment:\n      - SEARXNG_BASE_URL=http://localhost:8888/\n    volumes:\n      - ./docker/searxng:/etc/searxng:rw\n    restart: unless-stopped\n    profiles: [\"search\", \"all\"]\n    healthcheck:\n      # busybox wget is in the image; /healthz answers on the container port.\n      test: [\"CMD-SHELL\", \"wget -qO- http://localhost:8080/healthz || exit 1\"]\n      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 15s\n\n  # Self-hosted Firecrawl \u2014 keyless content cleaning. Fetches a page with a real\n  # browser and returns main-content markdown, which beats the built-in regex\n  # HTML stripper on nav/cookie chrome and is the only way JS-rendered pages\n  # yield any text at all. Keyless because USE_DB_AUTHENTICATION=false; see\n  # docker/firecrawl/firecrawl.env for the tunables.\n  #\n  # Deliberately NOT in the \"all\" profile: it is ~3 GB of images and 5\n  # containers, and `{{CLI}} semantic up` must stay cheap.\n  #\n  #   docker compose --profile search --profile extract up -d --wait\n  firecrawl:\n    image: ghcr.io/firecrawl/firecrawl:2.10.5@sha256:8ce1af201332e1de046d70d5d516fbfe7f0f6229820d271d880873eeca531ea6\n    container_name: skills-firecrawl\n    ports:\n      - \"3002:3002\"\n    env_file:\n      - ./docker/firecrawl/firecrawl.env\n    environment:\n      # Wiring lives here; tunables live in the env file above.\n      - HOST=0.0.0.0\n      - PORT=3002\n      - ENV=local\n      - REDIS_URL=redis://firecrawl-redis:6379\n      - REDIS_RATE_LIMIT_URL=redis://firecrawl-redis:6379\n      - PLAYWRIGHT_MICROSERVICE_URL=http://firecrawl-playwright:3000/scrape\n      - POSTGRES_HOST=firecrawl-postgres\n      - NUQ_RABBITMQ_URL=amqp://firecrawl-rabbitmq:5672\n      # Keeps /search keyless by delegating to the searxng service above.\n      # Unreachable when the `search` profile is down \u2014 Firecrawl then falls\n      # back to DuckDuckGo on its own.\n      - SEARXNG_ENDPOINT=http://searxng:8080\n    command: node dist/src/harness.js --start-docker\n    depends_on:\n      firecrawl-redis:\n        condition: service_started\n      firecrawl-playwright:\n        condition: service_started\n      firecrawl-postgres:\n        condition: service_started\n      firecrawl-rabbitmq:\n        condition: service_healthy\n    restart: unless-stopped\n    profiles: [\"extract\"]\n    # The image ships no curl/wget, but it is a Node image \u2014 probe with node.\n    healthcheck:\n      test: [\"CMD\", \"node\", \"-e\", \"fetch('http://127.0.0.1:3002/').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))\"]\n      interval: 15s\n      timeout: 5s\n      retries: 10\n      start_period: 60s\n    # Trimmed for a 16 GB laptop; upstream asks for 4 CPU / 8 GB. Measured at\n    # 2.3 GB steady under 5 concurrent scrapes, so 3 GB was too tight a cap \u2014\n    # MAX_RAM=0.8 in the env file makes Firecrawl self-throttle at ~3.2 GB.\n    cpus: 2.0\n    mem_limit: 4g\n    memswap_limit: 4g\n\n  # Headless-browser sidecar \u2014 this is what makes JS-rendered pages extractable.\n  firecrawl-playwright:\n    image: ghcr.io/firecrawl/playwright-service:latest@sha256:8c50add7293201e575110e6c7489fa383a9dfc46f168936526a458e06ffc5c28\n    container_name: skills-firecrawl-playwright\n    environment:\n      - PORT=3000\n      - BLOCK_MEDIA=true\n      - MAX_CONCURRENT_PAGES=4\n    restart: unless-stopped\n    profiles: [\"extract\"]\n    cpus: 1.5\n    mem_limit: 2g\n    memswap_limit: 2g\n    tmpfs:\n      - /tmp/.cache:noexec,nosuid,size=512m\n\n  firecrawl-redis:\n    image: redis:alpine\n    container_name: skills-firecrawl-redis\n    command: redis-server --bind 0.0.0.0\n    restart: unless-stopped\n    profiles: [\"extract\"]\n\n  firecrawl-rabbitmq:\n    image: rabbitmq:3-management\n    container_name: skills-firecrawl-rabbitmq\n    restart: unless-stopped\n    profiles: [\"extract\"]\n    healthcheck:\n      test: [\"CMD\", \"rabbitmq-diagnostics\", \"-q\", \"check_running\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n      start_period: 20s\n\n  firecrawl-postgres:\n    image: ghcr.io/firecrawl/nuq-postgres:latest@sha256:aed86f62858f29bd971abddcdeb301c12888098d2cf5d33c1ba42b053bc460f6\n    container_name: skills-firecrawl-postgres\n    environment:\n      - POSTGRES_USER=postgres\n      - POSTGRES_PASSWORD=postgres\n      - POSTGRES_DB=postgres\n    volumes:\n      - firecrawl_pg:/var/lib/postgresql/data\n    restart: unless-stopped\n    profiles: [\"extract\"]\n\nvolumes:\n  qdrant:\n  ollama:\n  firecrawl_pg:\n";
+declare const COMPOSE_YAML = "# Optional, fully-local, no-API-key stack for a semantic mode, web\n# search and content extraction. Start it with `{{CLI}} semantic up` (or\n# `docker compose --profile all up -d`). The published bundle stays\n# dependency-free \u2014 it only speaks HTTP to these containers on localhost;\n# nothing here is required for Tier-1 retrieval.\n#\n# Profiles let you start subsets:\n#   --profile semantic  \u2192 qdrant + ollama (vector search)\n#   --profile search    \u2192 searxng (web discovery)\n#   --profile all       \u2192 everything above\n#   --profile extract   \u2192 firecrawl (content cleaning; `{{CLI}} firecrawl up`)\n# \u2500\u2500 One stack, however many tools use it \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n# Any tool needing SearXNG or Firecrawl binds the SAME host ports. Run two from\n# separate compose projects and only one can ever be up: the second fails with\n# \"port is already allocated\", after leaving its sidecars running.\n#\n# So this file uses one fixed project name, one set of container names and one\n# set of volumes. A second tool bringing the stack up is a no-op against the\n# containers already running, and the whole thing costs one machine's worth of\n# RAM rather than one per tool.\n#\n# WARNING: any tool shipping its own copy of these service blocks must keep them\n# byte-identical. Docker compares the RESOLVED config, so a divergence makes an\n# up from one recreate the other's running containers.\n\nname: skills\n\nservices:\n  # Vector database \u2014 Apache-2.0, self-hosted, no key.\n  qdrant:\n    image: qdrant/qdrant:v1.18.2\n    container_name: skills-qdrant\n    ports:\n      - \"127.0.0.1:6333:6333\"\n    volumes:\n      - qdrant:/qdrant/storage\n    restart: unless-stopped\n    profiles: [\"semantic\", \"all\"]\n    healthcheck:\n      # The image ships no curl/wget \u2014 probe the REST port over bash's /dev/tcp.\n      test: [\"CMD-SHELL\", \"bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1\"]\n      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 15s\n\n  # Local embedding server \u2014 no key, no data leaves the machine. Pull the model\n  # once: `docker compose exec ollama ollama pull nomic-embed-text`\n  # (`{{CLI}} semantic up` does this for you).\n  ollama:\n    image: ollama/ollama:0.30.7\n    container_name: skills-ollama\n    ports:\n      - \"127.0.0.1:11434:11434\"\n    volumes:\n      - ollama:/root/.ollama\n    restart: unless-stopped\n    profiles: [\"semantic\", \"all\"]\n    healthcheck:\n      test: [\"CMD\", \"ollama\", \"list\"]\n      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 15s\n\n  # Self-hosted metasearch for keyless web discovery. JSON output is enabled in\n  # docker/searxng/settings.yml so the engine can be queried programmatically.\n  # Also backs Firecrawl's keyless /search through SEARXNG_ENDPOINT.\n  searxng:\n    image: searxng/searxng:2026.6.11-a1490676e\n    container_name: skills-searxng\n    ports:\n      - \"127.0.0.1:8888:8080\"\n    environment:\n      - SEARXNG_BASE_URL=http://localhost:8888/\n    volumes:\n      - ./docker/searxng:/etc/searxng:rw\n    restart: unless-stopped\n    profiles: [\"search\", \"all\"]\n    healthcheck:\n      # busybox wget is in the image; /healthz answers on the container port.\n      test: [\"CMD-SHELL\", \"wget -qO- http://localhost:8080/healthz || exit 1\"]\n      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 15s\n\n  # Self-hosted Firecrawl \u2014 keyless content cleaning. Fetches a page with a real\n  # browser and returns main-content markdown, which beats the built-in regex\n  # HTML stripper on nav/cookie chrome and is the only way JS-rendered pages\n  # yield any text at all. Keyless because USE_DB_AUTHENTICATION=false; see\n  # docker/firecrawl/firecrawl.env for the tunables.\n  #\n  # Deliberately NOT in the \"all\" profile: it is ~3 GB of images and 5\n  # containers, and `{{CLI}} semantic up` must stay cheap.\n  #\n  #   docker compose --profile search --profile extract up -d --wait\n  firecrawl:\n    image: ghcr.io/firecrawl/firecrawl:2.10.5@sha256:8ce1af201332e1de046d70d5d516fbfe7f0f6229820d271d880873eeca531ea6\n    container_name: skills-firecrawl\n    ports:\n      - \"127.0.0.1:3002:3002\"\n    env_file:\n      - ./docker/firecrawl/firecrawl.env\n    environment:\n      # Wiring lives here; tunables live in the env file above.\n      - HOST=0.0.0.0\n      - PORT=3002\n      - ENV=local\n      - REDIS_URL=redis://firecrawl-redis:6379\n      - REDIS_RATE_LIMIT_URL=redis://firecrawl-redis:6379\n      - PLAYWRIGHT_MICROSERVICE_URL=http://firecrawl-playwright:3000/scrape\n      - POSTGRES_HOST=firecrawl-postgres\n      - NUQ_RABBITMQ_URL=amqp://firecrawl-rabbitmq:5672\n      # Keeps /search keyless by delegating to the searxng service above.\n      # Unreachable when the `search` profile is down \u2014 Firecrawl then falls\n      # back to DuckDuckGo on its own.\n      - SEARXNG_ENDPOINT=http://searxng:8080\n    command: node dist/src/harness.js --start-docker\n    depends_on:\n      firecrawl-redis:\n        condition: service_started\n      firecrawl-playwright:\n        condition: service_started\n      firecrawl-postgres:\n        condition: service_started\n      firecrawl-rabbitmq:\n        condition: service_healthy\n    restart: unless-stopped\n    profiles: [\"extract\"]\n    # The image ships no curl/wget, but it is a Node image \u2014 probe with node.\n    healthcheck:\n      test: [\"CMD\", \"node\", \"-e\", \"fetch('http://127.0.0.1:3002/').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))\"]\n      interval: 15s\n      timeout: 5s\n      retries: 10\n      start_period: 60s\n    # Trimmed for a 16 GB laptop; upstream asks for 4 CPU / 8 GB. Measured at\n    # 2.3 GB steady under 5 concurrent scrapes, so 3 GB was too tight a cap \u2014\n    # MAX_RAM=0.8 in the env file makes Firecrawl self-throttle at ~3.2 GB.\n    cpus: 2.0\n    mem_limit: 4g\n    memswap_limit: 4g\n\n  # Headless-browser sidecar \u2014 this is what makes JS-rendered pages extractable.\n  firecrawl-playwright:\n    image: ghcr.io/firecrawl/playwright-service:latest@sha256:8c50add7293201e575110e6c7489fa383a9dfc46f168936526a458e06ffc5c28\n    container_name: skills-firecrawl-playwright\n    environment:\n      - PORT=3000\n      - BLOCK_MEDIA=true\n      - MAX_CONCURRENT_PAGES=4\n    restart: unless-stopped\n    profiles: [\"extract\"]\n    cpus: 1.5\n    mem_limit: 2g\n    memswap_limit: 2g\n    tmpfs:\n      - /tmp/.cache:noexec,nosuid,size=512m\n\n  firecrawl-redis:\n    image: redis:alpine\n    container_name: skills-firecrawl-redis\n    command: redis-server --bind 0.0.0.0\n    restart: unless-stopped\n    profiles: [\"extract\"]\n\n  firecrawl-rabbitmq:\n    image: rabbitmq:3-management\n    container_name: skills-firecrawl-rabbitmq\n    restart: unless-stopped\n    profiles: [\"extract\"]\n    healthcheck:\n      test: [\"CMD\", \"rabbitmq-diagnostics\", \"-q\", \"check_running\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n      start_period: 20s\n\n  firecrawl-postgres:\n    image: ghcr.io/firecrawl/nuq-postgres:latest@sha256:aed86f62858f29bd971abddcdeb301c12888098d2cf5d33c1ba42b053bc460f6\n    container_name: skills-firecrawl-postgres\n    environment:\n      - POSTGRES_USER=postgres\n      - POSTGRES_PASSWORD=postgres\n      - POSTGRES_DB=postgres\n    volumes:\n      - firecrawl_pg:/var/lib/postgresql/data\n    restart: unless-stopped\n    profiles: [\"extract\"]\n\nvolumes:\n  qdrant:\n  ollama:\n  firecrawl_pg:\n";
 declare const SEARXNG_SETTINGS_YAML = "# Minimal SearXNG config for keyless, self-hosted web discovery. The important\n# bit is enabling the JSON output format so the CLI can query it\n# programmatically (`/search?format=json`) \u2014 most PUBLIC instances disable it,\n# which is why a local one ships here.\n#\n# The service names and ports below are deliberately stable, so several tools on\n# one machine share a single container rather than each starting their own.\nuse_default_settings: true\n\nserver:\n  # Override with a real random secret if you expose this beyond localhost.\n  secret_key: \"searxng-local-dev-change-me\"\n  # The limiter/bot-detection middleware answers 403 to format=json requests.\n  limiter: false\n  image_proxy: false\n\nsearch:\n  safe_search: 0\n  autocomplete: \"\"\n  formats:\n    - html\n    - json\n";
 declare const FIRECRAWL_ENV = "# Tunables for the self-hosted Firecrawl stack (docker compose --profile extract).\n# Wiring (hostnames, ports, SEARXNG_ENDPOINT) lives in docker-compose.yml and\n# overrides anything set here.\n\n# THIS is what makes the API keyless. Turning it on would require a Supabase\n# project; there is no reason to for a localhost stack.\nUSE_DB_AUTHENTICATION=false\n\n# Firecrawl's Rust PDF extractor, which is OFF by default upstream. Without it\n# Firecrawl falls back to pdf-parse (JS) for PDFs. Still keyless: this is the\n# local Rust path, not the MinerU / Fire PDF routes, which need API credentials.\n# Reached as a rung of the PDF ladder when the built-in reader finds no text.\nPDF_RUST_EXTRACT_ENABLE=true\n\n# Postgres credentials for the bundled nuq-postgres container. It is not\n# published on a host port, so these never leave the compose network.\nPOSTGRES_USER=postgres\nPOSTGRES_PASSWORD=postgres\nPOSTGRES_DB=postgres\nPOSTGRES_PORT=5432\n\n# Admin queue dashboard at http://localhost:3002/admin/CHANGEME/queues\nBULL_AUTH_KEY=CHANGEME\n\n# Concurrency, trimmed for a laptop. Upstream defaults are 8/5/5/10 and assume\n# a 4-CPU / 8-GB box; these keep the stack near ~4 GB total.\nNUM_WORKERS_PER_QUEUE=2\nMAX_CONCURRENT_JOBS=3\nBROWSER_POOL_SIZE=2\nCRAWL_CONCURRENT_REQUESTS=4\n\n# Back off before the host runs out of headroom.\nMAX_CPU=0.8\nMAX_RAM=0.8\n\nLOGGING_LEVEL=info\n";
 /**
@@ -2743,6 +3472,13 @@ interface CacheEntry extends Extract {
      * TTL paid for the same failed scrape plus a fresh download.
      */
     fallbackFrom?: "firecrawl";
+    /**
+     * Set on a built-in or Firecrawl read stored while the browser fallback was
+     * on, that the fallback would retry: the browser was tried and did no better.
+     * Served until its TTL like any other entry, rather than rendered again on
+     * every call.
+     */
+    browserTried?: true;
 }
 declare function cacheDir(): string;
 declare function cachePath(url: string, acceptLanguage?: string, extractor?: CacheNamespace, variant?: CacheVariant): string;
@@ -2796,6 +3532,8 @@ declare function cachedFetchAndExtract(url: string, opts?: {
     format?: "text" | "markdown";
     timeoutMs?: number;
     signal?: AbortSignal;
+    /** The browser rung (see fetchAndExtract); its reads are cached under their own namespace. */
+    browser?: BrowserFetchMode;
 }, enabled?: boolean, now?: number): Promise<Extract & {
     cached?: boolean;
 }>;
@@ -2866,11 +3604,14 @@ declare function writeArtifact(path: string, content: string): string;
  * the temp file is a SIBLING so it always is one — a temp in os.tmpdir() would
  * cross a mount point and silently degrade to a copy.
  *
+ * `mode` sets the permission bits of the new file (e.g. 0o600 for state that
+ * holds a login); omitted, the file gets the usual umask-derived default.
+ *
  * Bypasses the no-write gate on purpose: this is the durability primitive, and
  * `writeArtifact` above is the gated caller. A caller holding a path of its own
  * that must not be written under `--stdout` calls `writeArtifact`, not this.
  */
-declare function writeFileAtomic(path: string, content: string | Uint8Array): void;
+declare function writeFileAtomic(path: string, content: string | Uint8Array, mode?: number): void;
 /** Drain the collected artifacts. Empty when writes actually went to disk. */
 declare function takeArtifacts(): Artifact[];
 /** Test seam: clear both the switch and anything collected under it. */
@@ -3214,6 +3955,7 @@ declare function embed(texts: readonly string[], opts?: {
     base?: string;
     model?: string;
     concurrency?: number;
+    signal?: AbortSignal;
 }): Promise<EmbedResult>;
 /**
  * The prefixes to put before a query and before a document for `model` (the
@@ -3233,6 +3975,7 @@ declare function embedPrefixes(model?: string): {
 declare function embedOne(text: string, opts?: {
     base?: string;
     model?: string;
+    signal?: AbortSignal;
 }): Promise<number[] | undefined>;
 /**
  * Cosine similarity, in [-1, 1]. Zero whenever the answer would not be a number.
@@ -3376,6 +4119,7 @@ declare function hybridSearch<D extends HybridDoc>(question: string, docs: reado
     queryPrefix?: string;
     docPrefix?: string;
     maxChars?: number;
+    signal?: AbortSignal;
 }): Promise<{
     hits: HybridHit<D>[];
     note?: string;
@@ -3786,6 +4530,12 @@ declare const EXIT_FAILURE = 1;
 /** The invocation itself was wrong: unknown command, unknown flag, missing value. */
 declare const EXIT_USAGE = 2;
 /**
+ * `browser` only: the command did what it was asked, and the page it ended on
+ * is a blocking challenge that a human has to solve. Its result is printed as
+ * on success; a script that sees 3 hands the window to a person.
+ */
+declare const EXIT_HUMAN = 3;
+/**
  * The invocation was malformed. Carries EXIT_USAGE so a caller can map every
  * parse failure to the right code without matching on the message.
  *
@@ -3802,6 +4552,12 @@ interface CliSpec {
     valueFlags: Iterable<string>;
     /** Flags that are present or absent: `--json`. Never take a value. */
     boolFlags: Iterable<string>;
+    /**
+     * The flags each command takes, value and boolean alike. A command listed
+     * here refuses every other declared flag; one not listed takes them all, as
+     * every command did before this table existed.
+     */
+    commandFlags?: Readonly<Record<string, Iterable<string>>>;
 }
 /** A parsed invocation of one command. */
 interface CommandArgs {
@@ -3835,7 +4591,8 @@ type ParsedArgs = {
  * reports success. That silence is what this replaces — webindex's own CLI read
  * flags with `argv.indexOf("--" + name)` and accepted anything.
  *
- * Throws UsageError on: an unknown command, an unknown flag, a value flag with
+ * Throws UsageError on: an unknown command, an unknown flag, a declared flag the
+ * command does not take (with `commandFlags`), a short flag, a value flag with
  * no value, and a boolean flag given one.
  */
 declare function parseArgs(argv: readonly string[], spec: CliSpec): ParsedArgs;
@@ -4030,6 +4787,14 @@ interface PromptResult {
 interface ToolOutcome {
     text: string;
     artifact?: string;
+    /**
+     * Images sent after the text as `image` content blocks (a screenshot).
+     * The response cap measures the text only: a tool bounds its own images.
+     */
+    images?: {
+        data: string;
+        mimeType: string;
+    }[];
 }
 /**
  * Thrown for anything the caller can fix by calling again differently. The
@@ -4166,4 +4931,4 @@ declare function readResource(uri: string, moduleDir?: string): ResourceContents
 declare class ResourceError extends Error {
 }
 
-export { ANNOTATIONS_SINCE, ANYDOC_SPEC, ASSUMED_HTTP_PROTOCOL, type Artifact, BATCHES_REMOVED_IN, BATCH_SIZE, type Bm25Doc, type Bm25Index, type Brand, COMPOSE_YAML, CP1252_C1, type CacheEntry, type CacheMode, type CacheStats, type CapAdvice, type ChangeVerdict, type ClaimUnit, type ClaimUnitOptions, type CliSpec, type CommandArgs, type CorpusResult, type CorpusVideo, type CrawlOptions, type CrawlResult, type CrawledPage, DEAD_LINK_STATUS, DEFAULT_MAX_RESPONSE_BYTES, DOC_EXTENSIONS, DOC_EXTRACTORS, type DocExtraction, type DocExtractorId, type DocFormat, type DocLadderOptions, ENGINE_VERSION, ERR_INTERNAL, ERR_INVALID_PARAMS, ERR_INVALID_REQUEST, ERR_METHOD_NOT_FOUND, EVIDENCE_TOKEN, EXIT_FAILURE, EXIT_OK, EXIT_USAGE, type EmbedResult, type EngineHit, type EngineResult, type ExcerptWindow, type ExpandedKeyword, type ExtractResult, type ExtractorId, FILE_LINE_TOKEN, FIRECRAWL_DEFAULT_BASE, FIRECRAWL_ENV, FRAME_EFFORT, type Feed, type FeedItem, type Fingerprint, type FirecrawlHit, type FirecrawlOptions, type FirecrawlScrape, type FirecrawlSearchOptions, type ForgeItem, type ForgeKind, type ForgeOptions, type ForgeResult, type FrameEffort, type FrameKind, type FramesResult, type HandleOptions, type HttpOptions, type HttpResult, type HybridDoc, type HybridHit, InvalidParamsError, type JsonRpcMessage, type JsonSchema, type JsonSchemaProp, KEYLESS_ENGINES, type KeylessEngine, type KeywordMatcher, type KeywordVariant, LATEST_PROTOCOL, LOCAL_FILE_DOMAIN, type ListedVideo, type MarkdownOptions, type McpAdapter, type McpServer, type OrchestrateOptions, type OrchestrateResult, PDF_EXTRACTORS, PDF_INSPECTOR_SPEC, PDF_URL_RE, PROGRESS_MESSAGE_SINCE, PROTOCOL_VERSIONS, type PackageFacts, type PackageLookup, type PackageResolution, type PageMetadata, type ParsedArgs, type PdfExtraction, type PdfExtractorId, type PdfLadderOptions, type PdfVerdict, type PhaseDefinition, type PhaseEmission, type PhaseInfo, type PromptDecl, PromptError, type PromptResult, type ProtocolVersion, RICH_TOOLS_SINCE, type Ranked, type RegistryKind, type RepoFacts, type RepoFactsResult, type RepoRef, type ResolvedProvider, type ResourceContents, type ResourceDecl, ResourceError, type Robots, type RobotsRule, type RungOutcome, type RungReport, type RunningHttpServer, SEARXNG_DEFAULT_BASE, SEARXNG_SETTINGS_YAML, SERVICE_PROFILES, SMALL_WORKLIST, SOURCE_TOKEN, STACK_SERVICES, type ScrapeAttempt, type SearchHit, type SearchOptions, type SearchResult, type SearchRung, type ServerOptions, type ShResult, type Sitemap, type StackAction, type StackDeps, type StackResult, type StackRun, type StdioOptions, TOKEN_RE, type Table, type ToolAnnotations, type ToolCallContext, type ToolDecl, ToolError, type ToolOutcome, UsageError, VIDEO_TRANSCRIBERS, type VectorHit, type VectorPoint, type VideoChapter, type VideoCorpus, type VideoDeps, type VideoFrame, type VideoHit, type VideoLadderOptions, type VideoMeta, type VideoProbe, type VideoRunMeta, type VideoRunResult, type VideoRunner, type VideoSegment, type VideoSource, type VideoTranscriberId, type VideoTranscript, WORKFLOW_FORBIDDEN, accentPattern, acceptLanguageHeader, addressedIdCount, apiBase, apiPrefix, appendixMask, applyRelevanceFloor, argBool, argInt, argList, argOneOf, argValue, arxivIdFromUrl, assessExtractedText, assessPdfText, assessTranscript, awaitHostSlot, backOffHost, baseLang, batchRefusal, bestExcerpt, bm25MatchedTerms, bm25Score, bm25Tokenize, bracketedTokensIn, brand, browserUa, buildBm25Index, buildMatcher, cacheClean, cacheDir, cacheMode, cachePath, cacheStats, cachedFetchAndExtract, canonicalRepo, canonicalRepoRef, canonicalizeUrl, capExtract, capResponse, charsetFromContentType, charsetFromHtml, citationTokensIn, classifyYtdlpError, cleanInline, codeMask, collectCitations, configure, contactUa, contentCoverage, contentHash, corpusLabels, corpusMarkdown, cosine, crawlConcurrency, crawlSite, createServer, danglingTokens, ddgRedirectTarget, ddgRegion, deaccent, decodeBody, decodeEntities, decodeLocal, dedupeByUrl, dedupeNearDuplicates, defaultUa, deleteCollection, deriveCitableUrl, detectRateLimited, discoverFeeds, diversify, docFlagRegex, docFormatForContentType, docFormatForUrl, documentedFlags, doiFromUrl, domainOf, downloadSubtitle, embed, embedModel, embedOne, embedPrefixes, embeddingsDisabled, emitWorkflowScript, enabledDocExtractors, enabledExtractors, enabledTranscribers, ensureClone, ensureCollection, ensureComposeMaterialized, ensureDir, ensureHistoryDepth, env, envFlag, envInt, envName, escapeRegExp, excerptWindows, expandTokens, externalHosts, extractClaimUnits, extractDocument, extractFrames, extractJsonLd, extractMainHtml, extractMetaTags, extractNumerals, extractPdf, extractTables, fetchAndExtract, fetchFeed, fetchRobots, fetchSitemap, fetchVideoCorpus, fetchVideoRun, fingerprint, firecrawlBase, firecrawlIsExplicit, fnv1a64, fnv1a64Words, focusedSnippet, foldTerm, forgeAuthHeaders, forgeKind, forgeRef, formatStamp, hammingDistance, hasChanged, have, headCommit, helpCoversFlag, hostDelayMs, htmlCanonicalUrl, htmlTitle, htmlToMarkdown, htmlToText, httpGet, httpJson, hybridSearch, isAllowed, isApiEndpoint, isCacheFresh, isCitableUrl, isInvokedDirectly, isKeylessEngine, isNoWrite, isOriginAllowed, isProtocolVersion, isStopword, jsonLine, keylessEngines, keywords, knownVideo, linksFrom, listPhases, listReleases, listResources, listTags, listVideoRuns, listVideos, looksLikeChallenge, looksLikeFirecrawl, looksLikeJunkExtraction, looksLikePdfUrl, lookupPackage, lookupPackageResult, mapGithubIssues, mapLimit, mapScrapeResponse, mapSearchResponse, markFirecrawlDown, markedQuoteMask, matcherFromTokens, maxCrawlDelayMs, mergeSegments, metaDescriptionOf, missingFromHelp, nearestHeading, negotiateProtocol, normalize, normalizeDoi, normalizeNumeralText, normalizeRepoUrl, ocrBudgetLeft, ocrPdf, ocrTools, officeToText, ollamaBase, oneWriterFooter, orMasks, orchestrateRun, originUrl, pageDelayMs, pageMetadata, parseArgs, parseDdgHtml, parseDdgLite, parseFeed, parseFileLine, parseMojeek, parseRetryAfter, parseRobots, parseSitemap, parseVtt, pdfToText, pipedEnum, politeDelayMs, positionalText, probeFirecrawl, probeOllama, probeQdrant, probeSearxng, probeVideo, pubmedAbstractUrl, qdrantBase, rankedKeywords, readCapped, readCappedBytes, readJsonSafe, readManifest, readResource, readVideoRun, recencyScore, renderAsset, repoCacheRoot, repoFacts, repoFactsResult, rescueViaWayback, resetBrand, resetCacheMode, resetCanonicalRepoCache, resetDocLadderCache, resetFirecrawlProbeCache, resetHaveCache, resetHistoryDepthCache, resetHostSchedule, resetNoWrite, resetOcrBudget, resetOcrTools, resetOllamaProbe, resetPdfLadderCache, resetQdrantProbe, resetRobotsCache, resetRunLocks, resetSearxngProbeCache, resetVideoLadderCache, resolvePackage, resolvePackageResult, resolveProvider, resolveRegion, resolveRepo, resolveSkillRoot, revalidationHeaders, rrf, runId, runStdioServer, runWithInput, runbookMd, sameCommit, scrapeViaFirecrawl, search, searchIssues, searchVectors, searchViaFirecrawl, searchViaKeyless, searchViaSearxng, searchVideoRuns, searxngBase, searxngIsExplicit, searxngLanguage, setCacheMode, setNoWrite, setVideoDeps, sh, shAsync, shq, simhash, siteOf, skillName, sleep, slugify, sniffDocument, stackControl, startHttpServer, stripConsentBoilerplate, stripHtmlComments, stripInlineCode, stripTags, structuredContentFor, subtokens, tableToMarkdown, takeArtifacts, throttleReason, toBatches, transcribeVideo, transcriptMarkdown, uncitedIds, unitTexts, unknownEngines, upsert, urlDeclaresIdentity, validateArgs, videoMetaFromInfo, videoRoot, videoRunKey, videoSource, videoUrlAt, whisperBudgetLeft, whisperModel, withRunLock, writeArtifact, writeFileAtomic, writeManifest, youtubeListKind, youtubeVideoId, ytdlpVersionAge };
+export { ANNOTATIONS_SINCE, ANYDOC_SPEC, ASSUMED_HTTP_PROTOCOL, type Artifact, BATCHES_REMOVED_IN, BATCH_SIZE, type Bm25Doc, type Bm25Index, type Brand, type AXNode as BrowserAXNode, type ActionResult as BrowserActionResult, type BrowserBinary, type Challenge as BrowserChallenge, type ChallengeSignature as BrowserChallengeSignature, type CloseReadsOptions as BrowserCloseReadsOptions, type DetectOptions as BrowserDetectOptions, type BrowserKind, type NetworkEntry as BrowserNetworkEntry, type OpenOptions as BrowserOpenOptions, type ReadPageOptions as BrowserReadOptions, type RenderOptions as BrowserRenderOptions, type RenderResult as BrowserRenderResult, BrowserSession, type SnapshotOptions as BrowserSnapshotOptions, type SnapshotResult as BrowserSnapshotResult, COMPOSE_YAML, CP1252_C1, type CacheEntry, type CacheMode, type CacheStats, type CapAdvice, type ChangeVerdict, type ClaimUnit, type ClaimUnitOptions, type CliSpec, type CommandArgs, type CorpusResult, type CorpusVideo, type CrawlOptions, type CrawlResult, type CrawledPage, DEAD_LINK_STATUS, DEFAULT_MAX_RESPONSE_BYTES, DOC_EXTENSIONS, DOC_EXTRACTORS, type DocExtraction, type DocExtractorId, type DocFormat, type DocLadderOptions, ENGINE_VERSION, ERR_INTERNAL, ERR_INVALID_PARAMS, ERR_INVALID_REQUEST, ERR_METHOD_NOT_FOUND, EVIDENCE_TOKEN, EXIT_FAILURE, EXIT_HUMAN, EXIT_OK, EXIT_USAGE, type EmbedResult, type EngineHit, type EngineResult, type ExcerptWindow, type ExpandedKeyword, type ExtractResult, type ExtractorId, FILE_LINE_TOKEN, FIRECRAWL_DEFAULT_BASE, FIRECRAWL_ENV, FRAME_EFFORT, type Feed, type FeedItem, type Fingerprint, type FirecrawlHit, type FirecrawlOptions, type FirecrawlScrape, type FirecrawlSearchOptions, type ForgeItem, type ForgeKind, type ForgeOptions, type ForgeResult, type FrameEffort, type FrameKind, type FramesResult, type HandleOptions, type HttpOptions, type HttpResult, type HybridDoc, type HybridHit, InvalidParamsError, type JsonRpcMessage, type JsonSchema, type JsonSchemaProp, KEYLESS_ENGINES, type KeylessEngine, type KeywordMatcher, type KeywordVariant, LATEST_PROTOCOL, LOCAL_FILE_DOMAIN, type ListedVideo, type MarkdownOptions, type McpAdapter, type McpServer, type OrchestrateOptions, type OrchestrateResult, PDF_EXTRACTORS, PDF_INSPECTOR_SPEC, PDF_URL_RE, PROGRESS_MESSAGE_SINCE, PROTOCOL_VERSIONS, type PackageFacts, type PackageLookup, type PackageResolution, type PageMetadata, type ParsedArgs, type PdfExtraction, type PdfExtractorId, type PdfLadderOptions, type PdfVerdict, type PhaseDefinition, type PhaseEmission, type PhaseInfo, type PromptDecl, PromptError, type PromptResult, type ProtocolVersion, RICH_TOOLS_SINCE, type Ranked, type RegistryKind, type RepoFacts, type RepoFactsResult, type RepoRef, type ResolvedProvider, type ResourceContents, type ResourceDecl, ResourceError, type Robots, type RobotsRule, type RungOutcome, type RungReport, type RunningHttpServer, SEARXNG_DEFAULT_BASE, SEARXNG_SETTINGS_YAML, SERVICE_PROFILES, SMALL_WORKLIST, SOURCE_TOKEN, STACK_SERVICES, type ScrapeAttempt, type SearchHit, type SearchOptions, type SearchResult, type SearchRung, type ServerOptions, type ShResult, type Sitemap, type StackAction, type StackDeps, type StackResult, type StackRun, type StdioOptions, TOKEN_RE, type Table, type ToolAnnotations, type ToolCallContext, type ToolDecl, ToolError, type ToolOutcome, UsageError, VIDEO_TRANSCRIBERS, type VectorHit, type VectorPoint, type VideoChapter, type VideoCorpus, type VideoDeps, type VideoFrame, type VideoHit, type VideoLadderOptions, type VideoMeta, type VideoProbe, type VideoRunMeta, type VideoRunResult, type VideoRunner, type VideoSegment, type VideoSource, type VideoTranscriberId, type VideoTranscript, WORKFLOW_FORBIDDEN, accentPattern, acceptLanguageHeader, addressedIdCount, apiBase, apiPrefix, appendixMask, applyRelevanceFloor, argBool, argInt, argList, argOneOf, argValue, arxivIdFromUrl, assessExtractedText, assessPdfText, assessTranscript, awaitHostSlot, backOffHost, baseLang, batchRefusal, bestExcerpt, bm25MatchedTerms, bm25Score, bm25Tokenize, bracketedTokensIn, brand, browserHome, browserUa, buildBm25Index, buildMatcher, cacheClean, cacheDir, cacheMode, cachePath, cacheStats, cachedFetchAndExtract, canonicalRepo, canonicalRepoRef, canonicalizeUrl, capExtract, capResponse, charsetFromContentType, charsetFromHtml, citationTokensIn, classifyChallenge as classifyBrowserChallenge, classifyYtdlpError, cleanInline, closeBrowserReads, codeMask, collectCitations, configure, contactUa, contentCoverage, contentHash, corpusLabels, corpusMarkdown, cosine, crawlConcurrency, crawlSite, createServer, danglingTokens, ddgRedirectTarget, ddgRegion, deaccent, decodeBody, decodeEntities, decodeLocal, dedupeByUrl, dedupeNearDuplicates, defaultUa, deleteCollection, deriveCitableUrl, detectBrowserBinary, detectRateLimited, discoverFeeds, diversify, docFlagRegex, docFormatForContentType, docFormatForUrl, documentedFlags, doiFromUrl, domainOf, downloadSubtitle, embed, embedModel, embedOne, embedPrefixes, embeddingsDisabled, emitWorkflowScript, enabledDocExtractors, enabledExtractors, enabledTranscribers, ensureClone, ensureCollection, ensureComposeMaterialized, ensureDir, ensureHistoryDepth, env, envFlag, envInt, envName, escapeRegExp, excerptWindows, expandTokens, externalHosts, extractClaimUnits, extractDocument, extractFrames, extractFromHtml, extractJsonLd, extractMainHtml, extractMetaTags, extractNumerals, extractPdf, extractTables, fetchAndExtract, fetchFeed, fetchRobots, fetchSitemap, fetchVideoCorpus, fetchVideoRun, fingerprint, firecrawlBase, firecrawlIsExplicit, fnv1a64, fnv1a64Words, focusedSnippet, foldTerm, forgeAuthHeaders, forgeKind, forgeRef, formatStamp, hammingDistance, hasChanged, have, headCommit, helpCoversFlag, hostDelayMs, htmlCanonicalUrl, htmlTitle, htmlToMarkdown, htmlToText, httpGet, httpJson, hybridSearch, isAllowed, isApiEndpoint, isCacheFresh, isCitableUrl, isInvokedDirectly, isKeylessEngine, isNoWrite, isOriginAllowed, isProtocolVersion, isStopword, jsonLine, keylessEngines, keywords, knownVideo, linksFrom, listPhases, listReleases, listResources, listTags, listVideoRuns, listVideos, looksLikeChallenge, looksLikeFirecrawl, looksLikeJunkExtraction, looksLikePdfUrl, lookupPackage, lookupPackageResult, mapGithubIssues, mapLimit, mapScrapeResponse, mapSearchResponse, markFirecrawlDown, markedQuoteMask, matcherFromTokens, maxCrawlDelayMs, mergeSegments, metaDescriptionOf, missingFromHelp, nearestHeading, negotiateProtocol, normalize, normalizeDoi, normalizeNumeralText, normalizeRepoUrl, ocrBudgetLeft, ocrPdf, ocrTools, officeToText, ollamaBase, oneWriterFooter, openBrowserSession, orMasks, orchestrateRun, originUrl, pageDelayMs, pageMetadata, parseArgs, parseDdgHtml, parseDdgLite, parseFeed, parseFileLine, parseMojeek, parseRetryAfter, parseRobots, parseSitemap, parseVtt, pdfToText, pipedEnum, politeDelayMs, positionalText, probeFirecrawl, probeOllama, probeQdrant, probeSearxng, probeVideo, pubmedAbstractUrl, qdrantBase, rankedKeywords, readCapped, readCappedBytes, readJsonSafe, readManifest, readRenderedPage, readResource, readVideoRun, recencyScore, renderAsset, renderSnapshot as renderBrowserSnapshot, repoCacheRoot, repoFacts, repoFactsResult, rescueViaWayback, resetBrand, resetCacheMode, resetCanonicalRepoCache, resetDocLadderCache, resetFirecrawlProbeCache, resetHaveCache, resetHistoryDepthCache, resetHostSchedule, resetNoWrite, resetOcrBudget, resetOcrTools, resetOllamaProbe, resetPdfLadderCache, resetQdrantProbe, resetRobotsCache, resetRunLocks, resetSearxngProbeCache, resetVideoLadderCache, resolvePackage, resolvePackageResult, resolveProvider, resolveRegion, resolveRepo, resolveSkillRoot, revalidationHeaders, rrf, runId, runStdioServer, runWithInput, runbookMd, sameCommit, scrapeViaFirecrawl, search, searchIssues, searchVectors, searchViaFirecrawl, searchViaKeyless, searchViaSearxng, searchVideoRuns, searxngBase, searxngIsExplicit, searxngLanguage, setCacheMode, setNoWrite, setVideoDeps, sh, shAsync, shq, simhash, siteOf, skillName, sleep, slugify, sniffDocument, splitRegistryPrefix, stackControl, startHttpServer, stripConsentBoilerplate, stripHtmlComments, stripInlineCode, stripTags, structuredContentFor, subtokens, tableToMarkdown, takeArtifacts, throttleReason, toBatches, transcribeVideo, transcriptMarkdown, uncitedIds, unitTexts, unknownEngines, upsert, urlDeclaresIdentity, validateArgs, videoMetaFromInfo, videoRoot, videoRunKey, videoSource, videoUrlAt, whisperBudgetLeft, whisperModel, withRunLock, writeArtifact, writeFileAtomic, writeManifest, youtubeListKind, youtubeVideoId, ytdlpVersionAge };
