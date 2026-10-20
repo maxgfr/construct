@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+## [3.22.2](https://github.com/maxgfr/construct/compare/v3.22.1...v3.22.2) (2026-10-20)
+
+
+### Bug Fixes
+
+* describe orchestrate generic-first in --help, drop stale plugin notes ([#26](https://github.com/maxgfr/construct/issues/26)) ([063bb6b](https://github.com/maxgfr/construct/commit/063bb6b2fcaefa626d0516c6f62386fb09068bab))
+
 ## [3.22.1](https://github.com/maxgfr/construct/compare/v3.22.0...v3.22.1) (2026-10-20)
 
 
