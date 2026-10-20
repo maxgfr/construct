@@ -97,6 +97,18 @@ describe("e2e: CLI basics", () => {
 
     expect(cli([]).status).toBe(0); // no args → help, not an error
   });
+
+  it("--help describes orchestrate generic-first: contracts + RUNBOOK, the Workflow script optional", () => {
+    const h = cli(["--help"]).stdout;
+    const block = h.slice(h.indexOf("  orchestrate Emit"), h.indexOf("  semantic "));
+    const contracts = block.indexOf("agents/<role>.md");
+    const runbook = block.indexOf("RUNBOOK.md");
+    const workflow = block.indexOf(".workflow.mjs");
+    expect(contracts).toBeGreaterThan(-1);
+    expect(runbook).toBeGreaterThan(contracts);
+    expect(workflow).toBeGreaterThan(runbook);
+    expect(block.slice(runbook, workflow)).toMatch(/optionally/);
+  });
 });
 
 describe("e2e: brainstorm lifecycle", () => {

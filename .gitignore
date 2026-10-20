@@ -11,3 +11,8 @@ coverage/
 
 # superpowers plugin local cache
 .superpowers/
+
+# `npx skills add` install output — never committed
+.agents/skills/
+.claude/skills/
+skills-lock.json

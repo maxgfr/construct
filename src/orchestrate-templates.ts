@@ -4,8 +4,9 @@ import type { AdrPanelPayload } from "./orchestrate.js";
 
 // ---------------------------------------------------------------------------
 // Templates for `construct orchestrate` — the generator that turns the run's
-// CURRENT file-backed state into a launchable multi-agent Workflow per phase,
-// the dispatch contracts it references, and a sequential RUNBOOK fallback.
+// CURRENT file-backed state into the dispatch contracts any host's subagents
+// run, a sequential RUNBOOK for a single agent, and — optionally, for Claude
+// Code's Workflow tool — a launchable multi-agent workflow per phase.
 // These emit the fan-out patterns of references/orchestration.md (Pattern 1
 // research, Pattern 3 judge panel, Pattern 4 claim-support, Pattern 5 build);
 // Pattern 2 (adversarial review) is deliberately NOT emitted — it is ONE
