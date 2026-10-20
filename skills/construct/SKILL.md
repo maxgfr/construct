@@ -4,7 +4,6 @@ description: Turn a product idea into grounded SRD/PRD requirements, acceptance 
 license: MIT
 metadata:
   version: 3.21.0
-  opencode/autoinvoke: 'true'
 ---
 
 # construct — a product idea, grounded into a buildable SRD
