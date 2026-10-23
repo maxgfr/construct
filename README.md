@@ -5,7 +5,7 @@
 **On request by default.** `construct` runs when you ask for it: the agent may call
 it when you request a product SRD, and you can invoke it directly with `$construct`
 in Codex, `/construct` in Claude Code or OpenCode. The agent does not pick it up on
-its own, and CLI commands are unchanged. One setting per host makes it
+its own, and CLI commands are unchanged. One setting makes it
 explicit-only — see [Manual or automatic](#manual-or-automatic).
 
 Turn a product idea into a **grounded, buildable SRD suite** — a Software
