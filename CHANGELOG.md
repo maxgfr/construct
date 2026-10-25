@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+## [3.22.3](https://github.com/maxgfr/construct/compare/v3.22.2...v3.22.3) (2026-10-25)
+
+
+### Bug Fixes
+
+* **engine:** update shared engines and maintenance tool ([989ce1b](https://github.com/maxgfr/construct/commit/989ce1ba231a1a3c3eeaf029c70600ff3d3a5a75))
+
 ## [3.22.2](https://github.com/maxgfr/construct/compare/v3.22.1...v3.22.2) (2026-10-20)
 
 
