@@ -3472,12 +3472,30 @@ function subtermsCached(raw, folded) {
   subtermCache.set(raw, subs);
   return subs;
 }
+function bm25Stem(t) {
+  if (t.length < 7) return t;
+  const hit = stemCache.get(t);
+  if (hit !== void 0) return hit;
+  let out = t;
+  if (/^[a-z]+$/.test(t)) {
+    for (const suffix of ["ing", "er", "ed"]) {
+      if (t.endsWith(suffix) && t.length - suffix.length >= 5) {
+        out = t.slice(0, -suffix.length);
+        break;
+      }
+    }
+  }
+  if (stemCache.size >= STEM_CACHE_MAX) stemCache.clear();
+  stemCache.set(t, out);
+  return out;
+}
 function docTokens(doc, titleWeight, headingWeight, body) {
   const out = body ? [...body] : bm25Tokenize(doc.body);
   const headings = bm25Tokenize(doc.headings);
   for (let r = 0; r < headingWeight; r++) out.push(...headings);
   const title = bm25Tokenize(doc.title);
   for (let r = 0; r < titleWeight; r++) out.push(...title);
+  for (let i = 0; i < out.length; i++) out[i] = bm25Stem(out[i]);
   return out;
 }
 function proximityBonus(tokens, queryTerms, window = 6, cap = 0.1) {
@@ -3518,7 +3536,7 @@ function buildBm25Index(question, docs, opts = {}) {
       idf.set(t, 1);
       continue;
     }
-    const dfi = df.get(t) ?? 0;
+    const dfi = df.get(bm25Stem(t)) ?? 0;
     idf.set(t, Math.log(1 + (N - dfi + 0.5) / (dfi + 0.5)));
   }
   const index = { idf, avgdl, N, queryTerms, k1, b, titleWeight, headingWeight };
@@ -3543,18 +3561,19 @@ function bm25Score(index, doc) {
   const { k1, b, avgdl } = index;
   const lenNorm = 1 - b + b * (avgdl ? dl / avgdl : 1);
   let score = 0;
-  for (const term of index.queryTerms) {
-    const f = tf.get(term);
-    if (!f) continue;
+  const stems = index.queryTerms.map(bm25Stem);
+  index.queryTerms.forEach((term, i) => {
+    const f = tf.get(stems[i]);
+    if (!f) return;
     const idf = index.idf.get(term) ?? 0;
     score += idf * (f * (k1 + 1)) / (f + k1 * lenNorm);
-  }
-  return score * (1 + proximityBonus(toks, index.queryTerms));
+  });
+  return score * (1 + proximityBonus(toks, stems));
 }
 function bm25MatchedTerms(index, doc) {
   if (!index.queryTerms.length) return [];
   const present = new Set(indexedDocTokens(index, doc));
-  return index.queryTerms.filter((t) => present.has(t));
+  return index.queryTerms.filter((t) => present.has(bm25Stem(t)));
 }
 function applyRelevanceFloor(ranked, matchedOf, queryTerms, floor) {
   const isAlpha = (t) => new RegExp("\\p{L}", "u").test(t);
@@ -3785,7 +3804,45 @@ function externalHosts(url, text) {
   }
   return out;
 }
-var byCodeUnit, indexTokenCache, WORD_SPLIT, NON_ASCII2, CJK_CHAR2, CJK_RUNS2, IDENT_BOUNDARY, MAX_IDENT, FOLD_CACHE_MAX, foldCache, NO_SUBTERMS, subtermCache, subtermExtras, MASK32, unsigned64, PAIR_CACHE_MAX, URL_IN_TEXT;
+function fuse(lists, keyOf = (item) => canonicalizeUrl(item.url)) {
+  const fused = rrf(lists, keyOf);
+  const best = /* @__PURE__ */ new Map();
+  const foundBy = /* @__PURE__ */ new Map();
+  for (const list of lists) {
+    const seenInList = /* @__PURE__ */ new Set();
+    for (const it of list) {
+      const key = keyOf(it);
+      if (!seenInList.has(key)) {
+        seenInList.add(key);
+        foundBy.set(key, (foundBy.get(key) ?? 0) + 1);
+      }
+      const prev = best.get(key);
+      if (!prev) {
+        best.set(key, { ...it });
+      } else if (!prev.text && it.text) {
+        best.set(key, { ...it, meta: { ...prev.meta, ...it.meta } });
+      } else if (it.meta) {
+        prev.meta = { ...it.meta, ...prev.meta };
+      }
+    }
+  }
+  for (const [key, it] of best) it.meta = { ...it.meta, foundBy: foundBy.get(key) ?? 1 };
+  const merged = [...best.values()];
+  for (const it of merged) it.score = fused.get(keyOf(it)) ?? 0;
+  merged.sort((a, b) => b.score - a.score || a.url.localeCompare(b.url));
+  return merged;
+}
+function coverageWindow(nTerms) {
+  return Math.max(10, nTerms);
+}
+function termCoverage(items, queryTerms, top = coverageWindow(queryTerms.length)) {
+  const toks = items.slice(0, Math.min(top, items.length)).map((it) => new Set(bm25Tokenize(it.text || it.snippet || "")));
+  return queryTerms.map((term) => ({ term, sources: toks.reduce((n, t) => n + (t.has(term) ? 1 : 0), 0) }));
+}
+function underCovered(cov, min = UNDER_COVERED_MIN) {
+  return cov.filter((c) => c.sources < min).map((c) => c.term);
+}
+var byCodeUnit, indexTokenCache, WORD_SPLIT, NON_ASCII2, CJK_CHAR2, CJK_RUNS2, IDENT_BOUNDARY, MAX_IDENT, FOLD_CACHE_MAX, foldCache, NO_SUBTERMS, subtermCache, subtermExtras, STEM_CACHE_MAX, stemCache, MASK32, unsigned64, PAIR_CACHE_MAX, URL_IN_TEXT, UNDER_COVERED_MIN;
 var init_rank = __esm({
   "src/rank.ts"() {
     "use strict";
@@ -3806,10 +3863,13 @@ var init_rank = __esm({
     NO_SUBTERMS = [];
     subtermCache = /* @__PURE__ */ new Map();
     subtermExtras = { list: void 0, length: 0 };
+    STEM_CACHE_MAX = 5e4;
+    stemCache = /* @__PURE__ */ new Map();
     MASK32 = 0xffffffffn;
     unsigned64 = (v) => v < 0n ? BigInt.asUintN(64, v) : v;
     PAIR_CACHE_MAX = 2048;
     URL_IN_TEXT = /https?:\/\/(?:[^\s/@?#]+@)?[\p{L}\p{N}.-]+/giu;
+    UNDER_COVERED_MIN = 2;
   }
 });
 
@@ -7964,6 +8024,10 @@ function browserFetchMode(explicit) {
   const m = (explicit ?? env("BROWSER_FETCH"))?.toLowerCase();
   return m === "always" || m === "fallback" ? m : "off";
 }
+function browserFetchModeFor(opts) {
+  const m = browserFetchMode(opts.browser);
+  return m === "off" && opts.human && opts.browser !== "off" ? "fallback" : m;
+}
 function worthRendering(res) {
   if (RENDER_STATUS.has(res.status)) return res.status ? `got HTTP ${res.status}` : "got no answer";
   if (res.status < 200 || res.status >= 300) return void 0;
@@ -7971,13 +8035,27 @@ function worthRendering(res) {
   if (junk) return `read a ${junk}`;
   return res.text.trim().length < 200 ? "found almost no text" : void 0;
 }
-var RENDER_STATUS;
+function canShowWindow(platform = process.platform, env2 = process.env) {
+  const ci = env2.CI?.trim().toLowerCase();
+  if (ci && ci !== "false" && ci !== "0") return false;
+  if (platform === "darwin" || platform === "win32") return true;
+  return !!(env2.DISPLAY || env2.WAYLAND_DISPLAY);
+}
+function humanWall(text) {
+  const junk = looksLikeJunkExtraction(text);
+  if (junk && !junk.startsWith("JavaScript")) return junk;
+  const t = text.trim();
+  return t && t.length < LOGIN_WALL_MAX && LOGIN_WALL.test(t.slice(0, 800)) ? "login wall" : void 0;
+}
+var RENDER_STATUS, LOGIN_WALL, LOGIN_WALL_MAX;
 var init_mode = __esm({
   "src/browser/mode.ts"() {
     "use strict";
     init_brand();
     init_junk();
     RENDER_STATUS = /* @__PURE__ */ new Set([0, 401, 403, 429, 503]);
+    LOGIN_WALL = /\b(?:sign|log) ?in (?:to (?:continue|read|view|see|access|keep reading)|or (?:sign up|register|create an account))\b|\byou (?:must|need to|have to) (?:be )?(?:signed|logged) ?in\b|\bplease (?:sign|log) ?in\b/i;
+    LOGIN_WALL_MAX = 1500;
   }
 });
 
@@ -8598,28 +8676,35 @@ async function fetchAndExtract(url, opts = {}) {
   }
   const wantsPdf = looksLikePdfUrl(url);
   const wantsDoc = wantsPdf ? void 0 : docFormatForUrl(url);
-  const browser = opts.authorizeUrl || opts.headers || wantsPdf || wantsDoc ? "off" : browserFetchMode(opts.browser);
+  const browser = opts.authorizeUrl || opts.headers || wantsPdf || wantsDoc ? "off" : browserFetchModeFor(opts);
+  const handoff = (got2) => got2.handoff ? { handoff: got2.handoff } : {};
   if (browser === "always") {
     const got2 = await renderInBrowser(url, opts);
     if (got2.result) return got2.result;
     const res2 = await readWithoutBrowser(url, opts, wantsPdf, wantsDoc, { page: false });
-    return { ...res2, note: [`${got2.note}; read without it.`, got2.detail, res2.note].filter(Boolean).join(" ") };
+    return { ...res2, note: [`${got2.note}; read without it.`, got2.detail, res2.note].filter(Boolean).join(" "), ...handoff(got2) };
   }
   const seen = { page: false };
   const res = await readWithoutBrowser(url, opts, wantsPdf, wantsDoc, seen);
-  const why = browser === "fallback" && seen.page && !opts.signal?.aborted ? worthRendering(res) : void 0;
+  const walled = opts.human && res.status >= 200 && res.status < 300 ? humanWall(res.text) : void 0;
+  const why = browser === "fallback" && seen.page && !opts.signal?.aborted ? worthRendering(res) ?? (walled ? `read a ${walled}` : void 0) : void 0;
   if (!why) return res;
   const got = await renderInBrowser(url, opts);
   if (got.result?.text.trim())
     return { ...got.result, note: [`Read ${url} in the browser: the built-in fetch ${why}.`, got.result.note].filter(Boolean).join(" ") };
-  return { ...res, note: [res.note, got.result ? got.result.note : `${got.note}.`, got.detail].filter(Boolean).join(" ") || void 0 };
+  return {
+    ...res,
+    note: [res.note, got.result ? got.result.note : `${got.note}.`, got.detail].filter(Boolean).join(" ") || void 0,
+    ...handoff(got.result ?? got)
+  };
 }
 async function renderInBrowser(url, opts) {
   try {
     const { readRenderedPage: readRenderedPage2 } = await Promise.resolve().then(() => (init_read(), read_exports));
-    const { format, fullPage, stripConsent, keepHtml, signal, timeoutMs } = opts;
-    const result = await readRenderedPage2(url, { format, fullPage, stripConsent, keepHtml, signal, timeoutMs });
-    if (result.status >= 400) return { note: `The browser got HTTP ${result.status} for ${url}`, detail: result.note };
+    const { format, fullPage, stripConsent, keepHtml, signal, timeoutMs, human } = opts;
+    const result = await readRenderedPage2(url, { format, fullPage, stripConsent, keepHtml, signal, timeoutMs, ...human ? { human } : {} });
+    if (result.status >= 400)
+      return { note: `The browser got HTTP ${result.status} for ${url}`, detail: result.note, ...result.handoff ? { handoff: result.handoff } : {} };
     return { result };
   } catch (e) {
     return { note: `The browser could not read ${url} (${e instanceof Error ? e.message : String(e)})` };
@@ -9840,31 +9925,86 @@ async function render(url, opts, deps, timeoutMs, run) {
       await waitFor(session, { idle: true }, { timeoutMs: idleMs, deps }).catch(() => {
       });
     }
+    const statusNow = () => status ?? nav.status ?? 200;
+    const code = statusNow();
+    const take = async () => {
+      const got = await page.send(
+        "Runtime.evaluate",
+        { expression: opts.fullPage ? WHOLE_DOCUMENT : READ_DOCUMENT, returnByValue: true },
+        { timeoutMs }
+      );
+      const finalUrl = typeof got.result?.value?.url === "string" ? got.result.value.url : nav.url;
+      const html = typeof got.result?.value?.html === "string" ? got.result.value.html : "";
+      return { ...extractFromHtml(html, finalUrl, opts), finalUrl, status: statusNow(), extractor: "browser" };
+    };
     const challenge = await detectChallenge(session);
-    const got = await page.send(
-      "Runtime.evaluate",
-      { expression: opts.fullPage ? WHOLE_DOCUMENT : READ_DOCUMENT, returnByValue: true },
-      { timeoutMs }
-    );
-    const finalUrl = typeof got.result?.value?.url === "string" ? got.result.value.url : nav.url;
-    const code = status ?? nav.status ?? 200;
-    if (challenge?.blocking) {
+    const first = await take();
+    const blocked = (c) => ({
+      text: "",
+      finalUrl: first.finalUrl,
+      status: code >= 400 ? code : 403,
+      extractor: "browser",
+      note: `${c.kind} challenge \u2014 open it with \`${brand().cli} browser open ${url}\` and let the human solve it`
+    });
+    const asIs = challenge?.blocking ? blocked(challenge) : first;
+    if (!opts.human) return asIs;
+    const found = challenge?.blocking ? `${challenge.kind} challenge` : humanWall(first.text);
+    if (!found) return first;
+    const wall = `${/^[aeiou]/i.test(found) ? "an" : "a"} ${found}`;
+    const nobody = session.headless ? "the browser runs headless" : canShowWindow(deps.platform) ? void 0 : "no window can be shown here";
+    if (nobody) return { ...asIs, note: [asIs.note, `It needs a human, and ${nobody}.`].filter(Boolean).join(" "), handoff: "no-window" };
+    const human = opts.human === true ? {} : opts.human;
+    const cleared = await handOff(session, url, wall, !!challenge?.blocking, human, deps, take, opts.signal);
+    if (cleared)
       return {
-        text: "",
-        finalUrl,
-        status: code >= 400 ? code : 403,
-        extractor: "browser",
-        note: `${challenge.kind} challenge \u2014 open it with \`${brand().cli} browser open ${url}\` and let the human solve it`
+        ...cleared,
+        status: cleared.status >= 400 ? 200 : cleared.status,
+        note: [cleared.note, `Read after a human got past ${wall}.`].filter(Boolean).join(" "),
+        handoff: "cleared"
       };
-    }
-    const html = typeof got.result?.value?.html === "string" ? got.result.value.html : "";
-    return { ...extractFromHtml(html, finalUrl, opts), finalUrl, status: code, extractor: "browser" };
+    const secs = Math.round((human.timeoutMs ?? HUMAN_TIMEOUT_MS) / 1e3);
+    return { ...asIs, note: [asIs.note, `Nobody got past it within ${secs} s.`].filter(Boolean).join(" "), handoff: "timeout" };
   } finally {
     page.off("Network.responseReceived", onResponse);
     await deps.discovery.closeTarget(session.port, session.targetId, session.host).catch(() => {
     });
     await session.detach();
   }
+}
+async function handOff(session, url, wall, challenged, human, deps, take, signal) {
+  const tell = human.tell ?? ((m) => void process.stderr.write(`${m}
+`));
+  const timeoutMs = human.timeoutMs ?? HUMAN_TIMEOUT_MS;
+  const start = deps.now();
+  const left = () => timeoutMs - (deps.now() - start);
+  const { cli, name } = brand();
+  await deps.discovery.activateTarget(session.port, session.targetId, session.host).catch(() => {
+  });
+  tell(
+    `${cli}: ${url} is behind ${wall}. It is open in the ${name} browser window (its own profile, not your browser): get past it there and the read goes on by itself \u2014 waiting up to ${Math.round(timeoutMs / 1e3)} s.`
+  );
+  try {
+    if (challenged) await waitFor(session, { clear: true }, { timeoutMs, deps, ...signal ? { signal } : {} });
+    for (; ; ) {
+      await waitFor(session, { load: true }, { timeoutMs: Math.max(1, Math.min(AFTER_WALL_LOAD_MS, left())), deps }).catch(() => {
+      });
+      const challenge = await detectChallenge(session);
+      if (!challenge?.blocking) {
+        const r = await take();
+        if (!humanWall(r.text)) {
+          tell(`${cli}: got past it \u2014 read ${url}.`);
+          return r;
+        }
+      }
+      if (left() <= 0) break;
+      if (signal?.aborted) throw new Error(`reading ${url} in the browser was cancelled`);
+      await deps.sleep(Math.min(WALL_POLL_MS, left()));
+    }
+  } catch (e) {
+    if (!(e instanceof WaitTimeoutError)) throw e;
+  }
+  tell(`${cli}: ${url} is still behind ${wall} after ${Math.round(timeoutMs / 1e3)} s \u2014 read without it.`);
+  return void 0;
 }
 function readRenderedPage(url, opts = {}) {
   return track(read(url, opts));
@@ -9875,6 +10015,7 @@ async function read(url, opts) {
   if (signal?.aborted) throw cancelled();
   const deps = browserDeps(opts.deps);
   const timeoutMs = opts.timeoutMs ?? envInt("BROWSER_TIMEOUT_MS", 3e4, 5e3, 3e5);
+  const humanMs = opts.human ? (opts.human === true ? void 0 : opts.human.timeoutMs) ?? HUMAN_TIMEOUT_MS : 0;
   const release = await acquire(envInt("BROWSER_CONCURRENCY", 1, 1, 4), signal, cancelled);
   if (signal?.aborted) {
     release();
@@ -9887,7 +10028,8 @@ async function read(url, opts) {
   const cut = new Promise((_, reject) => {
     stop = reject;
   });
-  const timer = setTimeout(() => stop(new Error(`reading ${url} in the browser did not finish within ${timeoutMs} ms`)), timeoutMs);
+  const budgetMs = humanMs ? 2 * timeoutMs + humanMs : timeoutMs;
+  const timer = setTimeout(() => stop(new Error(`reading ${url} in the browser did not finish within ${budgetMs} ms`)), budgetMs);
   const onAbort = () => stop(cancelled());
   signal?.addEventListener("abort", onAbort, { once: true });
   try {
@@ -9903,7 +10045,7 @@ async function read(url, opts) {
     signal?.removeEventListener("abort", onAbort);
   }
 }
-var IDLE_CAP_MS, WEB_PAGE, active, queue, DRAIN_MS, launched, inflight, WHOLE_DOCUMENT;
+var IDLE_CAP_MS, WEB_PAGE, HUMAN_TIMEOUT_MS, WALL_POLL_MS, AFTER_WALL_LOAD_MS, active, queue, DRAIN_MS, launched, inflight, WHOLE_DOCUMENT;
 var init_read = __esm({
   "src/browser/read.ts"() {
     "use strict";
@@ -9913,12 +10055,16 @@ var init_read = __esm({
     init_deps();
     init_launch();
     init_discovery();
+    init_mode();
     init_overlay();
     init_session();
     init_state();
     init_wait();
     IDLE_CAP_MS = 3e3;
     WEB_PAGE = /^(?:text\/html|application\/xhtml\+xml)$/i;
+    HUMAN_TIMEOUT_MS = 3e5;
+    WALL_POLL_MS = 1e3;
+    AFTER_WALL_LOAD_MS = 1e4;
     active = 0;
     queue = [];
     DRAIN_MS = 5e3;
@@ -9928,7 +10074,7 @@ var init_read = __esm({
 });
 
 // src/version.ts
-var ENGINE_VERSION = "1.34.2";
+var ENGINE_VERSION = "1.36.0";
 
 // src/index.ts
 init_brand();
@@ -10222,6 +10368,7 @@ function unclearControls(controls) {
 
 // src/browser.ts
 init_challenge();
+init_mode();
 init_detect();
 init_profile();
 
@@ -10233,6 +10380,52 @@ init_firecrawl();
 init_text();
 init_url();
 init_rank();
+
+// src/walls.ts
+init_junk();
+var MIN_USEFUL_CHARS = 300;
+var LOCAL_WALLS = [
+  [/\bcookies? (must|need to|have to|should) be (enabled|turned on|allowed)\b/i, "cookie wall"],
+  [/\benable cookies (for|on|in)\b[\s\S]{0,160}?\b(reload|refresh|continue)\b/i, "cookie wall"],
+  [/\b(your browser|this browser) (does not|doesn't) (accept|support) cookies\b/i, "cookie wall"],
+  [/\bwe value your privacy\b[\s\S]{0,600}?\b(accept|agree|consent)\b/i, "cookie/consent wall"],
+  [/\b(accept|allow) all cookies\b[\s\S]{0,400}?\b(reject|decline|manage|settings|preferences)\b/i, "cookie/consent wall"],
+  [/\b(please )?(enable|turn on) javascript\b[\s\S]{0,120}?\b(to continue|to proceed|and reload|and refresh|to view|to use)\b/i, "JavaScript-required shell"],
+  [/\byou need to enable javascript to run this app\b/i, "JavaScript-required shell"],
+  [/\bpour continuer,? (veuillez )?activer (les cookies|javascript)\b|\bles cookies doivent être activés\b/i, "cookie wall (fr)"]
+];
+var WALL_MAX_CHARS = 2e3;
+function usefulChars(text) {
+  return text.split("\n").filter((l) => !/^\s*#{1,6}\s/.test(l)).join(" ").replace(/\s+/g, " ").trim().length;
+}
+var ADDRESSES_READER = /\b(you|your|yours|vous|votre|vos)\b/i;
+var ADDRESSES_READER_DE = /\b(Sie|Ihr|Ihre|Ihnen)\b/;
+var IMPERATIVE = /^\W*(please\s+)?(accept|allow|agree|enable|turn on|reload|refresh|click|tap|continue|manage|reject|decline|sign in|log in|subscribe|veuillez|acceptez|activez|cliquez|continuer)\b/i;
+function proseOutweighsWall(text) {
+  const lines = text.split("\n").map((l) => l.trim()).filter(
+    (l) => l.length >= 60 && !ADDRESSES_READER.test(l) && !ADDRESSES_READER_DE.test(l) && !IMPERATIVE.test(l) && !LOCAL_WALLS.some(([re]) => re.test(l))
+  );
+  if (lines.length < 3) return false;
+  const prose = lines.reduce((n, l) => n + l.length, 0);
+  return prose >= 0.6 * text.replace(/\s+/g, " ").trim().length;
+}
+function wallPattern(text) {
+  const t = text.trim();
+  if (!t) return void 0;
+  const junk = looksLikeJunkExtraction(t);
+  const local2 = junk || t.length >= WALL_MAX_CHARS ? void 0 : LOCAL_WALLS.find(([re]) => re.test(t.slice(0, 800)))?.[1];
+  const wall = junk ?? local2;
+  return wall && !proseOutweighsWall(t) ? wall : void 0;
+}
+function looksLikeWall(text) {
+  const wall = wallPattern(text);
+  if (wall) return wall;
+  const n = usefulChars(text);
+  return n < MIN_USEFUL_CHARS ? `near-empty page (${n} useful characters)` : void 0;
+}
+function isWordedWall(reason) {
+  return !!reason && !reason.startsWith("near-empty page");
+}
 
 // src/citable.ts
 var API_HOSTS = /* @__PURE__ */ new Set([
@@ -12898,7 +13091,7 @@ async function cachedFetchAndExtract(url, opts = {}, enabled = false, now = Date
     return { text: "", finalUrl: url, status: 0, note: `Offline: ${url} is not in the cache (drop --offline, or warm it with a normal run).` };
   }
   const ns = await currentExtractor(opts, url);
-  const fallback = browserFetchMode(opts.browser) === "fallback";
+  const fallback = browserFetchModeFor(opts) === "fallback";
   const store = (result, tried = false) => {
     const target = namespaceFor(result, ns);
     let entry = ns === "firecrawl" && target === "native" ? { ...result, fallbackFrom: "firecrawl" } : result;
@@ -15535,6 +15728,7 @@ export {
   KEYLESS_ENGINES,
   LATEST_PROTOCOL,
   LOCAL_FILE_DOMAIN,
+  MIN_USEFUL_CHARS,
   PDF_EXTRACTORS,
   PDF_INSPECTOR_SPEC,
   PDF_URL_RE,
@@ -15551,6 +15745,7 @@ export {
   STACK_SERVICES,
   TOKEN_RE2 as TOKEN_RE,
   ToolError,
+  UNDER_COVERED_MIN,
   UsageError,
   VIDEO_TRANSCRIBERS,
   WORKFLOW_FORBIDDEN,
@@ -15590,6 +15785,7 @@ export {
   cachePath,
   cacheStats,
   cachedFetchAndExtract,
+  canShowWindow as canShowBrowserWindow,
   canonicalRepo,
   canonicalRepoRef,
   canonicalizeUrl,
@@ -15611,6 +15807,7 @@ export {
   corpusLabels,
   corpusMarkdown,
   cosine,
+  coverageWindow,
   crawlConcurrency,
   crawlSite,
   createServer,
@@ -15686,6 +15883,7 @@ export {
   forgeKind,
   forgeRef,
   formatStamp,
+  fuse,
   hammingDistance,
   hasChanged,
   have,
@@ -15709,6 +15907,7 @@ export {
   isOriginAllowed,
   isProtocolVersion,
   isStopword,
+  isWordedWall,
   jsonLine,
   keylessEngines,
   keywords,
@@ -15724,6 +15923,7 @@ export {
   looksLikeFirecrawl,
   looksLikeJunkExtraction,
   looksLikePdfUrl,
+  looksLikeWall,
   lookupPackage,
   lookupPackageResult,
   mapGithubIssues,
@@ -15774,6 +15974,7 @@ export {
   probeQdrant,
   probeSearxng,
   probeVideo,
+  proseOutweighsWall,
   pubmedAbstractUrl,
   qdrantBase,
   rankedKeywords,
@@ -15856,21 +16057,25 @@ export {
   subtokens,
   tableToMarkdown,
   takeArtifacts,
+  termCoverage,
   throttleReason,
   toBatches,
   transcribeVideo,
   transcriptMarkdown,
   uncitedIds,
+  underCovered,
   unitTexts,
   unknownEngines,
   upsert,
   urlDeclaresIdentity,
+  usefulChars,
   validateArgs,
   videoMetaFromInfo,
   videoRoot,
   videoRunKey,
   videoSource,
   videoUrlAt,
+  wallPattern,
   whisperBudgetLeft,
   whisperModel,
   withRunLock,
