@@ -4204,6 +4204,344 @@ ${method}`;
     };
   }
 });
+function challengePage(text) {
+  const t = text.trim();
+  if (!t || t.length >= CHALLENGE_MAX_CHARS) return void 0;
+  const head = t.slice(0, 800);
+  return CHALLENGE_PAGES.find(([re]) => re.test(head))?.[1];
+}
+function looksLikeJunkExtraction(text) {
+  const t = text.trim();
+  const challenge = challengePage(t);
+  if (challenge) return challenge;
+  if (t.length >= 2e3) return void 0;
+  const head = t.slice(0, 800);
+  const hits = JUNK_PATTERNS.filter(([re]) => re.test(head));
+  const strong = hits.find(([, , kind]) => kind === "strong");
+  if (!strong) return void 0;
+  if (hits.length >= 2) return strong[1];
+  const prose = t.split("\n").filter((l) => l.trim().length >= 60 && !JUNK_PATTERNS.some(([re]) => re.test(l))).length;
+  return prose < 3 ? strong[1] : void 0;
+}
+var JUNK_PATTERNS;
+var CHALLENGE_PAGES;
+var CHALLENGE_MAX_CHARS;
+var init_junk = __esm({
+  "src/junk.ts"() {
+    "use strict";
+    JUNK_PATTERNS = [
+      [/\b(accept|manage)\s+(all\s+)?cookies\b/i, "cookie/consent wall", "strong"],
+      [/\bwe use cookies\b/i, "cookie/consent wall", "strong"],
+      [/\bcookie (policy|settings|consent|preferences)\b/i, "cookie/consent wall", "weak"],
+      [/\b(accept|reject|allow|decline) all\b/i, "cookie/consent wall", "weak"],
+      [/\b(please )?enable javascript\b/i, "JavaScript-required shell", "strong"],
+      [/\bjavascript is (disabled|required|not enabled)\b/i, "JavaScript-required shell", "strong"],
+      [
+        /\bverify(ing)? (that )?(you are|you're) (a )?(human|not a (ro)?bot)\b|\bmaking sure (you are|you're) not a (ro)?bot\b|\bare you a (human|robot)\b|\bhuman verification\b/i,
+        "anti-bot interstitial",
+        "strong"
+      ],
+      [/\battention required\b.*cloudflare|\bunusual traffic from your (computer )?network\b|\bchecking your browser\b/i, "anti-bot interstitial", "strong"],
+      // Akamai's and Cloudflare's denials carry an incident reference; without one
+      // the phrase is as likely a permission-error article.
+      [/\baccess denied\b[\s\S]{0,300}?(\breference #|\bray id\b|\bpermission to access\b)/i, "anti-bot interstitial", "strong"],
+      // Cloudflare's WAF block page. Its "Attention Required!" is the <title>,
+      // which extraction drops, so the body's own wording has to carry it.
+      [/\bsorry, you have been blocked\b|\byou are unable to access\b[\s\S]{0,300}?\bray id\b/i, "anti-bot interstitial", "strong"],
+      [/\baccess denied\b|\benable cookies\b/i, "anti-bot interstitial", "weak"],
+      // FR / DE (the locale layer targets non-EN markets)
+      [/\bnous utilisons des cookies\b|\baccepter (tous )?les cookies\b|\bactiver javascript\b/i, "cookie/consent wall (fr)", "strong"],
+      [/\bwir verwenden cookies\b|\bcookies akzeptieren\b|\bjavascript aktivieren\b/i, "cookie/consent wall (de)", "strong"]
+    ];
+    CHALLENGE_PAGES = [
+      // Anubis (TecharoHQ): its <h1>, and its explanation of itself.
+      [/^\W*(?:#+\s*)?making sure you(?:'|’| a)re not a bot\b/i, "anti-bot proof-of-work challenge"],
+      [/\bset up anubis to protect (?:the|this) server\b|\bprotected by anubis\b/i, "anti-bot proof-of-work challenge"],
+      // Apple's forums interstitial and its kin.
+      [/^\W*(?:#+\s*)?security verification in progress\b|\bplease wait while we verify your browser\b/i, "anti-bot interstitial"]
+    ];
+    CHALLENGE_MAX_CHARS = 4e3;
+  }
+});
+function browserFetchMode(explicit) {
+  const m = (explicit ?? env("BROWSER_FETCH"))?.toLowerCase();
+  return m === "always" || m === "fallback" ? m : "off";
+}
+function browserFetchModeFor(opts) {
+  const m = browserFetchMode(opts.browser);
+  return m === "off" && opts.human && opts.browser !== "off" ? "fallback" : m;
+}
+function worthRendering(res) {
+  if (RENDER_STATUS.has(res.status)) return res.status ? `got HTTP ${res.status}` : "got no answer";
+  if (res.status < 200 || res.status >= 300) return void 0;
+  const junk = looksLikeJunkExtraction(res.text);
+  if (junk) return `read a ${junk}`;
+  return res.text.trim().length < 200 ? "found almost no text" : void 0;
+}
+function canShowWindow(platform = process.platform, env2 = process.env) {
+  const ci = env2.CI?.trim().toLowerCase();
+  if (ci && ci !== "false" && ci !== "0") return false;
+  if (platform === "darwin" || platform === "win32") return true;
+  return !!(env2.DISPLAY || env2.WAYLAND_DISPLAY);
+}
+function humanWall(text) {
+  const junk = looksLikeJunkExtraction(text);
+  if (junk && !junk.startsWith("JavaScript")) return junk;
+  const t = text.trim();
+  return t && t.length < LOGIN_WALL_MAX && LOGIN_WALL.test(t.slice(0, 800)) ? "login wall" : void 0;
+}
+var RENDER_STATUS;
+var LOGIN_WALL;
+var LOGIN_WALL_MAX;
+var init_mode = __esm({
+  "src/browser/mode.ts"() {
+    "use strict";
+    init_brand();
+    init_junk();
+    RENDER_STATUS = /* @__PURE__ */ new Set([0, 401, 403, 429, 503]);
+    LOGIN_WALL = /\b(?:sign|log) ?in (?:to (?:continue|read|view|see|access|keep reading)|or (?:sign up|register|create an account))\b|\byou (?:must|need to|have to) (?:be )?(?:signed|logged) ?in\b|\bplease (?:sign|log) ?in\b/i;
+    LOGIN_WALL_MAX = 1500;
+  }
+});
+function humanAskMode(explicit) {
+  const m = (explicit ?? env("HUMAN_ASK"))?.trim().toLowerCase();
+  return m === "always" || m === "never" ? m : "ask";
+}
+function humanAskTimeoutMs() {
+  return envInt("HUMAN_ASK_TIMEOUT_MS", HUMAN_ASK_TIMEOUT_MS, 1e4, 36e5);
+}
+async function humanLang(opts = {}) {
+  const e = opts.env ?? process.env;
+  for (const key of ["LC_ALL", "LC_MESSAGES", "LANG"]) {
+    const v = e[key]?.trim();
+    if (!v || /^(?:C|POSIX)(?:$|[.@])/i.test(v)) continue;
+    return isFrench(v) ? "fr" : "en";
+  }
+  if ((opts.platform ?? process.platform) === "darwin") {
+    const r = await (opts.run ?? shAsync)("defaults", ["read", "-g", "AppleLocale"], { timeoutMs: 5e3 });
+    if (r.ok && r.stdout.trim()) return isFrench(r.stdout) ? "fr" : "en";
+  }
+  return isFrench(opts.defaultLocale ?? Intl.DateTimeFormat().resolvedOptions().locale) ? "fr" : "en";
+}
+function humanCheckLabel(check, lang = "en") {
+  const t = (check ?? "").toLowerCase();
+  const fr = lang === "fr";
+  if (/captcha/.test(t)) return "CAPTCHA";
+  const vendor = /\b(cloudflare|turnstile|datadome|perimeterx|akamai|imperva|arkose)\b/.exec(t)?.[1];
+  if (vendor) return fr ? `v\xE9rification ${VENDORS[vendor]}` : `${VENDORS[vendor]} check`;
+  if (/\b(?:log|sign) ?-?in\b|\bsignin\b/.test(t)) return fr ? "connexion requise" : "sign-in";
+  if (/consent|cookie/.test(t)) return fr ? "bandeau de consentement" : "consent wall";
+  return fr ? "v\xE9rification anti-robot" : "human check";
+}
+function hostOf(url) {
+  try {
+    return new URL(url).host || url;
+  } catch {
+    return url;
+  }
+}
+function humanAskText(pages, lang = "en", title = brand().name) {
+  const fr = lang === "fr";
+  const sites = /* @__PURE__ */ new Map();
+  for (const p of pages) {
+    const host = hostOf(p.url);
+    const site = sites.get(host) ?? { labels: /* @__PURE__ */ new Set(), pages: 0 };
+    site.labels.add(humanCheckLabel(p.check, lang));
+    site.pages++;
+    sites.set(host, site);
+  }
+  const lines = [...sites].slice(0, SITES_SHOWN).map(([host, s]) => {
+    const n2 = s.pages > 1 ? ` (${s.pages} pages)` : "";
+    return `\u2022 ${host} \u2014 ${[...s.labels].join(", ")}${n2}`;
+  });
+  const more = sites.size - SITES_SHOWN;
+  if (more > 0) lines.push(fr ? `\u2022 et ${more} autre(s) site(s)` : `\u2022 and ${more} more site(s)`);
+  const n = pages.length;
+  const head = fr ? n === 1 ? "Une page est bloqu\xE9e par une v\xE9rification humaine :" : `${n} pages sont bloqu\xE9es par une v\xE9rification humaine :` : n === 1 ? "A page is stopped by a human check:" : `${n} pages are stopped by a human check:`;
+  const solve = fr ? "R\xE9soudre" : "Solve it";
+  const later = fr ? "Plus tard" : "Later";
+  const what = fr ? `${solve} : le navigateur passe au premier plan sur chaque page, l'une apr\xE8s l'autre ; passez la v\xE9rification et la suite se fait toute seule.
+${later} : rien ne s'affiche, les pages restent de c\xF4t\xE9 pour plus tard.` : `${solve}: the browser comes forward on each page in turn; get past the check there and the rest goes on by itself.
+${later}: nothing comes forward; the pages are left for later.`;
+  return {
+    title,
+    message: `${head}
+${lines.join("\n")}
+
+${what}`,
+    solve,
+    later,
+    done: (cleared, total2) => fr ? `${cleared} page(s) sur ${total2} d\xE9bloqu\xE9e(s) \u2014 la suite continue.` : `Got past ${cleared} of ${total2} page(s) \u2014 the run goes on.`
+  };
+}
+async function askMac(a) {
+  const { text } = a;
+  const args2 = [...MAC_DIALOG.flatMap((l) => ["-e", l]), text.message, text.title, text.later, text.solve, String(a.secs)];
+  const r = await a.run("osascript", args2, { timeoutMs: a.timeoutMs + GRACE_MS });
+  if (r.status === 124) return "no-answer";
+  if (r.missing || /-1713\b/.test(r.stderr)) return "unavailable";
+  if (!r.ok) return "no-answer";
+  const out2 = r.stdout.trim();
+  if (out2 === text.solve) return "solve";
+  if (out2 === text.later) return "later";
+  return "no-answer";
+}
+async function askLinux(a) {
+  const { text } = a;
+  if (a.has("zenity")) {
+    const r = await a.run(
+      "zenity",
+      [
+        "--question",
+        "--no-markup",
+        `--title=${text.title}`,
+        `--text=${text.message}`,
+        `--ok-label=${text.solve}`,
+        `--cancel-label=${text.later}`,
+        `--timeout=${a.secs}`
+      ],
+      { timeoutMs: a.timeoutMs + GRACE_MS }
+    );
+    if (!r.missing) {
+      if (r.status === 0) return "solve";
+      if (r.status === 1) return "later";
+      if (r.status === 5 || r.status === 124) return "no-answer";
+    }
+  }
+  if (a.has("kdialog")) {
+    const r = await a.run("kdialog", ["--title", text.title, "--yes-label", text.solve, "--no-label", text.later, "--warningyesno", text.message], {
+      timeoutMs: a.timeoutMs
+    });
+    if (!r.missing) {
+      if (r.status === 0) return "solve";
+      if (r.status === 1) return "later";
+      if (r.status === 124) return "no-answer";
+    }
+  }
+  if (a.has("notify-send")) {
+    const r = await a.run(
+      "notify-send",
+      [
+        `--app-name=${text.title}`,
+        "--urgency=critical",
+        `--expire-time=${a.timeoutMs}`,
+        `--action=solve=${text.solve}`,
+        `--action=later=${text.later}`,
+        "--wait",
+        text.title,
+        text.message
+      ],
+      { timeoutMs: a.timeoutMs + GRACE_MS }
+    );
+    if (r.status === 124) return "no-answer";
+    if (r.ok) {
+      const out2 = r.stdout.trim();
+      return out2 === "solve" ? "solve" : out2 === "later" ? "later" : "no-answer";
+    }
+  }
+  return "unavailable";
+}
+async function askWindows(a, lang) {
+  const { text } = a;
+  const legend = lang === "fr" ? `Oui : ${text.solve.toLowerCase()} \xB7 Non : ${text.later.toLowerCase()}` : `Yes: ${text.solve.toLowerCase()} \xB7 No: ${text.later.toLowerCase()}`;
+  const r = await a.run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", WIN_POPUP], {
+    timeoutMs: a.timeoutMs + GRACE_MS,
+    env: { ...process.env, HUMAN_ASK_TEXT: `${text.message}
+
+${legend}`, HUMAN_ASK_SECS: String(a.secs), HUMAN_ASK_TITLE: text.title }
+  });
+  if (r.status === 124) return "no-answer";
+  if (!r.ok) return "unavailable";
+  const out2 = r.stdout.trim();
+  return out2 === "6" ? "solve" : out2 === "7" ? "later" : out2 === "-1" ? "no-answer" : "unavailable";
+}
+async function askHuman(pages, opts = {}) {
+  const platform = opts.platform ?? process.platform;
+  const e = opts.env ?? process.env;
+  if (!pages.length || !canShowWindow(platform, e)) return "unavailable";
+  const run2 = opts.run ?? ((cmd, args2, o) => shAsync(cmd, args2, o));
+  try {
+    const lang = opts.lang ?? await humanLang({ platform, env: e, run: run2, ...opts.defaultLocale ? { defaultLocale: opts.defaultLocale } : {} });
+    const timeoutMs = opts.timeoutMs ?? humanAskTimeoutMs();
+    const asking2 = {
+      text: humanAskText(pages, lang, opts.title),
+      secs: Math.max(1, Math.round(timeoutMs / 1e3)),
+      timeoutMs,
+      run: run2,
+      has: opts.have ?? have
+    };
+    if (platform === "darwin") return await askMac(asking2);
+    if (platform === "win32") return await askWindows(asking2, lang);
+    return await askLinux(asking2);
+  } catch {
+    return "unavailable";
+  }
+}
+async function notifyHuman(message, opts = {}) {
+  const platform = opts.platform ?? process.platform;
+  if (!canShowWindow(platform, opts.env ?? process.env)) return false;
+  const run2 = opts.run ?? ((cmd, args2, o) => shAsync(cmd, args2, o));
+  const title = opts.title ?? brand().name;
+  try {
+    if (platform === "darwin") {
+      const script = ["on run argv", 'display notification (item 1 of argv) with title (item 2 of argv) sound name "Glass"', "end run"];
+      return (await run2("osascript", [...script.flatMap((l) => ["-e", l]), message, title], { timeoutMs: 1e4 })).ok;
+    }
+    if (platform !== "win32" && (opts.have ?? have)("notify-send")) {
+      return (await run2("notify-send", [`--app-name=${title}`, "--expire-time=6000", title, message], { timeoutMs: 1e4 })).ok;
+    }
+  } catch {
+  }
+  return false;
+}
+async function notifyHumanDone(cleared, total2, opts = {}) {
+  const platform = opts.platform ?? process.platform;
+  const e = opts.env ?? process.env;
+  if (!canShowWindow(platform, e)) return false;
+  const run2 = opts.run ?? ((cmd, args2, o) => shAsync(cmd, args2, o));
+  const lang = opts.lang ?? await humanLang({ platform, env: e, run: run2, ...opts.defaultLocale ? { defaultLocale: opts.defaultLocale } : {} }).catch(() => "en");
+  const { lang: _l, defaultLocale: _d, ...rest } = opts;
+  return notifyHuman(humanAskText([], lang, opts.title).done(cleared, total2), { ...rest, platform, env: e, run: run2 });
+}
+var HUMAN_ASK_TIMEOUT_MS;
+var GRACE_MS;
+var isFrench;
+var VENDORS;
+var SITES_SHOWN;
+var MAC_DIALOG;
+var WIN_POPUP;
+var init_ask = __esm({
+  "src/ask.ts"() {
+    "use strict";
+    init_brand();
+    init_mode();
+    init_exec2();
+    HUMAN_ASK_TIMEOUT_MS = 12e4;
+    GRACE_MS = 15e3;
+    isFrench = (locale) => /^fr(?:$|[_.@-])/i.test(locale.trim());
+    VENDORS = {
+      cloudflare: "Cloudflare",
+      turnstile: "Cloudflare",
+      datadome: "DataDome",
+      perimeterx: "PerimeterX",
+      akamai: "Akamai",
+      imperva: "Imperva",
+      arkose: "Arkose"
+    };
+    SITES_SHOWN = 5;
+    MAC_DIALOG = [
+      "on run argv",
+      // osascript is no app of its own: brought to the front, or the dialog may open behind the window in use.
+      "activate",
+      "beep",
+      "set r to display dialog (item 1 of argv) with title (item 2 of argv) buttons {item 3 of argv, item 4 of argv} default button 2 with icon caution giving up after ((item 5 of argv) as integer)",
+      'if gave up of r then return "gave-up"',
+      "return button returned of r",
+      "end run"
+    ];
+    WIN_POPUP = "$s = New-Object -ComObject WScript.Shell; [Console]::Out.Write($s.Popup($env:HUMAN_ASK_TEXT, [int]$env:HUMAN_ASK_SECS, $env:HUMAN_ASK_TITLE, 4132))";
+  }
+});
 function isLaunchable(path) {
   try {
     if (!statSync2(path).isFile()) return false;
@@ -4665,7 +5003,9 @@ function defaultBrowserDeps() {
     kill: (pid, signal) => void process.kill(pid, signal),
     alive: pidAlive,
     env: (name2) => env(name2),
-    platform: process.platform
+    platform: process.platform,
+    askHuman: (pages) => askHuman(pages),
+    notifyHuman: (cleared, total2) => notifyHumanDone(cleared, total2)
   };
 }
 function browserDeps(own) {
@@ -4674,6 +5014,7 @@ function browserDeps(own) {
 var init_deps = __esm({
   "src/browser/deps.ts"() {
     "use strict";
+    init_ask();
     init_brand();
     init_cdp();
     init_detect();
@@ -4745,7 +5086,12 @@ async function resolveEndpoint(opts = {}) {
     }
     clearSession();
   }
-  return launch(deps, opts.binary, profile, headless, opts.kind);
+  return launch(deps, opts.binary, profile, headless, opts.kind, opts.quiet === true);
+}
+function readWindowSize(deps) {
+  const m = /^\s*(\d{3,4})\s*[x,]\s*(\d{3,4})\s*$/i.exec(deps.env("BROWSER_WINDOW") ?? "");
+  const clamp = (n) => Math.min(4e3, Math.max(200, n));
+  return m ? { width: clamp(Number(m[1])), height: clamp(Number(m[2])) } : { width: 800, height: 600 };
 }
 function wantedKind(deps, kind, profile) {
   if (kind) return kind;
@@ -4753,7 +5099,7 @@ function wantedKind(deps, kind, profile) {
   if (asked && !isBrowserKind(asked)) throw new UsageError(`${envName("BROWSER_KIND")} is "${asked}", not one of chrome, brave, chromium, edge`);
   return asked && isBrowserKind(asked) ? asked : readProfileKind(profile);
 }
-async function launch(deps, binary2, profile, headless, kind) {
+async function launch(deps, binary2, profile, headless, kind, quiet) {
   const wanted = binary2 ? void 0 : wantedKind(deps, kind, profile);
   const found = binary2 ? { kind: kindOf(binary2), path: binary2 } : deps.detectBrowser(wanted);
   if (!found && wanted) throw new UsageError(`no ${wanted} found: install it, or name its executable with ${envName("BROWSER_BIN")}`);
@@ -4788,8 +5134,12 @@ async function launch(deps, binary2, profile, headless, kind) {
     "--no-default-browser-check",
     ...dropped ? [] : extensionArgs(extensions)
   ];
-  if (headless) args2.push("--headless=new");
-  args2.push("about:blank");
+  if (headless) args2.push("--headless=new", "about:blank");
+  else if (quiet && deps.platform === "darwin") args2.push(...KEEP_RENDERING, "--no-startup-window");
+  else if (quiet) {
+    const { width, height } = readWindowSize(deps);
+    args2.push(...KEEP_RENDERING, `--window-size=${width},${height}`, "about:blank");
+  } else args2.push(...KEEP_RENDERING, "about:blank");
   const child = deps.spawn(bin, args2, { detached: true, stdio: "ignore" });
   let failure2;
   child.on("exit", (code, signal) => {
@@ -4862,6 +5212,7 @@ async function isSameBrowser(deps, port, host, wsBrowserUrl) {
 }
 var STARTUP_TIMEOUT_MS;
 var POLL_MS;
+var KEEP_RENDERING;
 var init_launch = __esm({
   "src/browser/launch.ts"() {
     "use strict";
@@ -4875,6 +5226,7 @@ var init_launch = __esm({
     init_state();
     STARTUP_TIMEOUT_MS = 2e4;
     POLL_MS = 100;
+    KEEP_RENDERING = ["--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"];
   }
 });
 function cleanTabs(v) {
@@ -4922,9 +5274,43 @@ function assertOpenableUrl(url) {
   }
   if (!ok) throw new UsageError(`only http(s) URLs (and about:blank) can be opened \u2014 use \`${brand().cli} extract <path>\` for local files`);
 }
-async function createTarget(cdp) {
-  const { targetId } = await cdp.send("Target.createTarget", { url: "about:blank" });
+async function createTarget(cdp, opts = {}) {
+  const params = { url: "about:blank", ...opts.background ? { background: true } : {}, ...opts.window ? { newWindow: true, ...opts.window } : {} };
+  const { targetId } = await cdp.send("Target.createTarget", params);
   return targetId;
+}
+function screenArea(v) {
+  const a = v;
+  const ok = (n) => typeof n === "number" && Number.isFinite(n);
+  return a && ok(a.left) && ok(a.top) && ok(a.width) && ok(a.height) && a.width > 0 && a.height > 0 ? a : void 0;
+}
+async function windowOf(cdp, targetId) {
+  const got = await cdp.send("Browser.getWindowForTarget", { targetId }).catch(() => void 0);
+  return typeof got?.windowId === "number" && got.bounds ? { windowId: got.windowId, bounds: got.bounds } : void 0;
+}
+async function setBounds(cdp, windowId, bounds) {
+  await cdp.send("Browser.setWindowBounds", { windowId, bounds: { windowState: "normal" } });
+  await cdp.send("Browser.setWindowBounds", { windowId, bounds });
+}
+async function tuckAway(cdp, targetId, size) {
+  try {
+    const win = await windowOf(cdp, targetId);
+    if (!win) return;
+    const { sessionId } = await cdp.send("Target.attachToTarget", { targetId, flatten: true });
+    let area;
+    try {
+      const got = await cdp.session(sessionId).send("Runtime.evaluate", { expression: SCREEN_AREA, returnByValue: true }, { timeoutMs: STATUS_TIMEOUT_MS });
+      area = screenArea(got.result?.value);
+    } finally {
+      await cdp.send("Target.detachFromTarget", { sessionId }).catch(() => {
+      });
+    }
+    if (!area) return;
+    const width = Math.min(size.width, area.width);
+    const height = Math.min(size.height, area.height);
+    await setBounds(cdp, win.windowId, { left: area.left + area.width - width, top: area.top + area.height - height, width, height });
+  } catch {
+  }
 }
 async function attachPage(cdp, targetId) {
   const { sessionId } = await cdp.send("Target.attachToTarget", { targetId, flatten: true });
@@ -4970,7 +5356,7 @@ function forget(targetIds, all) {
 }
 async function openBrowserSession(opts = {}) {
   const deps = browserDeps(opts.deps);
-  const endpoint = await resolveEndpoint({ ...opts, deps });
+  const endpoint = await resolveEndpoint({ ...opts, deps, quiet: opts.quiet ?? opts.scratch === true });
   const saved = readSession();
   const same = saved !== null && saved.port === endpoint.port && (saved.host ?? "127.0.0.1") === endpoint.host ? saved : null;
   const { webSocketDebuggerUrl } = await deps.discovery.getVersion(endpoint.port, endpoint.host);
@@ -4979,7 +5365,14 @@ async function openBrowserSession(opts = {}) {
   try {
     const pages = await deps.discovery.listPages(endpoint.port, endpoint.host);
     let targetId;
-    if (opts.newTab || opts.scratch) targetId = created = await createTarget(cdp);
+    if (opts.scratch && !endpoint.headless) {
+      const size = readWindowSize(deps);
+      let holder = pages[0]?.id;
+      const fresh2 = holder === void 0 && endpoint.launchedByUs;
+      if (fresh2) holder = await createTarget(cdp, { background: true, window: size });
+      if (holder !== void 0 && (fresh2 || endpoint.spawned)) await tuckAway(cdp, holder, size);
+      targetId = created = await createTarget(cdp, { background: true });
+    } else if (opts.newTab || opts.scratch) targetId = created = await createTarget(cdp);
     else if (same && pages.some((p) => p.id === same.targetId)) targetId = same.targetId;
     else targetId = pages[0]?.id ?? await createTarget(cdp);
     const sessionId = await attachPage(cdp, targetId);
@@ -4999,11 +5392,13 @@ var BROWSER_CLOSE_TIMEOUT_MS;
 var STATUS_TIMEOUT_MS;
 var ATTACH_TIMEOUT_MS;
 var TAB_ID;
+var HUMAN_WINDOW;
 var LIFECYCLE;
 var NavigationTimeoutError;
 var committedIn;
 var stillLoading;
 var tabNumber;
+var SCREEN_AREA;
 var BrowserSession;
 var init_session = __esm({
   "src/browser/session.ts"() {
@@ -5021,12 +5416,14 @@ var init_session = __esm({
     STATUS_TIMEOUT_MS = 2e3;
     ATTACH_TIMEOUT_MS = 5e3;
     TAB_ID = /^t([1-9]\d*)$/;
+    HUMAN_WINDOW = { width: 1100, height: 860 };
     LIFECYCLE = { load: "load", domcontentloaded: "DOMContentLoaded" };
     NavigationTimeoutError = class extends Error {
     };
     committedIn = (frameId, isNew) => (e) => e.frameId === frameId && isNew(e.loaderId) && (e.kind === "commit" || e.kind === "lifecycle" && e.name !== "init");
     stillLoading = (timeoutMs) => `still loading after ${timeoutMs} ms \u2014 take a snapshot or \`${brand().cli} browser wait --load\``;
     tabNumber = (id) => Number(TAB_ID.exec(id)?.[1] ?? 0);
+    SCREEN_AREA = "({ left: screen.availLeft, top: screen.availTop, width: screen.availWidth, height: screen.availHeight })";
     BrowserSession = class {
       /** @internal use openBrowserSession */
       constructor(cdp, endpoint, wsBrowserUrl, deps, targetId, sessionId, tabs, scratch = false) {
@@ -5075,6 +5472,50 @@ var init_session = __esm({
       }
       get headless() {
         return this.endpoint.headless;
+      }
+      /**
+       * Bring this session's tab to the front for a person: its window at a size
+       * one can work in (the reads keep it small, in a corner), the tab shown, the
+       * browser activated. Resolves with what puts the window back as it was. Best
+       * effort, all of it: a window that cannot be resized is still brought up.
+       */
+      async showToHuman() {
+        let restore = async () => {
+        };
+        const win = await windowOf(this.cdp, this.targetId);
+        if (win) {
+          try {
+            const got = await this.page.send(
+              "Runtime.evaluate",
+              { expression: SCREEN_AREA, returnByValue: true },
+              { timeoutMs: STATUS_TIMEOUT_MS }
+            );
+            const area = screenArea(got.result?.value);
+            const { width = 0, height = 0 } = win.bounds;
+            if (area && (width < HUMAN_WINDOW.width || height < HUMAN_WINDOW.height)) {
+              const w = Math.min(Math.max(width, HUMAN_WINDOW.width), area.width);
+              const h = Math.min(Math.max(height, HUMAN_WINDOW.height), area.height);
+              await setBounds(this.cdp, win.windowId, {
+                left: area.left + Math.round((area.width - w) / 2),
+                top: area.top + Math.round((area.height - h) / 2),
+                width: w,
+                height: h
+              });
+              const { windowState, ...was } = win.bounds;
+              restore = async () => {
+                await setBounds(this.cdp, win.windowId, was).catch(() => {
+                });
+                if (windowState && windowState !== "normal")
+                  await this.cdp.send("Browser.setWindowBounds", { windowId: win.windowId, bounds: { windowState } }).catch(() => {
+                  });
+              };
+            }
+          } catch {
+          }
+        }
+        await this.deps.discovery.activateTarget(this.port, this.targetId, this.host).catch(() => {
+        });
+        return restore;
       }
       /** What the launch had to say (extensions the browser will not load), once: the next call gets nothing. */
       takeNotes() {
@@ -7118,85 +7559,62 @@ var init_forge_host = __esm({
     WWW_ALIASED = /* @__PURE__ */ new Set(["github.com", "gitlab.com", "codeberg.org", "bitbucket.org"]);
   }
 });
-function looksLikeJunkExtraction(text) {
-  const t = text.trim();
-  if (t.length >= 2e3) return void 0;
-  const head = t.slice(0, 800);
-  const hits = JUNK_PATTERNS.filter(([re]) => re.test(head));
-  const strong = hits.find(([, , kind]) => kind === "strong");
-  if (!strong) return void 0;
-  if (hits.length >= 2) return strong[1];
-  const prose = t.split("\n").filter((l) => l.trim().length >= 60 && !JUNK_PATTERNS.some(([re]) => re.test(l))).length;
-  return prose < 3 ? strong[1] : void 0;
-}
-var JUNK_PATTERNS;
-var init_junk = __esm({
-  "src/junk.ts"() {
-    "use strict";
-    JUNK_PATTERNS = [
-      [/\b(accept|manage)\s+(all\s+)?cookies\b/i, "cookie/consent wall", "strong"],
-      [/\bwe use cookies\b/i, "cookie/consent wall", "strong"],
-      [/\bcookie (policy|settings|consent|preferences)\b/i, "cookie/consent wall", "weak"],
-      [/\b(accept|reject|allow|decline) all\b/i, "cookie/consent wall", "weak"],
-      [/\b(please )?enable javascript\b/i, "JavaScript-required shell", "strong"],
-      [/\bjavascript is (disabled|required|not enabled)\b/i, "JavaScript-required shell", "strong"],
-      [
-        /\bverify(ing)? (that )?(you are|you're) (a )?(human|not a (ro)?bot)\b|\bare you a (human|robot)\b|\bhuman verification\b/i,
-        "anti-bot interstitial",
-        "strong"
-      ],
-      [/\battention required\b.*cloudflare|\bunusual traffic from your (computer )?network\b|\bchecking your browser\b/i, "anti-bot interstitial", "strong"],
-      // Akamai's and Cloudflare's denials carry an incident reference; without one
-      // the phrase is as likely a permission-error article.
-      [/\baccess denied\b[\s\S]{0,300}?(\breference #|\bray id\b|\bpermission to access\b)/i, "anti-bot interstitial", "strong"],
-      // Cloudflare's WAF block page. Its "Attention Required!" is the <title>,
-      // which extraction drops, so the body's own wording has to carry it.
-      [/\bsorry, you have been blocked\b|\byou are unable to access\b[\s\S]{0,300}?\bray id\b/i, "anti-bot interstitial", "strong"],
-      [/\baccess denied\b|\benable cookies\b/i, "anti-bot interstitial", "weak"],
-      // FR / DE (the locale layer targets non-EN markets)
-      [/\bnous utilisons des cookies\b|\baccepter (tous )?les cookies\b|\bactiver javascript\b/i, "cookie/consent wall (fr)", "strong"],
-      [/\bwir verwenden cookies\b|\bcookies akzeptieren\b|\bjavascript aktivieren\b/i, "cookie/consent wall (de)", "strong"]
-    ];
+function challengeUrl(url) {
+  let target;
+  try {
+    const u = new URL(url);
+    target = `${u.pathname}${u.search}`;
+  } catch {
+    return void 0;
   }
-});
-function browserFetchMode(explicit) {
-  const m = (explicit ?? env("BROWSER_FETCH"))?.toLowerCase();
-  return m === "always" || m === "fallback" ? m : "off";
+  return CHALLENGE_URLS.some((re) => re.test(target)) ? "anti-bot challenge page" : void 0;
 }
-function browserFetchModeFor(opts) {
-  const m = browserFetchMode(opts.browser);
-  return m === "off" && opts.human && opts.browser !== "off" ? "fallback" : m;
-}
-function worthRendering(res) {
-  if (RENDER_STATUS.has(res.status)) return res.status ? `got HTTP ${res.status}` : "got no answer";
-  if (res.status < 200 || res.status >= 300) return void 0;
-  const junk = looksLikeJunkExtraction(res.text);
-  if (junk) return `read a ${junk}`;
-  return res.text.trim().length < 200 ? "found almost no text" : void 0;
-}
-function canShowWindow(platform = process.platform, env2 = process.env) {
-  const ci = env2.CI?.trim().toLowerCase();
-  if (ci && ci !== "false" && ci !== "0") return false;
-  if (platform === "darwin" || platform === "win32") return true;
-  return !!(env2.DISPLAY || env2.WAYLAND_DISPLAY);
-}
-function humanWall(text) {
-  const junk = looksLikeJunkExtraction(text);
-  if (junk && !junk.startsWith("JavaScript")) return junk;
-  const t = text.trim();
-  return t && t.length < LOGIN_WALL_MAX && LOGIN_WALL.test(t.slice(0, 800)) ? "login wall" : void 0;
-}
-var RENDER_STATUS;
-var LOGIN_WALL;
-var LOGIN_WALL_MAX;
-var init_mode = __esm({
-  "src/browser/mode.ts"() {
+var MIN_USEFUL_CHARS;
+var LOCAL_WALLS;
+var WALL_MAX_CHARS;
+var ADDRESSES_READER;
+var ADDRESSES_READER_DE;
+var IMPERATIVE;
+var CHALLENGE_URLS;
+var init_walls = __esm({
+  "src/walls.ts"() {
     "use strict";
-    init_brand();
     init_junk();
-    RENDER_STATUS = /* @__PURE__ */ new Set([0, 401, 403, 429, 503]);
-    LOGIN_WALL = /\b(?:sign|log) ?in (?:to (?:continue|read|view|see|access|keep reading)|or (?:sign up|register|create an account))\b|\byou (?:must|need to|have to) (?:be )?(?:signed|logged) ?in\b|\bplease (?:sign|log) ?in\b/i;
-    LOGIN_WALL_MAX = 1500;
+    MIN_USEFUL_CHARS = 300;
+    LOCAL_WALLS = [
+      [/\bcookies? (must|need to|have to|should) be (enabled|turned on|allowed)\b/i, "cookie wall"],
+      [/\benable cookies (for|on|in)\b[\s\S]{0,160}?\b(reload|refresh|continue)\b/i, "cookie wall"],
+      [/\b(your browser|this browser) (does not|doesn't) (accept|support) cookies\b/i, "cookie wall"],
+      [/\bwe value your privacy\b[\s\S]{0,600}?\b(accept|agree|consent)\b/i, "cookie/consent wall"],
+      [/\b(accept|allow) all cookies\b[\s\S]{0,400}?\b(reject|decline|manage|settings|preferences)\b/i, "cookie/consent wall"],
+      [/\b(please )?(enable|turn on) javascript\b[\s\S]{0,120}?\b(to continue|to proceed|and reload|and refresh|to view|to use)\b/i, "JavaScript-required shell"],
+      [/\byou need to enable javascript to run this app\b/i, "JavaScript-required shell"],
+      [/\bpour continuer,? (veuillez )?activer (les cookies|javascript)\b|\bles cookies doivent être activés\b/i, "cookie wall (fr)"]
+    ];
+    WALL_MAX_CHARS = 2e3;
+    ADDRESSES_READER = /\b(you|your|yours|vous|votre|vos)\b/i;
+    ADDRESSES_READER_DE = /\b(Sie|Ihr|Ihre|Ihnen)\b/;
+    IMPERATIVE = /^\W*(please\s+)?(accept|allow|agree|enable|turn on|reload|refresh|click|tap|continue|manage|reject|decline|sign in|log in|subscribe|veuillez|acceptez|activez|cliquez|continuer)\b/i;
+    CHALLENGE_URLS = [
+      /\/apology_objects?\//i,
+      // fda.gov and other Akamai-fronted sites: abuse-detection-apology.html
+      /\/abuse[-_]detection\b/i,
+      /\/verify[-_]human\//i,
+      // developer.apple.com/forums/verify-human/verify.html
+      /\/cdn-cgi\/challenge-platform\//i,
+      // Cloudflare
+      /[?&]__cf_chl_\w*=/i,
+      /\/\.within\.website\/x\/cmd\/anubis\//i,
+      // Anubis
+      /\/\.well-known\/sgcaptcha\b/i,
+      // SiteGround
+      /\/_incapsula_resource\b/i,
+      // Imperva
+      /\/distil_r_(?:captcha|blocked)\b/i,
+      // Distil
+      // A gate at the site's root; anywhere deeper (/wiki/CAPTCHA) it is a topic.
+      /^\/(?:captcha|bot[-_]?check|are[-_]you[-_](?:a[-_])?(?:human|robot))(?:\/|\.html?\b|$|\?)/i
+    ];
   }
 });
 function browserUa() {
@@ -7865,8 +8283,22 @@ async function readWithoutBrowser(url, opts, wantsPdf, wantsDoc, seen) {
   let res = await httpGet(url, fetchOpts);
   if (opts.signal?.aborted) return cancelled();
   const toldToWait = (res.retryAfterMs ?? 0) > RETRY_AFTER_CAP_MS;
-  if (!res.ok && !toldToWait && brand().defaultUa === "contact" && (res.status === 403 || res.status === 429)) {
+  let asBrowser = brand().defaultUa !== "contact";
+  if (!res.ok && !toldToWait && !asBrowser && (res.status === 403 || res.status === 429)) {
     res = await httpGet(url, { ...fetchOpts, userAgent: browserUa(), acceptLanguage: opts.acceptLanguage ?? "en-US,en;q=0.9" });
+    asBrowser = true;
+  }
+  if (!toldToWait && challengeUrl(res.url) && !challengeUrl(url)) {
+    const again = await httpGet(
+      url,
+      asBrowser ? { ...fetchOpts, userAgent: contactUa() } : { ...fetchOpts, userAgent: browserUa(), acceptLanguage: opts.acceptLanguage ?? "en-US,en;q=0.9" }
+    );
+    if (opts.signal?.aborted) return cancelled();
+    if (!challengeUrl(again.url)) res = again;
+  }
+  if (challengeUrl(res.url)) {
+    seen.page = true;
+    return { text: "", finalUrl: res.url, status: res.status, note: `Could not read ${url}: it was redirected to an anti-bot challenge (${res.url}).` };
   }
   if (res.status === 304) {
     return { text: "", finalUrl: res.url, status: 304, etag: res.etag ?? opts.headers?.["if-none-match"], lastModified: res.lastModified };
@@ -8109,6 +8541,7 @@ var init_fetch = __esm({
     init_video();
     init_mode();
     init_junk();
+    init_walls();
     DEFAULT_BROWSER_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
     RETRY_STATUS = /* @__PURE__ */ new Set([429, 503, 502, 504]);
     defaultTimeoutMs2 = () => envInt("TIMEOUT_MS", 2e4, 1e3, 3e5);
@@ -8265,7 +8698,7 @@ function classifyChallenge(sig) {
     blocking: statusBlocked || ev2.some((e) => e.interstitial || littleText && !e.weak && !e.widget),
     signals: ev2.map((e) => e.signal)
   });
-  for (const [kind, rule2] of VENDORS) {
+  for (const [kind, rule2] of VENDORS2) {
     const ev2 = rule2(h);
     if (ev2.some((e) => !e.weak) || ev2.length > 0 && statusBlocked) return finish(kind, ev2);
   }
@@ -8330,7 +8763,7 @@ var imperva;
 var arkose;
 var hcaptcha;
 var recaptcha;
-var VENDORS;
+var VENDORS2;
 var GENERIC_PHRASES;
 var PROBE_TIMEOUT_MS3;
 var PROBE;
@@ -8450,7 +8883,7 @@ var init_challenge = __esm({
       add(out2, selHas(h, ".g-recaptcha"), { signal: ".g-recaptcha", widget: true });
       return out2;
     };
-    VENDORS = [
+    VENDORS2 = [
       ["datadome", datadome],
       ["cloudflare", cloudflare],
       ["perimeterx", perimeterx],
@@ -8934,6 +9367,7 @@ var init_wait = __esm({
 var read_exports = {};
 __export(read_exports, {
   closeBrowserReads: () => closeBrowserReads,
+  forgetHumanAnswer: () => forgetHumanAnswer,
   readRenderedPage: () => readRenderedPage
 });
 function pump() {
@@ -9076,7 +9510,15 @@ async function render(url, opts, deps, timeoutMs, run2) {
     const nobody = session.headless ? "the browser runs headless" : canShowWindow(deps.platform) ? void 0 : "no window can be shown here";
     if (nobody) return { ...asIs, note: [asIs.note, `It needs a human, and ${nobody}.`].filter(Boolean).join(" "), handoff: "no-window" };
     const human = opts.human === true ? {} : opts.human;
+    const asks = askFirst(human, deps);
+    const answer = asks === "never" ? "never" : asks === "ask" ? await answerFor(url, found, deps) : "unavailable";
+    if (answer === "never" || answer === "later" || answer === "no-answer") {
+      const why = answer === "never" ? `It needs a human, and handoffs are off (${envName("HUMAN_ASK")}=never).` : answer === "later" ? "It needs a human, who chose to get past it later." : "It needs a human, and nobody answered the question whether to bring it forward.";
+      return { ...asIs, note: [asIs.note, why].filter(Boolean).join(" "), handoff: "declined" };
+    }
     const cleared = await handOff(session, url, wall, !!challenge?.blocking, human, deps, take, opts.signal);
+    if (answer === "solve" && !cleared) answered = { answer: "no-answer", at: deps.now() };
+    if (answer === "solve" && cleared) await deps.notifyHuman(1, 1).catch(() => false);
     if (cleared)
       return {
         ...cleared,
@@ -9084,7 +9526,7 @@ async function render(url, opts, deps, timeoutMs, run2) {
         note: [cleared.note, `Read after a human got past ${wall}.`].filter(Boolean).join(" "),
         handoff: "cleared"
       };
-    const secs = Math.round((human.timeoutMs ?? HUMAN_TIMEOUT_MS) / 1e3);
+    const secs = Math.round((human.timeoutMs ?? humanTimeoutMs()) / 1e3);
     return { ...asIs, note: [asIs.note, `Nobody got past it within ${secs} s.`].filter(Boolean).join(" "), handoff: "timeout" };
   } finally {
     page.off("Network.responseReceived", onResponse);
@@ -9093,15 +9535,33 @@ async function render(url, opts, deps, timeoutMs, run2) {
     await session.detach();
   }
 }
+function askFirst(human, deps) {
+  if (human.ask === false) return "hand";
+  if (human.ask === true) return "ask";
+  const mode2 = humanAskMode(deps.env("HUMAN_ASK") ?? "ask");
+  return mode2 === "always" ? "hand" : mode2;
+}
+function answerFor(url, check, deps) {
+  if (answered && deps.now() - answered.at < ANSWER_HOLDS_MS) return Promise.resolve(answered.answer);
+  asking ??= deps.askHuman([{ url, check }]).catch(() => "unavailable").then((answer) => {
+    answered = { answer, at: deps.now() };
+    asking = void 0;
+    return answer;
+  });
+  return asking;
+}
+function forgetHumanAnswer() {
+  answered = void 0;
+  asking = void 0;
+}
 async function handOff(session, url, wall, challenged, human, deps, take, signal) {
   const tell = human.tell ?? ((m) => void process.stderr.write(`${m}
 `));
-  const timeoutMs = human.timeoutMs ?? HUMAN_TIMEOUT_MS;
+  const timeoutMs = human.timeoutMs ?? humanTimeoutMs();
   const start2 = deps.now();
   const left = () => timeoutMs - (deps.now() - start2);
   const { cli, name: name2 } = brand();
-  await deps.discovery.activateTarget(session.port, session.targetId, session.host).catch(() => {
-  });
+  const restore = await session.showToHuman();
   tell(
     `${cli}: ${url} is behind ${wall}. It is open in the ${name2} browser window (its own profile, not your browser): get past it there and the read goes on by itself \u2014 waiting up to ${Math.round(timeoutMs / 1e3)} s.`
   );
@@ -9124,6 +9584,8 @@ async function handOff(session, url, wall, challenged, human, deps, take, signal
     }
   } catch (e) {
     if (!(e instanceof WaitTimeoutError)) throw e;
+  } finally {
+    await restore();
   }
   tell(`${cli}: ${url} is still behind ${wall} after ${Math.round(timeoutMs / 1e3)} s \u2014 read without it.`);
   return void 0;
@@ -9137,7 +9599,8 @@ async function read(url, opts) {
   if (signal?.aborted) throw cancelled();
   const deps = browserDeps(opts.deps);
   const timeoutMs = opts.timeoutMs ?? envInt("BROWSER_TIMEOUT_MS", 3e4, 5e3, 3e5);
-  const humanMs = opts.human ? (opts.human === true ? void 0 : opts.human.timeoutMs) ?? HUMAN_TIMEOUT_MS : 0;
+  const human = opts.human === true ? {} : opts.human || void 0;
+  const humanMs = human ? (human.timeoutMs ?? humanTimeoutMs()) + (askFirst(human, deps) === "ask" ? humanAskTimeoutMs() + ASK_GRACE_MS : 0) : 0;
   const release = await acquire(envInt("BROWSER_CONCURRENCY", 1, 1, 4), signal, cancelled);
   if (signal?.aborted) {
     release();
@@ -9170,6 +9633,7 @@ async function read(url, opts) {
 var IDLE_CAP_MS;
 var WEB_PAGE;
 var HUMAN_TIMEOUT_MS;
+var humanTimeoutMs;
 var WALL_POLL_MS;
 var AFTER_WALL_LOAD_MS;
 var active;
@@ -9178,9 +9642,14 @@ var DRAIN_MS;
 var launched;
 var inflight;
 var WHOLE_DOCUMENT;
+var ANSWER_HOLDS_MS;
+var ASK_GRACE_MS;
+var answered;
+var asking;
 var init_read = __esm({
   "src/browser/read.ts"() {
     "use strict";
+    init_ask();
     init_brand();
     init_fetch();
     init_challenge();
@@ -9195,6 +9664,7 @@ var init_read = __esm({
     IDLE_CAP_MS = 3e3;
     WEB_PAGE = /^(?:text\/html|application\/xhtml\+xml)$/i;
     HUMAN_TIMEOUT_MS = 3e5;
+    humanTimeoutMs = () => envInt("HUMAN_TIMEOUT_MS", HUMAN_TIMEOUT_MS, 1e4, 36e5);
     WALL_POLL_MS = 1e3;
     AFTER_WALL_LOAD_MS = 1e4;
     active = 0;
@@ -9202,6 +9672,8 @@ var init_read = __esm({
     DRAIN_MS = 5e3;
     inflight = /* @__PURE__ */ new Set();
     WHOLE_DOCUMENT = "({ html: document.documentElement ? document.documentElement.outerHTML : '', url: location.href })";
+    ANSWER_HOLDS_MS = 6e5;
+    ASK_GRACE_MS = 15e3;
   }
 });
 init_brand();
@@ -9218,6 +9690,7 @@ init_challenge();
 init_mode();
 init_detect();
 init_profile();
+init_ask();
 init_exec();
 init_fetch();
 init_markdown2();
@@ -9225,7 +9698,7 @@ init_firecrawl();
 init_text();
 init_url();
 init_rank();
-init_junk();
+init_walls();
 init_locale();
 init_exec2();
 init_brand();
@@ -37323,8 +37796,8 @@ async function runMcpServer(opts = {}) {
       if (Array.isArray(parsed2)) {
         const replies = parsed2.map(dispatch2);
         const sendBatch = (settled) => {
-          const answered = settled.filter((r) => r !== void 0);
-          if (answered.length > 0) send(answered);
+          const answered2 = settled.filter((r) => r !== void 0);
+          if (answered2.length > 0) send(answered2);
         };
         if (replies.some((r) => r instanceof Promise)) track2(Promise.all(replies).then(sendBatch));
         else sendBatch(replies);
