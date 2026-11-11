@@ -109,16 +109,18 @@ import { existsSync as existsSync7, statSync as statSync5 } from "fs";
 import { isAbsolute as isAbsolute2, join as join10 } from "path";
 import { join as join11 } from "path";
 import { createHash as createHash2, randomBytes as randomBytes2 } from "crypto";
-import { existsSync as existsSync8, mkdirSync as mkdirSync4, readdirSync as readdirSync6, renameSync as renameSync4, rmSync as rmSync6, statSync as statSync6 } from "fs";
+import { existsSync as existsSync8, mkdirSync as mkdirSync5, readdirSync as readdirSync6, renameSync as renameSync4, rmSync as rmSync6, statSync as statSync6 } from "fs";
 import { basename as basename3, join as join13, resolve as resolve4 } from "path";
+import { chmodSync as chmodSync2, lstatSync as lstatSync2, mkdirSync as mkdirSync4 } from "fs";
+import { dirname } from "path";
 import { resolve as resolve5 } from "path";
 import { promisify } from "util";
 import { gunzip } from "zlib";
 import { spawnSync as spawnSync3 } from "child_process";
-import { existsSync as existsSync10, lstatSync as lstatSync3, mkdirSync as mkdirSync6, readFileSync as readFileSync10, statSync as statSync8, writeFileSync as writeFileSync6 } from "fs";
+import { existsSync as existsSync10, lstatSync as lstatSync3, mkdirSync as mkdirSync7, readFileSync as readFileSync10, statSync as statSync8, writeFileSync as writeFileSync6 } from "fs";
 import { dirname as dirname2, join as join15, resolve as resolve6 } from "path";
-import { chmodSync as chmodSync2, existsSync as existsSync9, lstatSync as lstatSync2, mkdirSync as mkdirSync5, readFileSync as readFileSync9, readdirSync as readdirSync7, rmSync as rmSync7, statSync as statSync7 } from "fs";
-import { dirname, join as join14 } from "path";
+import { existsSync as existsSync9, mkdirSync as mkdirSync6, readFileSync as readFileSync9, readdirSync as readdirSync7, rmSync as rmSync7, statSync as statSync7 } from "fs";
+import { join as join14 } from "path";
 import { readFileSync as readFileSync11 } from "fs";
 import { existsSync as existsSync11 } from "fs";
 import { join as join18, resolve as resolve7 } from "path";
@@ -1722,11 +1724,11 @@ function openDocumentText(xml, budget) {
       const p = paragraphs[paragraphs.length - 1];
       const table = tables[tables.length - 1];
       if (name2 === "text:p" || name2 === "text:h") {
-        const level = name2 === "text:h" ? Math.min(6, Number(attr(attrs, "text:outline-level")) || 1) : 0;
+        const level = name2 === "text:h" ? Math.min(6, Math.max(1, Number(attr(attrs, "text:outline-level")) || 1)) : 0;
         paragraphs.push({ text: "", prefix: level ? `${"#".repeat(level)} ` : listItem && !table ? "- " : "" });
         listItem = false;
       } else if (name2 === "text:list-item") listItem = true;
-      else if (name2 === "text:s") add2(p, " ".repeat(Math.min(100, Number(attr(attrs, "text:c")) || 1)));
+      else if (name2 === "text:s") add2(p, " ".repeat(Math.min(100, Math.max(1, Number(attr(attrs, "text:c")) || 1))));
       else if (name2 === "text:tab") add2(p, "	");
       else if (name2 === "text:line-break") add2(p, "\n");
       else if (name2 === "office:spreadsheet") spreadsheet = true;
@@ -1821,7 +1823,9 @@ function packageText(bytes, budget) {
 function readOffice(bytes) {
   try {
     const text = packageText(bytes, new Budget()).replace(/\n{3,}/g, "\n\n").trim();
-    return { text: text.length > MAX_OUTPUT_CHARS ? text.slice(0, text.lastIndexOf("\n", MAX_OUTPUT_CHARS)) : text };
+    if (text.length <= MAX_OUTPUT_CHARS) return { text };
+    const lineEnd = text.lastIndexOf("\n", MAX_OUTPUT_CHARS);
+    return { text: text.slice(0, lineEnd < 0 ? MAX_OUTPUT_CHARS : lineEnd) };
   } catch (e) {
     return { failure: e instanceof Refused ? e.message : "the built-in reader could not parse it" };
   }
@@ -3019,6 +3023,7 @@ function foldTerm(raw) {
   return foldPlural(deaccent(raw.toLowerCase()));
 }
 function subtokens(raw) {
+  if (raw.length > MAX_IDENT) return [];
   const spaced = raw.replace(new RegExp("([\\p{Ll}\\p{N}])(\\p{Lu})", "gu"), "$1 $2").replace(new RegExp("(\\p{Lu}+)(\\p{Lu}\\p{Ll})", "gu"), "$1 $2").replace(new RegExp("(\\p{L})(\\p{N})", "gu"), "$1 $2").replace(new RegExp("(\\p{N})(\\p{L})", "gu"), "$1 $2");
   const parts2 = spaced.split(/[^\p{L}\p{M}\p{N}]+/u).filter(Boolean);
   if (parts2.length < 2) return [];
@@ -3036,6 +3041,7 @@ function expandTokens(tokens, max = 8) {
   const byCanonical = /* @__PURE__ */ new Map();
   for (const raw of tokens) {
     if (byCanonical.size >= max) break;
+    if (raw.length > MAX_KEYWORD_CHARS) continue;
     const canonical = foldTerm(raw);
     if (!canonical || byCanonical.has(canonical)) continue;
     const plain22 = deaccent(raw.toLowerCase());
@@ -3195,7 +3201,9 @@ var CJK_RUNS;
 var ACCENT_CLASSES;
 var BASE_OF;
 var NON_ASCII;
+var MAX_IDENT;
 var MAX_PATTERNS;
+var MAX_KEYWORD_CHARS;
 var VARIANT_PRIORITY;
 var LIGATURE_SPELLING;
 var LIGATURE_OF;
@@ -3422,7 +3430,9 @@ var init_text = __esm({
       for (const ch of cls) BASE_OF.set(ch, base2);
     }
     NON_ASCII = /[\u0080-\uffff]/;
+    MAX_IDENT = 64;
     MAX_PATTERNS = 24;
+    MAX_KEYWORD_CHARS = 256;
     VARIANT_PRIORITY = { original: 0, folded: 1, subtoken: 2 };
     LIGATURE_SPELLING = { \u0153: "oe", \u00E6: "ae", \u00DF: "ss" };
     LIGATURE_OF = { oe: "\u0153", ae: "\xE6", ss: "\xDF" };
@@ -3439,7 +3449,7 @@ var NON_ASCII2;
 var CJK_CHAR2;
 var CJK_RUNS2;
 var IDENT_BOUNDARY;
-var MAX_IDENT;
+var MAX_IDENT2;
 var FOLD_CACHE_MAX;
 var foldCache;
 var NO_SUBTERMS;
@@ -3466,7 +3476,7 @@ var init_rank = __esm({
     CJK_CHAR2 = /[\p{scx=Han}\p{scx=Hiragana}\p{scx=Katakana}]/u;
     CJK_RUNS2 = /([\p{scx=Han}\p{scx=Hiragana}\p{scx=Katakana}]+)/u;
     IDENT_BOUNDARY = new RegExp("_|[\\p{Ll}\\p{N}]\\p{Lu}|\\p{Lu}\\p{Lu}\\p{Ll}|\\p{L}\\p{N}|\\p{N}\\p{L}", "u");
-    MAX_IDENT = 64;
+    MAX_IDENT2 = 64;
     FOLD_CACHE_MAX = 5e4;
     foldCache = /* @__PURE__ */ new Map();
     NO_SUBTERMS = [];
@@ -4578,7 +4588,9 @@ function detectBrowserBinary(opts = {}) {
   const explicit = opts.env ? opts.env("BROWSER_BIN") : env("BROWSER_BIN");
   if (explicit) {
     const bare = !/[\\/]/.test(explicit);
-    const options = bare ? (sys.PATH ?? "").split(":").filter(Boolean).map((d) => posix.join(d, explicit)) : [explicit];
+    const win = platform === "win32";
+    const names = win && !/\.[a-z0-9]+$/i.test(explicit) ? [explicit, `${explicit}.exe`] : [explicit];
+    const options = bare ? (sys.PATH ?? (win ? sys.Path : void 0) ?? "").split(win ? ";" : ":").filter(Boolean).flatMap((d) => names.map((n) => (win ? win32 : posix).join(d, n))) : [explicit];
     const found = options.find(exists);
     if (!found) throw new Error(`BROWSER_BIN points at "${explicit}", which is not an executable file`);
     return { kind: kindOf(found), path: found };
@@ -7323,7 +7335,10 @@ function probeFirecrawl(base2, explicit = false) {
     const t = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS2);
     try {
       const res = await fetch(`${base2}/`, { signal: ctrl.signal });
-      const body2 = await res.text().catch(() => "");
+      const body2 = await readCappedBytes(res, PROBE_BODY_BYTES).then(
+        (b) => b.toString("utf8"),
+        () => ""
+      );
       return explicit || looksLikeFirecrawl(res.headers.get("content-type"), body2);
     } catch {
       return false;
@@ -7468,6 +7483,7 @@ async function searchViaFirecrawl(query2, limit, opts = {}) {
 }
 var FIRECRAWL_DEFAULT_BASE;
 var PROBE_TIMEOUT_MS2;
+var PROBE_BODY_BYTES;
 var SCRAPE_TIMEOUT_MS;
 var SEARCH_TIMEOUT_MS;
 var SERVER_MARGIN_MS;
@@ -7485,6 +7501,7 @@ var init_firecrawl = __esm({
     init_trim();
     FIRECRAWL_DEFAULT_BASE = "http://localhost:3002";
     PROBE_TIMEOUT_MS2 = 2e3;
+    PROBE_BODY_BYTES = 4096;
     SCRAPE_TIMEOUT_MS = 45e3;
     SEARCH_TIMEOUT_MS = 3e4;
     SERVER_MARGIN_MS = { scrape: 5e3, search: 2e3 };
@@ -8188,7 +8205,15 @@ async function fetchAndExtract(url, opts = {}) {
   if (opts.signal?.aborted) return cancelled();
   const video = opts.video === false ? void 0 : knownVideo(url);
   if (video) {
-    if (opts.authorizeUrl && !await opts.authorizeUrl(url)) return { text: "", finalUrl: url, status: 0, note: `Refused ${url}: not a public address.` };
+    if (opts.authorizeUrl) {
+      let refusal2;
+      try {
+        if (!await opts.authorizeUrl(url)) refusal2 = "the URL is not authorized";
+      } catch (e) {
+        refusal2 = `its authorization failed (${e.message})`;
+      }
+      if (refusal2) return { text: "", finalUrl: url, status: 0, note: `Refused ${url}: ${refusal2}.` };
+    }
     const t = await transcribeVideo(url, {
       lang: opts.acceptLanguage?.split(/[,;]/)[0]?.trim() || void 0,
       signal: opts.signal,
@@ -8294,7 +8319,7 @@ async function readWithoutBrowser(url, opts, wantsPdf, wantsDoc, seen) {
       asBrowser ? { ...fetchOpts, userAgent: contactUa() } : { ...fetchOpts, userAgent: browserUa(), acceptLanguage: opts.acceptLanguage ?? "en-US,en;q=0.9" }
     );
     if (opts.signal?.aborted) return cancelled();
-    if (!challengeUrl(again.url)) res = again;
+    if (again.status !== 0 && !challengeUrl(again.url)) res = again;
   }
   if (challengeUrl(res.url)) {
     seen.page = true;
@@ -8304,7 +8329,7 @@ async function readWithoutBrowser(url, opts, wantsPdf, wantsDoc, seen) {
     return { text: "", finalUrl: res.url, status: 304, etag: res.etag ?? opts.headers?.["if-none-match"], lastModified: res.lastModified };
   }
   if (!res.ok) {
-    seen.page = true;
+    seen.page = !(res.truncated && res.status >= 200 && res.status < 300);
     const wait = res.retryAfterMs !== void 0 ? `, retry after ${Math.ceil(res.retryAfterMs / 1e3)} s` : "";
     const why = res.status === 429 ? `rate-limited (HTTP 429${wait})` : `status ${res.status}${res.error ? ", " + res.error : ""}${wait}`;
     return {
@@ -9704,9 +9729,49 @@ init_exec2();
 init_brand();
 init_exec2();
 init_forge_host();
+init_no_write();
+function openPrivateTmpDir(dir, create) {
+  const uid = typeof process.getuid === "function" ? process.getuid() : void 0;
+  if (create) mkdirSync4(dirname(dirname(dir)), { recursive: true });
+  for (const p of [dirname(dir), dir]) {
+    if (create) mkdirPrivate(p);
+    let st;
+    try {
+      st = lstatSync2(p);
+    } catch (e) {
+      if (e.code === "ENOENT") return {};
+      return { refused: `${p} cannot be inspected (${e.message})` };
+    }
+    if (st.isSymbolicLink()) return { refused: `${p} is a symbolic link` };
+    if (!st.isDirectory()) return { refused: `${p} is not a directory` };
+    if (st.uid !== uid) return { refused: `${p} belongs to another user` };
+    if (st.mode & 18) return { refused: `${p} is writable by other users` };
+    if (st.mode & 63 && !isNoWrite()) {
+      try {
+        chmodSync2(p, 448);
+      } catch {
+      }
+    }
+  }
+  return { dir };
+}
+function mkdirPrivate(p) {
+  try {
+    mkdirSync4(p, { mode: 448 });
+  } catch (e) {
+    if (e.code !== "EEXIST") throw e;
+  }
+}
 init_text();
 function repoCacheRoot() {
   return env("REPO_DIR") ?? brand().repoDir ?? userTmpDir("repos");
+}
+function openRepoCache() {
+  const root = repoCacheRoot();
+  if (env("REPO_DIR") !== void 0 || brand().repoDir !== void 0 || typeof process.getuid !== "function") return root;
+  const { refused } = openPrivateTmpDir(root, true);
+  if (refused) throw new Error(`the clone cache is not used: ${refused}. Remove it, or set ${envName("REPO_DIR")} to a directory only you can write.`);
+  return root;
 }
 var cloneTimeoutMs = () => envInt("GIT_CLONE_TIMEOUT_MS", 3e5, 1e3, MAX_TIMER_MS);
 var fetchTimeoutMs = () => envInt("GIT_FETCH_TIMEOUT_MS", 12e4, 1e3, MAX_TIMER_MS);
@@ -9821,10 +9886,11 @@ function repoSegments(host, rest, kind) {
 async function ensureClone(ref2, opts = {}) {
   if (ref2.isLocal) return resolve4(ref2.raw);
   if (!ref2.cloneUrl) throw new Error(`"${ref2.raw}" does not name a repository that can be cloned`);
-  if (!have("git")) throw new Error(`git is not installed or not on PATH \u2014 cannot clone ${ref2.cloneUrl}`);
+  if (!have("git")) throw new Error(`git is not installed or not on PATH \u2014 cannot clone ${shownUrl(ref2.cloneUrl)}`);
   const branch = opts.branch?.trim() || void 0;
   if (branch?.startsWith("-")) throw new Error(`"${branch}" is not a branch name`);
-  const dir = join13(repoCacheRoot(), branch ? `${ref2.slug}@${branchSlug(branch)}` : ref2.slug);
+  if (!ref2.slug || ref2.slug === "." || ref2.slug === ".." || /[/\\\0]/.test(ref2.slug)) throw new Error(`"${ref2.slug}" is not a repository slug`);
+  const dir = join13(openRepoCache(), branch ? `${ref2.slug}@${branchSlug(branch)}` : ref2.slug);
   const pending = inflight2.get(dir);
   if (pending && !opts.refresh) {
     return pending.catch((e) => {
@@ -9858,6 +9924,13 @@ async function obtainClone(ref2, dir, opts) {
   if (existsSync8(join13(target, ".git"))) return opts.refresh ? refreshClone(ref2, target, opts.branch) : target;
   return freshClone(ref2, dir, opts.branch);
 }
+function shownUrl(cloneUrl) {
+  return (cloneUrl ?? "").replace(/^([a-z][a-z0-9+.-]*:\/\/)[^@/]*@/i, "$1");
+}
+function gitSaid(ref2, r) {
+  const said = r.stderr.trim() || `exit ${r.status}`;
+  return ref2.cloneUrl ? said.split(ref2.cloneUrl).join(shownUrl(ref2.cloneUrl)) : said;
+}
 async function refreshClone(ref2, dir, branch) {
   deepened.delete(dir);
   const probe = await shAsync("git", ["-C", dir, "rev-parse", "--is-shallow-repository"], { timeoutMs: 1e4 });
@@ -9866,13 +9939,12 @@ async function refreshClone(ref2, dir, branch) {
     timeoutMs: fetchTimeoutMs()
   });
   if (!fetched.ok) {
-    throw Object.assign(
-      new Error(`refresh failed for ${ref2.cloneUrl}: ${fetched.stderr.trim() || `exit ${fetched.status}`} (the cached tree at ${dir} is unchanged)`),
-      { cachedTree: dir }
-    );
+    throw Object.assign(new Error(`refresh failed for ${shownUrl(ref2.cloneUrl)}: ${gitSaid(ref2, fetched)} (the cached tree at ${dir} is unchanged)`), {
+      cachedTree: dir
+    });
   }
   const reset = await shAsync("git", ["-C", dir, "reset", "--quiet", "--hard", "FETCH_HEAD"], { timeoutMs: fetchTimeoutMs() });
-  if (!reset.ok) throw new Error(`refresh of ${dir} fetched ${ref2.cloneUrl} but could not check it out: ${reset.stderr.trim() || `exit ${reset.status}`}`);
+  if (!reset.ok) throw new Error(`refresh of ${dir} fetched ${shownUrl(ref2.cloneUrl)} but could not check it out: ${gitSaid(ref2, reset)}`);
   return dir;
 }
 var STALE_STAGING_MS = 24 * 60 * 60 * 1e3;
@@ -9893,7 +9965,7 @@ function sweepStaging(staging) {
 }
 async function freshClone(ref2, dir, branch) {
   const staging = join13(repoCacheRoot(), ".partial");
-  mkdirSync4(staging, { recursive: true });
+  mkdirSync5(staging, { recursive: true });
   sweepStaging(staging);
   const attempt = async (filter) => {
     const tmp = join13(staging, `${basename3(dir)}-${process.pid}-${randomBytes2(4).toString("hex")}`);
@@ -9909,20 +9981,20 @@ async function freshClone(ref2, dir, branch) {
     if (!done.r.ok) {
       throw new Error(
         [
-          `git clone failed for ${ref2.cloneUrl}`,
-          `  attempt 1 (--filter=blob:none): ${first.stderr.trim() || `exit ${first.status}`}`,
-          `  attempt 2 (no filter):          ${done.r.stderr.trim() || `exit ${done.r.status}`}`
+          `git clone failed for ${shownUrl(ref2.cloneUrl)}`,
+          `  attempt 1 (--filter=blob:none): ${gitSaid(ref2, first)}`,
+          `  attempt 2 (no filter):          ${gitSaid(ref2, done.r)}`
         ].join("\n")
       );
     }
   }
-  if (!existsSync8(done.tmp) || readdirSync6(done.tmp).length === 0) throw new Error(`clone produced an empty tree for ${ref2.cloneUrl}`);
+  if (!existsSync8(done.tmp) || readdirSync6(done.tmp).length === 0) throw new Error(`clone produced an empty tree for ${shownUrl(ref2.cloneUrl)}`);
   if (existsSync8(dir) && !existsSync8(join13(dir, ".git"))) rmSync6(dir, { recursive: true, force: true });
   try {
     renameSync4(done.tmp, dir);
   } catch (e) {
     discard(done.tmp);
-    if (!existsSync8(join13(dir, ".git"))) throw new Error(`could not move the clone of ${ref2.cloneUrl} into ${dir}: ${e.message}`);
+    if (!existsSync8(join13(dir, ".git"))) throw new Error(`could not move the clone of ${shownUrl(ref2.cloneUrl)} into ${dir}: ${e.message}`);
   }
   return dir;
 }
@@ -10471,45 +10543,16 @@ function writeCache(url, res, now, acceptLanguage = "", extractor = "native", va
 var ensured = /* @__PURE__ */ new Set();
 function ensureDir2(dir) {
   if (ensured.has(dir)) return;
-  mkdirSync5(dir, { recursive: true });
+  mkdirSync6(dir, { recursive: true });
   ensured.add(dir);
 }
 function openCacheDir(create) {
   const dir = cacheDir();
-  const uid = typeof process.getuid === "function" ? process.getuid() : void 0;
-  if (namedCacheDir() !== void 0 || uid === void 0) {
+  if (namedCacheDir() !== void 0 || typeof process.getuid !== "function") {
     if (create) ensureDir2(dir);
     return { dir };
   }
-  if (create) mkdirSync5(dirname(dirname(dir)), { recursive: true });
-  for (const p of [dirname(dir), dir]) {
-    if (create) mkdirPrivate(p);
-    let st;
-    try {
-      st = lstatSync2(p);
-    } catch (e) {
-      if (e.code === "ENOENT") return {};
-      return { refused: `${p} cannot be inspected (${e.message})` };
-    }
-    if (st.isSymbolicLink()) return { refused: `${p} is a symbolic link` };
-    if (!st.isDirectory()) return { refused: `${p} is not a directory` };
-    if (st.uid !== uid) return { refused: `${p} belongs to another user` };
-    if (st.mode & 18) return { refused: `${p} is writable by other users` };
-    if (st.mode & 63 && !isNoWrite()) {
-      try {
-        chmodSync2(p, 448);
-      } catch {
-      }
-    }
-  }
-  return { dir };
-}
-function mkdirPrivate(p) {
-  try {
-    mkdirSync5(p, { mode: 448 });
-  } catch (e) {
-    if (e.code !== "EEXIST") throw e;
-  }
+  return openPrivateTmpDir(dir, create);
 }
 var announced = /* @__PURE__ */ new Set();
 function entryDir(create) {
@@ -10990,7 +11033,7 @@ function untrustedStack() {
 function writeIfChanged(path, content) {
   try {
     if (existsSync10(path) && readFileSync10(path, "utf8") === content) return;
-    mkdirSync6(dirname2(path), { recursive: true, mode: 448 });
+    mkdirSync7(dirname2(path), { recursive: true, mode: 448 });
     writeFileSync6(path, content);
   } catch {
   }
@@ -11294,12 +11337,21 @@ function assertWorkflowSafe(script, phaseName) {
     }
   }
 }
+var OWN_CONSTANTS = /* @__PURE__ */ new Set(["meta", "RUN", "ENGINE", "WORKLIST", "AGENTS", "BATCHES", "SCHEMA", "contract", "results"]);
+var oneLine = (s) => s.replace(/[\r\n\u2028\u2029]+/g, " ");
 function emitWorkflowScript(phase, emission, runAbs, engineAbs, smallWorklist, constants2 = {}) {
   const cli = brand().cli;
   const scriptPath = join17(runAbs, "orchestration", `${phase.name}.workflow.mjs`);
   const meta = { name: `${cli}-${phase.name}`, description: emission.description(phase.items), phases: [{ title: emission.title }] };
   const batches = phaseBatches(phase, emission, smallWorklist);
   const hint = emission.applyHint(runAbs, engineAbs, phase);
+  for (const name2 of Object.keys(constants2)) {
+    if (!/^[A-Za-z_$][\w$]*$/.test(name2) || OWN_CONSTANTS.has(name2)) {
+      throw new Error(
+        `workflow script for phase "${phase.name}": "${name2}" is not a usable constant name \u2014 an identifier, other than ${[...OWN_CONSTANTS].join(", ")}.`
+      );
+    }
+  }
   const script = [
     `export const meta = ${JSON.stringify(meta)}`,
     ``,
@@ -11307,10 +11359,10 @@ function emitWorkflowScript(phase, emission, runAbs, engineAbs, smallWorklist, c
     `// Workflow tool for a one-call parallel fan-out:`,
     `// Workflow({ scriptPath: ${JSON.stringify(scriptPath)} }).`,
     `// Any other host: dispatch one subagent per batch with`,
-    `// ${join17(runAbs, "orchestration", "agents", `${emission.role}.md`)}, or follow RUNBOOK.md alone.`,
+    `// ${oneLine(join17(runAbs, "orchestration", "agents", `${emission.role}.md`))}, or follow RUNBOOK.md alone.`,
     `//`,
     `// Emitted by \`${cli} orchestrate\` from the CURRENT worklist. The worklist is the`,
-    `// source of truth: if it changes, re-run \`${cli} orchestrate --phase ${phase.name}\``,
+    `// source of truth: if it changes, re-run \`${cli} orchestrate --phase ${oneLine(phase.name)}\``,
     `// before launching this.`,
     ``,
     `// Constants for THIS run, injected at emit time \u2014 the harness forbids reading`,
@@ -11347,7 +11399,7 @@ function emitWorkflowScript(phase, emission, runAbs, engineAbs, smallWorklist, c
     ``,
     `// One-writer rule: this workflow only COLLECTS the subagents' fragments.`,
     `// The main agent runs the fold itself:`,
-    ...hint.map((l) => `//   ${l}`),
+    ...hint.map((l) => `//   ${oneLine(l)}`),
     `return { phase: ${JSON.stringify(phase.name)}, worklist: WORKLIST, results: results.filter(Boolean) }`,
     ``
   ].join("\n");
@@ -11924,37 +11976,31 @@ async function runStdioServer(adapter, opts = {}) {
     void p.finally(() => inFlight.delete(p));
     return p;
   };
-  let active2 = 0;
-  const waiting = [];
+  const slots = toolSlots();
   const queued = /* @__PURE__ */ new Map();
   let negotiated;
   const handleOpts = { notify: send };
   const runToolCall = async (msg, id, reply) => {
-    const ticket = { cancelled: false };
+    const ticket = new AbortController();
     queued.set(id, ticket);
+    let release;
     try {
-      while (active2 >= MAX_IN_FLIGHT) await new Promise((resolve92) => waiting.push(resolve92));
+      release = await slots.acquire(ticket.signal);
     } finally {
       if (queued.get(id) === ticket) queued.delete(id);
     }
-    if (ticket.cancelled) {
-      waiting.shift()?.();
-      return;
-    }
-    active2++;
+    if (!release) return;
     try {
       await server.handle(msg, reply, handleOpts);
     } finally {
-      active2--;
-      waiting.shift()?.();
+      release();
     }
   };
   const dispatch2 = async (msg, reply) => {
     if (msg !== null && typeof msg === "object" && !Array.isArray(msg)) {
       if (msg.method === "notifications/cancelled") {
         const target = msg.params?.requestId;
-        const ticket = typeof target === "string" || typeof target === "number" ? queued.get(target) : void 0;
-        if (ticket) ticket.cancelled = true;
+        if (typeof target === "string" || typeof target === "number") queued.get(target)?.abort();
       }
       if (msg.method === "tools/call" && (typeof msg.id === "string" || typeof msg.id === "number")) {
         await runToolCall(msg, msg.id, reply);
@@ -12519,7 +12565,7 @@ function validateBrief(brief) {
 }
 
 // src/brainstorm.ts
-import { existsSync as existsSync13, readFileSync as readFileSync13, writeFileSync as writeFileSync8, mkdirSync as mkdirSync7 } from "fs";
+import { existsSync as existsSync13, readFileSync as readFileSync13, writeFileSync as writeFileSync8, mkdirSync as mkdirSync8 } from "fs";
 import { join as join12 } from "path";
 
 // src/templates.ts
@@ -13022,13 +13068,13 @@ function initBrainstorm(idea, now) {
   return { schemaVersion: BRAINSTORM_SCHEMA_VERSION, idea: idea.trim(), createdAt: now, ideas: [] };
 }
 function saveBrainstorm(runDir, b) {
-  mkdirSync7(runDir, { recursive: true });
+  mkdirSync8(runDir, { recursive: true });
   const path = brainstormPath(runDir);
   writeFileSync8(path, JSON.stringify(b, null, 2));
   return path;
 }
 function writeBrainstormMd(runDir, b) {
-  mkdirSync7(runDir, { recursive: true });
+  mkdirSync8(runDir, { recursive: true });
   const path = join12(runDir, "BRAINSTORM.md");
   const md = renderBrainstormMd(b);
   writeFileSync8(path, md.endsWith("\n") ? md : md + "\n");
@@ -13442,7 +13488,7 @@ import { basename as basename32 } from "path";
 import { existsSync as existsSync42, readFileSync as readFileSync72 } from "fs";
 import { join as join72 } from "path";
 import { createHash as createHash22 } from "crypto";
-import { existsSync as existsSync52, mkdirSync as mkdirSync8, mkdtempSync as mkdtempSync4, readFileSync as readFileSync82, renameSync as renameSync5, rmSync as rmSync8, writeFileSync as writeFileSync9 } from "fs";
+import { existsSync as existsSync52, mkdirSync as mkdirSync9, mkdtempSync as mkdtempSync4, readFileSync as readFileSync82, renameSync as renameSync5, rmSync as rmSync8, writeFileSync as writeFileSync9 } from "fs";
 import { dirname as dirname42, join as join82, resolve as resolve52, sep as sep4 } from "path";
 import { gunzipSync } from "zlib";
 import { join as join172 } from "path";
@@ -13469,14 +13515,14 @@ var EXTRACTOR_VERSION;
 var init_types = __esm2({
   "src/types.ts"() {
     "use strict";
-    ENGINE_VERSION = "2.31.16";
+    ENGINE_VERSION = "2.31.18";
     SCHEMA_VERSION = 5;
-    EXTRACTOR_VERSION = 18;
+    EXTRACTOR_VERSION = 19;
   }
 });
 function sh2(cmd, args2, opts = {}) {
   const env2 = opts.env ?? process.env;
-  const res = spawnSync4(cmd, args2, {
+  const res = spawnSync4(cmd, cmd === "git" ? [...GIT_SAFE_CONFIG, ...args2] : args2, {
     cwd: opts.cwd,
     input: opts.input,
     encoding: "utf8",
@@ -13518,6 +13564,13 @@ function clipInline(s, max) {
   if ((cut.match(/`/g)?.length ?? 0) % 2 === 1) cut = cut.replace(/`[^`]*$/, "");
   if (cut.lastIndexOf("[") > cut.lastIndexOf("]")) cut = cut.slice(0, cut.lastIndexOf("["));
   return cut.replace(/\s+$/, "") + "\u2026";
+}
+function errMessage2(e) {
+  return e instanceof Error ? e.message : String(e);
+}
+function shellQuote(s) {
+  if (s !== "" && !/[^A-Za-z0-9_\-./=@:]/.test(s)) return s;
+  return "'" + s.replace(/'/g, `'\\''`) + "'";
 }
 function escapeRegExp2(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -13600,7 +13653,11 @@ function stemOf(term) {
   return t;
 }
 var GIT_LOCALE;
+var GIT_SAFE_CONFIG;
 var whichCache;
+var MAX_TIMER_MS2;
+var clampTimerMs;
+var dirOf;
 var STOPWORDS2;
 var NON_ASCII3;
 var NON_WORD;
@@ -13616,7 +13673,11 @@ var init_util = __esm2({
   "src/util.ts"() {
     "use strict";
     GIT_LOCALE = { LC_ALL: "C", LANGUAGE: "" };
+    GIT_SAFE_CONFIG = ["-c", "core.fsmonitor=false"];
     whichCache = /* @__PURE__ */ new Map();
+    MAX_TIMER_MS2 = 2147483647;
+    clampTimerMs = (ms) => Math.min(ms, MAX_TIMER_MS2);
+    dirOf = (rel2) => rel2.includes("/") ? rel2.slice(0, rel2.lastIndexOf("/")) : "";
     STOPWORDS2 = /* @__PURE__ */ new Set([
       "the",
       "a",
@@ -13727,12 +13788,148 @@ var init_util = __esm2({
     UNICODE_SPLIT = /[^\p{L}\p{N}]+/u;
   }
 });
-function patternToRegExpSource(pattern) {
+function wildcardSource(tokens) {
   let re = "";
+  for (const t of tokens) {
+    if (t.kind === "lit") re += escapeRegExp2(t.ch);
+    else if (t.kind === "one") re += "[^/]";
+    else if (t.kind === "star") re += "[^/]*";
+    else if (t.kind === "any") re += ".*";
+    else if (t.kind === "prefix") re += "(?:.*/)?";
+    else if (t.kind === "segments") re += "(?:[^/]+/)*";
+    else re += t.source;
+  }
+  return re;
+}
+function wildcardRegExp(tokens, opts = {}) {
+  return new RegExp(`^${wildcardSource(tokens)}${opts.dirPrefix ? "($|/)" : "$"}`);
+}
+function wildcardLinear(tokens, opts = {}) {
+  const kinds2 = [];
+  const codes = [];
+  const classes = [];
+  const push = (kind, code = 0, cls) => {
+    kinds2.push(kind);
+    codes.push(code);
+    classes.push(cls);
+  };
+  for (const t of tokens) {
+    if (t.kind === "lit") push(LIT, t.ch.charCodeAt(0));
+    else if (t.kind === "one") push(ONE);
+    else if (t.kind === "star") push(STAR);
+    else if (t.kind === "any") push(ANY);
+    else if (t.kind === "prefix") {
+      push(PREFIX_START);
+      push(PREFIX_INSIDE);
+    } else if (t.kind === "segments") {
+      push(SEG_BOUNDARY);
+      push(SEG_INSIDE);
+    } else push(CLASS, 0, new RegExp(`^(?:${t.source})$`));
+  }
+  const accept = kinds2.length;
+  const dirPrefix = opts.dirPrefix === true;
+  const close = (active2) => {
+    for (let s = 0; s < accept; s++) {
+      if (!active2[s]) continue;
+      const kind = kinds2[s];
+      if (kind === STAR || kind === ANY) active2[s + 1] = 1;
+      else if (kind === PREFIX_START || kind === SEG_BOUNDARY) active2[s + 2] = 1;
+    }
+  };
+  return (subject) => {
+    let active2 = new Uint8Array(accept + 1);
+    let next = new Uint8Array(accept + 1);
+    active2[0] = 1;
+    close(active2);
+    for (let i2 = 0; i2 < subject.length; i2++) {
+      const c2 = subject.charCodeAt(i2);
+      const slash = c2 === 47;
+      if (dirPrefix && slash && active2[accept]) return true;
+      next.fill(0);
+      let alive = false;
+      for (let s = 0; s < accept; s++) {
+        if (!active2[s]) continue;
+        const kind = kinds2[s];
+        let to = -1;
+        if (kind === LIT) {
+          if (c2 === codes[s]) to = s + 1;
+        } else if (kind === ONE) {
+          if (!slash) to = s + 1;
+        } else if (kind === STAR) {
+          if (!slash) to = s;
+        } else if (kind === ANY) {
+          if (!isLineTerminator(c2)) to = s;
+        } else if (kind === PREFIX_START || kind === PREFIX_INSIDE) {
+          const inside = kind === PREFIX_START ? s + 1 : s;
+          if (!isLineTerminator(c2)) to = inside;
+          if (slash) {
+            next[inside + 1] = 1;
+            alive = true;
+          }
+        } else if (kind === SEG_BOUNDARY) {
+          if (!slash) to = s + 1;
+        } else if (kind === SEG_INSIDE) {
+          to = slash ? s - 1 : s;
+        } else if (classes[s].test(subject[i2])) {
+          to = s + 1;
+        }
+        if (to !== -1) {
+          next[to] = 1;
+          alive = true;
+        }
+      }
+      if (!alive) return false;
+      close(next);
+      const swap = active2;
+      active2 = next;
+      next = swap;
+    }
+    return active2[accept] === 1;
+  };
+}
+function wildcardMatcher(tokens, opts = {}) {
+  let unbounded = 0;
+  for (const t of tokens) if (UNBOUNDED.has(t.kind)) unbounded++;
+  if (unbounded > MAX_REGEX_WILDCARDS) return wildcardLinear(tokens, opts);
+  const re = wildcardRegExp(tokens, opts);
+  return (subject) => re.test(subject);
+}
+var MAX_REGEX_WILDCARDS;
+var UNBOUNDED;
+var LIT;
+var ONE;
+var STAR;
+var ANY;
+var PREFIX_START;
+var PREFIX_INSIDE;
+var SEG_BOUNDARY;
+var SEG_INSIDE;
+var CLASS;
+var isLineTerminator;
+var init_wildcard = __esm2({
+  "src/wildcard.ts"() {
+    "use strict";
+    init_util();
+    MAX_REGEX_WILDCARDS = 2;
+    UNBOUNDED = /* @__PURE__ */ new Set(["star", "any", "prefix", "segments"]);
+    LIT = 0;
+    ONE = 1;
+    STAR = 2;
+    ANY = 3;
+    PREFIX_START = 4;
+    PREFIX_INSIDE = 5;
+    SEG_BOUNDARY = 6;
+    SEG_INSIDE = 7;
+    CLASS = 8;
+    isLineTerminator = (c2) => c2 === 10 || c2 === 13 || c2 === 8232 || c2 === 8233;
+  }
+});
+function patternTokens(pattern) {
+  const tokens = [];
   for (let i2 = 0; i2 < pattern.length; i2++) {
     const c2 = pattern[i2];
     if (c2 === "\\" && i2 + 1 < pattern.length) {
-      re += escapeRegExp2(pattern[++i2]);
+      tokens.push({ kind: "lit", ch: pattern[++i2] });
     } else if (c2 === "*") {
       if (pattern[i2 + 1] === "*") {
         const atStart = i2 === 0 || pattern[i2 - 1] === "/";
@@ -13741,32 +13938,32 @@ function patternToRegExpSource(pattern) {
         const next = pattern[j + 1];
         if (atStart && next === "/") {
           i2 = j + 1;
-          re += "(?:[^/]+/)*";
+          tokens.push({ kind: "segments" });
         } else if (atStart && next === void 0) {
           i2 = j;
-          re += ".*";
+          tokens.push({ kind: "any" });
         } else {
           i2 = j;
-          re += "[^/]*";
+          tokens.push({ kind: "star" });
         }
       } else {
-        re += "[^/]*";
+        tokens.push({ kind: "star" });
       }
     } else if (c2 === "?") {
-      re += "[^/]";
+      tokens.push({ kind: "one" });
     } else if (c2 === "[") {
       const cls = bracketClass(pattern, i2);
       if (cls) {
-        re += cls.source;
+        tokens.push({ kind: "class", source: cls.source });
         i2 = cls.end;
       } else {
-        re += "\\[";
+        tokens.push({ kind: "lit", ch: "[" });
       }
     } else {
-      re += escapeRegExp2(c2);
+      tokens.push({ kind: "lit", ch: c2 });
     }
   }
-  return re;
+  return tokens;
 }
 function bracketClass(pattern, start2) {
   let j = start2 + 1;
@@ -13828,11 +14025,12 @@ function parseGitignore(content, baseRel, source2) {
     if (!line22) continue;
     const anchored = line22.includes("/");
     if (line22.startsWith("/")) line22 = line22.slice(1);
-    const body2 = patternToRegExpSource(line22);
+    const tokens = patternTokens(line22);
+    const body2 = wildcardSource(tokens);
     const reSource = anchored ? `^${prefix}${body2}$` : `^${prefix}(?:[^/]+/)*${body2}$`;
     try {
       const re = new RegExp(reSource);
-      const rule2 = { re, negated, dirOnly, test: fastMatcher(line22, body2, anchored, baseRel ? baseRel + "/" : "", re) };
+      const rule2 = { re, negated, dirOnly, test: fastMatcher(line22, tokens, anchored, baseRel ? baseRel + "/" : "") };
       if (source2 !== void 0) Object.assign(rule2, { source: source2, line: n + 1, pattern: written });
       rules.push(rule2);
     } catch {
@@ -13850,12 +14048,13 @@ function literalHead(pattern) {
   }
   return { head, whole: true };
 }
-function fastMatcher(pattern, body2, anchored, prefix, re) {
+function fastMatcher(pattern, tokens, anchored, prefix) {
   if (anchored) {
     const { head: head2, whole: whole2 } = literalHead(pattern);
     const full = prefix + head2;
     if (whole2) return (rel2) => rel2 === full;
-    return (rel2) => rel2.startsWith(full) && re.test(rel2);
+    const matchBody = wildcardMatcher(tokens);
+    return (rel2) => rel2.startsWith(full) && matchBody(rel2.slice(prefix.length));
   }
   const { head, whole } = literalHead(pattern);
   if (whole) return (rel2, base2) => base2 === head && rel2.startsWith(prefix);
@@ -13863,8 +14062,8 @@ function fastMatcher(pattern, body2, anchored, prefix, re) {
     const tail = literalHead(pattern.slice(1));
     if (tail.whole) return (rel2, base2) => base2.endsWith(tail.head) && rel2.startsWith(prefix);
   }
-  const baseRe = new RegExp(`^${body2}$`);
-  return (rel2, base2) => rel2.startsWith(prefix) && baseRe.test(base2);
+  const matchBase = wildcardMatcher(tokens);
+  return (rel2, base2) => rel2.startsWith(prefix) && matchBase(base2);
 }
 function isIgnored(rules, rel2, isDir) {
   const rule2 = decidingRule(rules, rel2, isDir);
@@ -13884,6 +14083,7 @@ var init_ignore = __esm2({
   "src/ignore.ts"() {
     "use strict";
     init_util();
+    init_wildcard();
     POSIX_CLASSES = {
       alnum: "A-Za-z0-9",
       alpha: "A-Za-z",
@@ -14455,6 +14655,7 @@ function resolveBaseRef(dir, base2) {
 }
 function diffFiles(dir, spec) {
   const out2 = [];
+  if (!diffable(spec)) return out2;
   const ns = sh2("git", [...gitArgs(dir), "diff", "--no-color", "--relative", "-z", "-M", "--name-status", ...rangeArgs(spec)]);
   if (ns.ok) {
     const toks = ns.stdout.split("\0");
@@ -14503,6 +14704,7 @@ function diffFiles(dir, spec) {
 }
 function diffHunks(dir, spec) {
   const map = /* @__PURE__ */ new Map();
+  if (!diffable(spec)) return map;
   const res = sh2("git", [
     ...gitArgs(dir),
     "diff",
@@ -14597,7 +14799,7 @@ function readHistory(dir, since) {
   }
   const args2 = [...gitArgs(dir), "log", "--no-color", "--no-renames", ...window2.args, "--pretty=format:%x1e", "--name-only", "-z", "--stdin"];
   if (prefix) args2.push("--full-history", "--full-diff", "--", ".");
-  const res = spawnSync22("git", args2, {
+  const res = spawnSync22("git", [...GIT_SAFE_CONFIG, ...args2], {
     input: revs.join("\n") + "\n",
     maxBuffer: LOG_MAX_BYTES,
     timeout: 6e5,
@@ -14716,6 +14918,7 @@ var GIT_CONFIG;
 var gitArgs;
 var optionLike;
 var rangeArgs;
+var diffable;
 var NO_COMMITS_REF;
 var C_ESCAPES;
 var LOG_MAX_BYTES;
@@ -14748,7 +14951,8 @@ var init_git = __esm2({
     ];
     gitArgs = (dir) => ["-C", dir, ...GIT_CONFIG];
     optionLike = (ref2) => ref2.startsWith("-");
-    rangeArgs = (spec) => spec.staged ? ["--cached"] : [spec.mergeBase];
+    rangeArgs = (spec) => spec.staged ? ["--cached"] : ["--end-of-options", spec.mergeBase];
+    diffable = (spec) => spec.staged === true || typeof spec.mergeBase === "string" && !optionLike(spec.mergeBase);
     NO_COMMITS_REF = "(no commits)";
     C_ESCAPES = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13 };
     LOG_MAX_BYTES = 1024 * 1024 * 1024;
@@ -15080,10 +15284,10 @@ function blankComments(src) {
         kept = i2;
         continue;
       }
-      if (next === STAR) {
+      if (next === STAR2) {
         out2 += src.slice(kept, i2);
         let run2 = 0;
-        while (i2 < n && !(src.charCodeAt(i2) === STAR && src.charCodeAt(i2 + 1) === SLASH)) {
+        while (i2 < n && !(src.charCodeAt(i2) === STAR2 && src.charCodeAt(i2 + 1) === SLASH)) {
           if (src.charCodeAt(i2) === NEWLINE) {
             out2 += " ".repeat(run2) + "\n";
             run2 = 0;
@@ -15189,7 +15393,7 @@ var BraceSpans;
 var EXT_LANG;
 var REEXPORT_EXTS;
 var SLASH;
-var STAR;
+var STAR2;
 var NEWLINE;
 var DQUOTE;
 var SQUOTE;
@@ -15376,7 +15580,7 @@ var init_common = __esm2({
     };
     REEXPORT_EXTS = /* @__PURE__ */ new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]);
     SLASH = 47;
-    STAR = 42;
+    STAR2 = 42;
     NEWLINE = 10;
     DQUOTE = 34;
     SQUOTE = 39;
@@ -15520,11 +15724,11 @@ function maskJs(src) {
         i2 = stop2;
         continue;
       }
-      if (next === STAR2) {
+      if (next === STAR3) {
         const close = src.indexOf("*/", i2 + 2);
         const end = close === -1 ? n : close + 2;
         let from = i2;
-        if (src.charCodeAt(i2 + 2) === STAR2) {
+        if (src.charCodeAt(i2 + 2) === STAR3) {
           JSDOC_IMPORT.lastIndex = 0;
           const body2 = src.slice(i2, end);
           for (let m; m = JSDOC_IMPORT.exec(body2); ) {
@@ -15639,14 +15843,14 @@ function maskBraced(src, lex2) {
       i2 = stop2;
       continue;
     }
-    if (c2 === SLASH2 && src.charCodeAt(i2 + 1) === STAR2) {
+    if (c2 === SLASH2 && src.charCodeAt(i2 + 1) === STAR3) {
       let j = i2 + 2;
       let depth = 1;
       while (j < n) {
-        if (src.charCodeAt(j) === STAR2 && src.charCodeAt(j + 1) === SLASH2) {
+        if (src.charCodeAt(j) === STAR3 && src.charCodeAt(j + 1) === SLASH2) {
           j += 2;
           if (--depth === 0) break;
-        } else if (lex2.nested && src.charCodeAt(j) === SLASH2 && src.charCodeAt(j + 1) === STAR2) {
+        } else if (lex2.nested && src.charCodeAt(j) === SLASH2 && src.charCodeAt(j + 1) === STAR3) {
           j += 2;
           depth++;
         } else j++;
@@ -15906,7 +16110,7 @@ var HASH;
 var DOLLAR;
 var SQUOTE2;
 var DQUOTE2;
-var STAR2;
+var STAR3;
 var SLASH2;
 var LBRACKET;
 var BACKSLASH2;
@@ -15977,7 +16181,7 @@ var init_imports = __esm2({
     DOLLAR = 36;
     SQUOTE2 = 39;
     DQUOTE2 = 34;
-    STAR2 = 42;
+    STAR3 = 42;
     SLASH2 = 47;
     LBRACKET = 91;
     BACKSLASH2 = 92;
@@ -16923,8 +17127,8 @@ var init_classify = __esm2({
     ]);
   }
 });
-function globToRegExp(glob) {
-  let re = "";
+function globTokens(glob) {
+  const tokens = [];
   for (let i2 = 0; i2 < glob.length; i2++) {
     const c2 = glob[i2];
     if (c2 === "*") {
@@ -16932,29 +17136,29 @@ function globToRegExp(glob) {
         i2++;
         if (glob[i2 + 1] === "/") {
           i2++;
-          re += "(?:.*/)?";
+          tokens.push({ kind: "prefix" });
         } else {
-          re += ".*";
+          tokens.push({ kind: "any" });
         }
       } else {
-        re += "[^/]*";
+        tokens.push({ kind: "star" });
       }
     } else if (c2 === "?") {
-      re += "[^/]";
+      tokens.push({ kind: "one" });
     } else {
-      re += escapeRegExp2(c2);
+      tokens.push({ kind: "lit", ch: c2 });
     }
   }
-  return new RegExp(`^${re}$`);
+  return tokens;
 }
 function compileGlobs(globs) {
   if (!globs || globs.length === 0) return null;
-  const res = globs.map(globToRegExp);
-  return (rel2) => res.some((r) => r.test(rel2));
+  const matchers = globs.map(globMatcher);
+  return (rel2) => matchers.some((m) => m(rel2));
 }
 function compileDirGlobs(globs) {
   if (!globs || globs.length === 0) return null;
-  const compiled = globs.map((g) => g.split("/").map((seg) => seg.includes("**") ? null : globToRegExp(seg)));
+  const compiled = globs.map((g) => g.split("/").map((seg) => seg.includes("**") ? null : globMatcher(seg)));
   return (dir) => {
     const parts2 = dir.split("/");
     return compiled.some((segs) => {
@@ -16962,16 +17166,16 @@ function compileDirGlobs(globs) {
         const seg = segs[i2];
         if (seg === void 0) return false;
         if (seg === null) return true;
-        if (!seg.test(parts2[i2])) return false;
+        if (!seg(parts2[i2])) return false;
       }
       return parts2.length < segs.length;
     });
   };
 }
 function compileDirExcludes(globs) {
-  const whole = (globs ?? []).filter((g) => g.endsWith("/**") && g.length > 3).map((g) => globToRegExp(g.slice(0, -3)));
+  const whole = (globs ?? []).filter((g) => g.endsWith("/**") && g.length > 3).map((g) => globMatcher(g.slice(0, -3)));
   if (whole.length === 0) return null;
-  return (dir) => whole.some((r) => r.test(dir));
+  return (dir) => whole.some((m) => m(dir));
 }
 function compileGlobFilter(globs) {
   if (!globs || globs.length === 0) return null;
@@ -16979,10 +17183,12 @@ function compileGlobFilter(globs) {
   const exclude2 = compileGlobs(globs.filter((g) => g.startsWith("!")).map((g) => g.slice(1)));
   return (rel2) => (!include2 || include2(rel2)) && !exclude2?.(rel2);
 }
+var globMatcher;
 var init_glob = __esm2({
   "src/glob.ts"() {
     "use strict";
-    init_util();
+    init_wildcard();
+    globMatcher = (glob) => wildcardMatcher(globTokens(glob));
   }
 });
 function stripCode(content) {
@@ -21677,8 +21883,13 @@ function readReceiver(node) {
     const name3 = type ? readTypeName(type) : void 0;
     return name3 && /^[A-Za-z_]\w*$/.test(name3) ? name3 : void 0;
   }
-  const name2 = obj ? readName(obj) : void 0;
-  return name2 && /^[A-Za-z_]\w*$/.test(name2) ? name2 : void 0;
+  const name2 = obj ? readName(obj) ?? (obj.namedChildren.length === 0 && RUBY_VARIABLE.test(obj.type) ? obj.text : void 0) : void 0;
+  return receiverName(name2);
+}
+function receiverName(name2) {
+  if (!name2) return void 0;
+  const bare = name2.replace(/^(?:#|@{1,2})/, "");
+  return /^[A-Za-z_$][\w$]*$/.test(bare) ? bare : void 0;
 }
 function readTypeName(node) {
   if (!node) return void 0;
@@ -21700,6 +21911,7 @@ function readTypeName(node) {
 var IDENT_LEAF;
 var COMMENT_NODE;
 var UNNAMED_CHAIN;
+var RUBY_VARIABLE;
 var TYPE_LEAF;
 var init_node = __esm2({
   "src/ast/node.ts"() {
@@ -21707,6 +21919,7 @@ var init_node = __esm2({
     IDENT_LEAF = /(^|_)(identifier|name|constant|word)$/;
     COMMENT_NODE = /(^|_)comment$/;
     UNNAMED_CHAIN = /* @__PURE__ */ new Set(["reference_declarator", "parenthesized_declarator"]);
+    RUBY_VARIABLE = /^(?:instance|class|global)_variable$/;
     TYPE_LEAF = /identifier|constant|(^|_)name$/;
   }
 });
@@ -24943,24 +25156,28 @@ async function runExtractWorker(input, post) {
   }
   post({ ready, records });
 }
+function workerBootstrap(engineUrl) {
+  return `const { parentPort, workerData } = require("node:worker_threads");
+const base = workerData.input;
+const post = (o) => parentPort.postMessage(o);
+const fail = (e) => post({ error: String(e) });
+import(${JSON.stringify(engineUrl)}).then(({ runExtractWorker }) =>
+  runExtractWorker({ ...base, jobs: [] }, post).then(() => {
+    parentPort.on("message", (m) => {
+      if (m.done) { parentPort.close(); return; }
+      runExtractWorker({ ...base, jobs: m.jobs }, post).catch(fail);
+    });
+  })
+).catch(fail);
+`;
+}
 async function extractInParallel(jobs, grammarKeys, count2, opts = {}) {
   if (count2 < 2 || jobs.length === 0) return void 0;
   const engineUrl = opts.engineUrl ?? resolveEngineUrl();
   if (!engineUrl) return void 0;
   const wanted = grammarKeys.filter((k) => grammarReady(k)).sort();
   const workers = Math.min(count2, jobs.length);
-  const bootstrap = `import { runExtractWorker } from ${JSON.stringify(engineUrl)};
-import { parentPort, workerData } from "node:worker_threads";
-const base = workerData.input;
-const post = (o) => parentPort.postMessage(o);
-const fail = (e) => post({ error: String(e) });
-runExtractWorker({ ...base, jobs: [] }, post).then(() => {
-  parentPort.on("message", (m) => {
-    if (m.done) { parentPort.close(); return; }
-    runExtractWorker({ ...base, jobs: m.jobs }, post).catch(fail);
-  });
-}).catch(fail);
-`;
+  const bootstrap = workerBootstrap(engineUrl);
   const out2 = /* @__PURE__ */ new Map();
   let next = 0;
   const takeBatch = () => {
@@ -26271,7 +26488,23 @@ function resolveJvm(fromRel, spec, ctx) {
 }
 function resolveC(fromRel, spec, ctx) {
   const fromDir = fromRel.includes("/") ? posix22.dirname(fromRel) : "";
-  const hit = firstExisting(ctx, [posix22.join(fromDir, spec), ...ctx.cIncludeRoots.map((r) => posix22.join(r, spec))]);
+  let hit = firstExisting(ctx, [posix22.join(fromDir, spec)]);
+  if (!hit) {
+    const memo = ctx.cRootMemo ??= /* @__PURE__ */ new Map();
+    let viaRoot = memo.get(spec);
+    if (viaRoot === void 0) {
+      viaRoot = null;
+      for (const root of ctx.cIncludeRoots) {
+        const found = firstExisting(ctx, [posix22.join(root, spec)]);
+        if (found) {
+          viaRoot = found;
+          break;
+        }
+      }
+      memo.set(spec, viaRoot);
+    }
+    hit = viaRoot ?? void 0;
+  }
   if (hit) return { kind: "resolved", target: hit };
   if (SYSTEM_HEADERS.has(spec) || SYSTEM_HEADER_DIR.test(spec)) return { kind: "external" };
   return { kind: "dangling", reason: "missing-include" };
@@ -26535,7 +26768,7 @@ var init_resolve = __esm2({
 function isTestFile(rel2) {
   return TEST_FILE.test(rel2.split("/").pop());
 }
-function dirOf(rel2) {
+function dirOf2(rel2) {
   return rel2.includes("/") ? posix3.dirname(rel2) : ROOT_PATH;
 }
 function tierForPath(path) {
@@ -26563,7 +26796,7 @@ function summaryOf(path, members) {
 function buildModules(scan2) {
   const byDir = /* @__PURE__ */ new Map();
   for (const f of scan2.files) {
-    const dir = dirOf(f.rel);
+    const dir = dirOf2(f.rel);
     let list = byDir.get(dir);
     if (!list) byDir.set(dir, list = []);
     list.push(f);
@@ -26871,7 +27104,6 @@ function goParamCount(signature, name2) {
   return void 0;
 }
 function goImplementations(scan2) {
-  const dirOf8 = (rel2) => rel2.includes("/") ? rel2.slice(0, rel2.lastIndexOf("/")) : "";
   const types = /* @__PURE__ */ new Map();
   const typesByName = /* @__PURE__ */ new Map();
   const methods = /* @__PURE__ */ new Map();
@@ -26879,7 +27111,7 @@ function goImplementations(scan2) {
   const assertions = [];
   const goFiles = scan2.files.filter((f) => f.lang === "go" && !f.rel.endsWith("_test.go"));
   for (const f of goFiles) {
-    const dir = dirOf8(f.rel);
+    const dir = dirOf(f.rel);
     for (const s of f.symbols) {
       if (s.kind === "type" && !s.parent) {
         const key = `${dir}${SEP}${s.name}`;
@@ -26904,7 +27136,7 @@ function goImplementations(scan2) {
   const embeds = [];
   for (const f of goFiles) {
     for (const r of f.relations ?? []) {
-      if (r.kind === "extends" && /^\w+$/.test(r.to)) embeds.push([`${dirOf8(f.rel)}${SEP}${r.from}`, `${dirOf8(f.rel)}${SEP}${r.to}`]);
+      if (r.kind === "extends" && /^\w+$/.test(r.to)) embeds.push([`${dirOf(f.rel)}${SEP}${r.from}`, `${dirOf(f.rel)}${SEP}${r.to}`]);
     }
   }
   embeds.sort((a, b) => byStr(a[0], b[0]) || byStr(a[1], b[1]));
@@ -26936,8 +27168,8 @@ function goImplementations(scan2) {
       if (/[~|]/.test(line22) && !line22.includes("(")) known = false;
       if (!/^[\w.]+$/.test(line22)) continue;
       const dot = line22.lastIndexOf(".");
-      const embedded = dot === -1 ? types.get(`${dirOf8(iface.file)}${SEP}${line22}`) : void 0;
-      const inner = embedded && isInterface(embedded) ? methodSet(`${dirOf8(embedded.file)}${SEP}${embedded.name}`, embedded, seen) : void 0;
+      const embedded = dot === -1 ? types.get(`${dirOf(iface.file)}${SEP}${line22}`) : void 0;
+      const inner = embedded && isInterface(embedded) ? methodSet(`${dirOf(embedded.file)}${SEP}${embedded.name}`, embedded, seen) : void 0;
       if (!inner) known = false;
       else for (const [m, n] of inner) own.set(m, n);
     }
@@ -26966,7 +27198,7 @@ function goImplementations(scan2) {
       if (tkey === ikey) continue;
       const type = types.get(tkey);
       if (!type || isInterface(type)) continue;
-      if (internal && dirOf8(type.file) !== dirOf8(iface.file)) continue;
+      if (internal && dirOf(type.file) !== dirOf(iface.file)) continue;
       const have22 = methods.get(tkey);
       const covers = names.every((m) => {
         if (!have22.has(m)) return false;
@@ -26987,7 +27219,7 @@ function goImplementations(scan2) {
     return all.length === 1 ? all[0] : void 0;
   };
   for (const a of assertions) {
-    const dir = dirOf8(a.sym.file);
+    const dir = dirOf(a.sym.file);
     const iface = lookup2(a.iface, dir);
     const type = lookup2(a.type, dir);
     if (iface && type && isInterface(iface) && !isInterface(type)) add2(type, iface, false);
@@ -27047,6 +27279,7 @@ var init_relations = __esm2({
     init_sort();
     init_symref();
     init_walk();
+    init_util();
     SEP = "\0";
     CONTRACT_KINDS = /* @__PURE__ */ new Set(["interface", "trait", "protocol"]);
     TYPE_KINDS2 = /* @__PURE__ */ new Set([
@@ -27226,8 +27459,7 @@ function buildSymbolGraph(scan2, importPairs) {
 }
 function overridePairs(scan2, relations) {
   const langOf = new Map(scan2.files.map((f) => [f.rel, f.lang]));
-  const dirOf8 = (rel2) => rel2.includes("/") ? rel2.slice(0, rel2.lastIndexOf("/")) : "";
-  const typeKey = (name2, file) => familyOf(langOf.get(file) ?? "") === "go" ? `go${SEP2}${dirOf8(file)}${SEP2}${name2}` : `${file}${SEP2}${name2}`;
+  const typeKey = (name2, file) => familyOf(langOf.get(file) ?? "") === "go" ? `go${SEP2}${dirOf(file)}${SEP2}${name2}` : `${file}${SEP2}${name2}`;
   const members = /* @__PURE__ */ new Map();
   for (const f of scan2.files) {
     for (const s of f.symbols) {
@@ -27386,6 +27618,7 @@ var init_symbolgraph = __esm2({
     init_sort();
     init_paths();
     init_symref();
+    init_util();
     SEP2 = "\0";
     REFERENCE_KINDS = /* @__PURE__ */ new Set(["reexport", "reexport-all", "default"]);
     METHOD_KINDS = /* @__PURE__ */ new Set(["method", "function", "def", "getter", "setter", "operator"]);
@@ -27466,7 +27699,7 @@ function dependentsIndex(edges, opts = {}) {
     if (e.dangling || !DEPENDS_KINDS.has(e.kind)) continue;
     if (opts.skipInferred && e.confidence === "inferred") continue;
     push(dependents, e.to, e);
-    if (opts.goPackages && e.kind === "import" && e.to.endsWith(".go")) push(packageImports, dirOf2(e.to), e);
+    if (opts.goPackages && e.kind === "import" && e.to.endsWith(".go")) push(packageImports, dirOf(e.to), e);
   }
   return { dependents, packageImports, goPackages: opts.goPackages === true };
 }
@@ -27474,12 +27707,19 @@ function closureOver(index, seeds, depth = Infinity) {
   const { dependents, packageImports, goPackages } = index;
   const depthOf = /* @__PURE__ */ new Map();
   const seen = new Set(seeds);
+  const packagesTaken = /* @__PURE__ */ new Set();
   let frontier = [...seeds];
   for (let d = 1; d <= depth && frontier.length; d++) {
     const next = [];
     for (const node of frontier) {
       let incoming = dependents.get(node) ?? [];
-      if (goPackages && isGoSource(node)) incoming = incoming.concat(packageImports.get(dirOf2(node)) ?? []);
+      if (goPackages && isGoSource(node)) {
+        const dir = dirOf(node);
+        if (!packagesTaken.has(dir)) {
+          packagesTaken.add(dir);
+          incoming = incoming.concat(packageImports.get(dir) ?? []);
+        }
+      }
       for (const e of incoming.slice().sort((a, b) => byStr(a.from, b.from))) {
         if (seen.has(e.from)) continue;
         seen.add(e.from);
@@ -27566,7 +27806,7 @@ function dependencyPath(graph, from, to, opts = {}) {
   const goPackage = /* @__PURE__ */ new Map();
   for (const rel2 of [...files].sort(byStr)) {
     if (!isGoSource(rel2)) continue;
-    const dir = dirOf2(rel2);
+    const dir = dirOf(rel2);
     const members = goPackage.get(dir);
     if (members) members.push(rel2);
     else goPackage.set(dir, [rel2]);
@@ -27576,7 +27816,7 @@ function dependencyPath(graph, from, to, opts = {}) {
     for (const e of graph.fileEdges) {
       if (e.dangling || !DEPENDS_KINDS.has(e.kind)) continue;
       if (!withInferred && e.confidence === "inferred") continue;
-      const targets = e.kind === "import" && isGoSource(e.to) && goPackage.get(dirOf2(e.to)) || [e.to];
+      const targets = e.kind === "import" && isGoSource(e.to) && goPackage.get(dirOf(e.to)) || [e.to];
       const list = out2.get(e.from) ?? out2.set(e.from, []).get(e.from);
       for (const t of targets) list.push([t, e.kind]);
     }
@@ -27609,7 +27849,6 @@ function dependencyPath(graph, from, to, opts = {}) {
 var DEPENDS_KINDS;
 var FIELDS;
 var adjacencyMemo;
-var dirOf2;
 var isGoSource;
 var EDGE_KINDS;
 var DEP_PATH_DEFAULT_DEPTH;
@@ -27619,10 +27858,10 @@ var init_traverse = __esm2({
     "use strict";
     init_sort();
     init_paths();
+    init_util();
     DEPENDS_KINDS = /* @__PURE__ */ new Set(["import", "use", "call", "extends", "implements"]);
     FIELDS = 6;
     adjacencyMemo = /* @__PURE__ */ new WeakMap();
-    dirOf2 = (rel2) => rel2.includes("/") ? rel2.slice(0, rel2.lastIndexOf("/")) : "";
     isGoSource = (rel2) => rel2.endsWith(".go") && !rel2.endsWith("_test.go");
     EDGE_KINDS = ["import", "call", "use", "extends", "implements", "doc-link", "mention", "contains"];
     DEP_PATH_DEFAULT_DEPTH = 8;
@@ -28837,7 +29076,7 @@ function declaredType(signature, name2) {
   if (!signature.includes(name2)) return void 0;
   let re = declaredRe.get(name2);
   if (!re) {
-    re = new RegExp(`(?:^|[(,\\s])${name2}\\s*(?::\\s*["']?|\\s+[*&]?)\\s*(?:([A-Za-z_]\\w*)\\.)?(?:[A-Za-z_]\\w*\\.)*([A-Za-z_]\\w*)`);
+    re = new RegExp(`(?:^|[(,\\s])${escapeRegExp2(name2)}\\s*(?::\\s*["']?|\\s+[*&]?)\\s*(?:([A-Za-z_]\\w*)\\.)?(?:[A-Za-z_]\\w*\\.)*([A-Za-z_]\\w*)`);
     if (declaredRe.size < 4096) declaredRe.set(name2, re);
   }
   const m = re.exec(signature);
@@ -28892,7 +29131,7 @@ function createBindScope(scan2, pairs, ctxIn) {
       for (const f of scan2.files) {
         const fam = familyOf(f.lang);
         if (!PACKAGE_DIR.has(fam) || f.kind !== "code") continue;
-        const key = `${fam}\0${dirOf3(f.rel)}`;
+        const key = `${fam}\0${dirOf(f.rel)}`;
         let list = pkgFiles.get(key);
         if (!list) pkgFiles.set(key, list = []);
         list.push(f);
@@ -28906,10 +29145,10 @@ function createBindScope(scan2, pairs, ctxIn) {
     if (!PACKAGE_DIR.has(family)) return null;
     let mates = mateMemo.get(f.rel);
     if (mates !== void 0) return mates;
-    const own = dirOf3(f.rel);
+    const own = dirOf(f.rel);
     const imported = /* @__PURE__ */ new Set();
     if (family === "go") {
-      for (const t of targetsOf.get(f.rel) ?? []) if (t.endsWith(".go") && dirOf3(t) !== own) imported.add(dirOf3(t));
+      for (const t of targetsOf.get(f.rel) ?? []) if (t.endsWith(".go") && dirOf(t) !== own) imported.add(dirOf(t));
     }
     mateMemo.set(f.rel, mates = { own, test: isGoTest(f.rel), imported });
     return mates;
@@ -28921,14 +29160,14 @@ function createBindScope(scan2, pairs, ctxIn) {
       if (dir === m.own ? m.test || !isGoTest(d.file) : m.imported.has(dir) && !isGoTest(d.file)) seen.add(d.file), out2.push(d);
     };
     if (group.list.length <= m.imported.size + 1) {
-      for (const d of group.list) take(d, dirOf3(d.file));
+      for (const d of group.list) take(d, dirOf(d.file));
       return;
     }
     let idx = byDirMemo.get(group);
     if (!idx) {
       idx = /* @__PURE__ */ new Map();
       for (const d of group.list) {
-        const dir = dirOf3(d.file);
+        const dir = dirOf(d.file);
         const list = idx.get(dir);
         if (list) list.push(d);
         else idx.set(dir, [d]);
@@ -29023,7 +29262,7 @@ function createBindScope(scan2, pairs, ctxIn) {
       for (const ref2 of f.refs) {
         if (ref2.kind !== "import") continue;
         const t = resolved(ref2.spec);
-        const dir = t === null ? void 0 : dirOf3(t);
+        const dir = t === null ? void 0 : dirOf(t);
         const local2 = explicit.get(ref2.spec) ?? (dir !== void 0 ? goPackageName(dir) : void 0) ?? goExternalName(ref2.spec);
         addModule(local2, dir !== void 0 ? packageOf("go", dir).filter((m) => !isGoTest(m.rel)).map((m) => m.rel) : null);
       }
@@ -29094,7 +29333,7 @@ function createCallBinder(scan2, pairs, opts = {}) {
   const firstIndexed = (dir, names) => names.map((n) => dir ? `${dir}/${n}` : n).find(indexed);
   const crateRoot = (rel2, base2) => {
     if (base2 === "lib.rs" || base2 === "main.rs") return true;
-    const dir = dirOf3(rel2);
+    const dir = dirOf(rel2);
     const parent = dir.slice(dir.lastIndexOf("/") + 1);
     return parent === "examples" || parent === "tests" || parent === "benches" || parent === "bin" && /(^|\/)src\/bin$/.test(dir);
   };
@@ -29104,12 +29343,12 @@ function createCallBinder(scan2, pairs, opts = {}) {
     if (crateRoot(rel2, base2)) {
       if (receiver === "crate") found = rel2;
     } else if (receiver === "crate") {
-      for (let dir = dirOf3(rel2); !found; dir = dirOf3(dir)) {
+      for (let dir = dirOf(rel2); !found; dir = dirOf(dir)) {
         found = firstIndexed(dir, ["lib.rs", "main.rs"]);
         if (!dir) break;
       }
     } else {
-      const parent = dirOf3(base2 === "mod.rs" ? dirOf3(rel2) : rel2.slice(0, -".rs".length));
+      const parent = dirOf(base2 === "mod.rs" ? dirOf(rel2) : rel2.slice(0, -".rs".length));
       found = firstIndexed(parent, ["mod.rs", "lib.rs", "main.rs"]) ?? (parent && indexed(`${parent}.rs`) ? `${parent}.rs` : void 0);
     }
     return found === void 0 ? void 0 : [found];
@@ -29154,7 +29393,7 @@ function createCallBinder(scan2, pairs, opts = {}) {
   const tailMemo = /* @__PURE__ */ new Map();
   const isTail2 = (rel2) => {
     let t = tailMemo.get(rel2);
-    if (t === void 0) tailMemo.set(rel2, t = isTestPath(rel2) || tierForPath(dirOf3(rel2) || "(root)") === 2);
+    if (t === void 0) tailMemo.set(rel2, t = isTestPath(rel2) || tierForPath(dirOf(rel2) || "(root)") === 2);
     return t;
   };
   const forFile = (f) => {
@@ -29249,7 +29488,7 @@ function createCallBinder(scan2, pairs, opts = {}) {
       if (priv && (hiddenReach === "package" || hiddenReach === "import")) {
         const seen = new Set(out2.map((d) => d.file));
         for (const d of hiddenReach === "package" ? scope.reached(priv, f, name2) : importedDefs(priv, scope.targets(f.rel))) {
-          if (hiddenReach === "package" && dirOf3(d.file) !== dirOf3(f.rel)) continue;
+          if (hiddenReach === "package" && dirOf(d.file) !== dirOf(f.rel)) continue;
           if (d.file !== f.rel && !seen.has(d.file)) seen.add(d.file), out2.push(d);
         }
       }
@@ -29414,7 +29653,6 @@ var SELF_NAMES;
 var FUNCTION_KINDS2;
 var MAX_HOPS;
 var NO_ALIASES;
-var dirOf3;
 var isGoTest;
 var declaredRe;
 var aliasMemo;
@@ -29429,6 +29667,7 @@ var init_bind = __esm2({
     init_modules();
     init_tests_map();
     init_sort();
+    init_util();
     REFERENCE_KINDS3 = /* @__PURE__ */ new Set(["reexport", "reexport-all", "default"]);
     STRICT = /* @__PURE__ */ new Set(["js", "go"]);
     SHAPED = /* @__PURE__ */ new Set(["go", "python"]);
@@ -29442,7 +29681,6 @@ var init_bind = __esm2({
     FUNCTION_KINDS2 = /* @__PURE__ */ new Set(["function", "method", "def", "constructor", "operator"]);
     MAX_HOPS = 3;
     NO_ALIASES = { modules: /* @__PURE__ */ new Map(), names: /* @__PURE__ */ new Map() };
-    dirOf3 = (rel2) => rel2.includes("/") ? rel2.slice(0, rel2.lastIndexOf("/")) : "";
     isGoTest = (rel2) => rel2.endsWith("_test.go");
     declaredRe = /* @__PURE__ */ new Map();
     aliasMemo = /* @__PURE__ */ new WeakMap();
@@ -29631,8 +29869,8 @@ function buildGraph(scan2, ctx, modules, moduleOf, meta) {
   if (unique.size) {
     let targetsOf;
     const goImportsPackage = (from, target) => {
-      const dir = dirOf4(target);
-      for (const t of (targetsOf ??= importTargets(importPairs)).get(from) ?? []) if (dirOf4(t) === dir) return true;
+      const dir = dirOf(target);
+      for (const t of (targetsOf ??= importTargets(importPairs)).get(from) ?? []) if (dirOf(t) === dir) return true;
       return false;
     };
     const langOf = new Map(scan2.files.map((f) => [f.rel, f.lang]));
@@ -29651,7 +29889,7 @@ function buildGraph(scan2, ctx, modules, moduleOf, meta) {
       for (const [target, count2] of perTarget) {
         const pair = `${f.rel}|${target}`;
         if (importPairs.has(pair) || callPairs.has(pair)) continue;
-        if (go2 && target.endsWith(".go") && dirOf4(target) !== dirOf4(f.rel) && !goImportsPackage(f.rel, target)) continue;
+        if (go2 && target.endsWith(".go") && dirOf(target) !== dirOf(f.rel) && !goImportsPackage(f.rel, target)) continue;
         collect(fileEdgeMap, { from: f.rel, to: target, kind: "use", weight: Math.min(count2, 5) });
       }
     }
@@ -29753,7 +29991,6 @@ function buildGraph(scan2, ctx, modules, moduleOf, meta) {
     moduleEdges
   };
 }
-var dirOf4;
 var REFERENCE_KINDS4;
 var SEP3;
 var keyOf;
@@ -29766,7 +30003,7 @@ var init_graph = __esm2({
     init_relations();
     init_derived();
     init_sort();
-    dirOf4 = (rel2) => rel2.includes("/") ? rel2.slice(0, rel2.lastIndexOf("/")) : "";
+    init_util();
     REFERENCE_KINDS4 = /* @__PURE__ */ new Set(["reexport", "reexport-all", "default"]);
     SEP3 = "\0";
     keyOf = (from, to, kind) => `${from}${SEP3}${to}${SEP3}${kind}`;
@@ -30594,25 +30831,23 @@ function tomlStringArray(body2, key) {
 function tomlString(body2, key) {
   return body2?.match(new RegExp(`^\\s*${escapeRegExp2(key)}\\s*=\\s*["']([^"']+)["']`, "m"))?.[1];
 }
-function wsGlobToRegExp(pat) {
-  let re = "";
+function wsGlobMatcher(pat) {
+  const tokens = [];
   for (let i2 = 0; i2 < pat.length; i2++) {
     const c2 = pat[i2];
     if (c2 === "*") {
       if (pat[i2 + 1] === "*") {
-        re += ".*";
+        tokens.push({ kind: "any" });
         i2++;
         if (pat[i2 + 1] === "/") i2++;
       } else {
-        re += "[^/]*";
+        tokens.push({ kind: "star" });
       }
-    } else if ("\\^$.|?+()[]{}".includes(c2)) {
-      re += "\\" + c2;
     } else {
-      re += c2;
+      tokens.push({ kind: "lit", ch: c2 });
     }
   }
-  return new RegExp(`^${re}($|/)`);
+  return wildcardMatcher(tokens, { dirPrefix: true });
 }
 function probeNodePkg(root, dir, kind, warnings) {
   const path = join162(root, dir, "package.json");
@@ -30767,10 +31002,12 @@ function expandGlobDirs(root, pat) {
         for (const s of desc) next.add(s);
       }
     } else if (seg.includes("*")) {
-      const re = new RegExp(`^${seg.split("*").map(escapeRegExp2).join("[^/]*")}$`);
+      const matchSeg = wildcardMatcher(
+        [...seg].map((ch) => ch === "*" ? { kind: "star" } : { kind: "lit", ch })
+      );
       for (const d of dirs) {
         for (const sub of subdirsOf(root, d)) {
-          if (re.test(sub.split("/").pop())) next.add(sub);
+          if (matchSeg(sub.split("/").pop())) next.add(sub);
         }
       }
     } else {
@@ -30871,11 +31108,11 @@ function detectCargoMembers(root, found, warnings) {
   if (!body2) return;
   const members = tomlStringArray(body2, "members");
   if (!members.length) return;
-  const excludes = tomlStringArray(body2, "exclude").map(wsGlobToRegExp);
+  const excludes = tomlStringArray(body2, "exclude").map(wsGlobMatcher);
   const candidates2 = /* @__PURE__ */ new Map();
   for (const pat of members) expandPattern(root, pat, candidates2, "cargo", warnings);
   for (const [dir, pkg] of candidates2) {
-    if (excludes.some((re) => re.test(dir))) continue;
+    if (excludes.some((excluded) => excluded(dir))) continue;
     if (!found.has(dir)) found.set(dir, pkg);
   }
 }
@@ -30938,11 +31175,11 @@ function detectUvMembers(root, found, warnings) {
   if (!body2) return;
   const members = tomlStringArray(body2, "members");
   if (!members.length) return;
-  const excludes = tomlStringArray(body2, "exclude").map(wsGlobToRegExp);
+  const excludes = tomlStringArray(body2, "exclude").map(wsGlobMatcher);
   const candidates2 = /* @__PURE__ */ new Map();
   for (const pat of members) expandPattern(root, pat, candidates2, "uv", warnings);
   for (const [dir, pkg] of candidates2) {
-    if (excludes.some((re) => re.test(dir))) continue;
+    if (excludes.some((excluded) => excluded(dir))) continue;
     if (!found.has(dir)) found.set(dir, pkg);
   }
 }
@@ -31168,9 +31405,9 @@ function detectWorkspaces(root) {
   if (npmPatterns.length) {
     const candidates2 = /* @__PURE__ */ new Map();
     for (const { pattern, kind } of npmPatterns) expandPattern(root, pattern, candidates2, kind, warnings);
-    const negRes = negations.map(wsGlobToRegExp);
+    const negRes = negations.map(wsGlobMatcher);
     for (const [dir, pkg] of candidates2) {
-      if (negRes.some((re) => re.test(dir))) continue;
+      if (negRes.some((negated) => negated(dir))) continue;
       found.set(dir, pkg);
     }
   }
@@ -31188,13 +31425,22 @@ function detectWorkspaces(root) {
     const edges = edgesFor(root, pkg, byName, byDir, accessors, warnings);
     if (edges.length) pkg.dependsOn = edges.sort(byStr);
   }
-  const byDepth = [...packages].sort((a, b) => b.dir.length - a.dir.length);
+  const packageAt2 = new Map(packages.map((p) => [p.dir, p]));
+  const packageOf = (rel2) => {
+    for (let dir = rel2; ; ) {
+      const hit = packageAt2.get(dir);
+      if (hit) return hit;
+      const slash = dir.lastIndexOf("/");
+      if (slash === -1) return void 0;
+      dir = dir.slice(0, slash);
+    }
+  };
   return {
     packages,
     cycle: findCycle(packages),
     topoOrder: topoOrder(packages),
     warnings: [...new Set(warnings)].sort(byStr),
-    packageOf: (rel2) => byDepth.find((p) => rel2 === p.dir || rel2.startsWith(p.dir + "/"))
+    packageOf
   };
 }
 function ownPomVersion(pom) {
@@ -31284,6 +31530,7 @@ var init_workspaces = __esm2({
     init_resolve();
     init_sort();
     init_util();
+    init_wildcard();
     WS_SKIP_DIRS = /* @__PURE__ */ new Set(["node_modules", ".git", "dist", "build", "target", "coverage"]);
     MAX_RECURSE_DEPTH = 4;
     unquoteYaml = (s) => s.trim().replace(/^(["'])(.*)\1$/, "$2").trim();
@@ -32130,7 +32377,8 @@ function jsBackend(root, re, opts, keep, max, deadline) {
     gitignore: opts.gitignore,
     ignoreDirs: opts.ignoreDirs,
     maxFileBytes: opts.maxFileBytes,
-    trackedBuildDirs: false
+    trackedBuildDirs: false,
+    filter: scanPathFilter(root, { scope: opts.scope })
   });
   const files = walked.files.filter((f) => !keep || keep(f.rel)).map((f) => [f.rel, f.abs]).sort((a, b) => byStr(a[0], b[0]));
   const job = {
@@ -32283,7 +32531,7 @@ function loadEmbedModel(dir) {
   try {
     raw = JSON.parse(readFileSync112(path, "utf8"));
   } catch (e) {
-    throw new Error(`embed model: ${path} is not valid JSON (${e instanceof Error ? e.message : String(e)})`);
+    throw new Error(`embed model: ${path} is not valid JSON (${errMessage2(e)})`);
   }
   return parseEmbedModel(raw, path);
 }
@@ -32293,7 +32541,7 @@ function tryLoadEmbedModel(dir, load = loadEmbedModel) {
     const model = load(dir);
     return model ? { model } : {};
   } catch (e) {
-    return { error: e instanceof Error ? e.message : String(e) };
+    return { error: errMessage2(e) };
   }
 }
 function resolveEmbedPullUrl() {
@@ -32301,8 +32549,8 @@ function resolveEmbedPullUrl() {
   if (env2 && env2.trim()) return { url: env2.trim() };
   return { url: DEFAULT_EMBED_URL, sha256: EMBED_ASSET_SHA256 };
 }
-async function fetchEmbedModel(url, expectedSha256) {
-  const res = await fetch(url);
+async function fetchEmbedModel(url, expectedSha256, timeoutMs = EMBED_DOWNLOAD_TIMEOUT_MS) {
+  const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
   if (!res.ok) throw new Error(`HTTP ${res.status} from ${url}`);
   const body2 = await res.text();
   if (expectedSha256) {
@@ -32317,13 +32565,16 @@ var EMBED_VERSION;
 var DEFAULT_EMBED_DIRNAME;
 var DEFAULT_EMBED_URL;
 var EMBED_ASSET_SHA256;
+var EMBED_DOWNLOAD_TIMEOUT_MS;
 var init_model = __esm2({
   "src/embed/model.ts"() {
     "use strict";
+    init_util();
     EMBED_VERSION = 3;
     DEFAULT_EMBED_DIRNAME = "models";
     DEFAULT_EMBED_URL = "https://github.com/maxgfr/codeindex/releases/download/embed-model-v1/model.json";
     EMBED_ASSET_SHA256 = "163ad053eab4e9a80d421ed4164f32292c83290f02fbbe6fe4b9b1cd6ea18d34";
+    EMBED_DOWNLOAD_TIMEOUT_MS = 6e5;
   }
 });
 function basicTokenize(text) {
@@ -32661,9 +32912,15 @@ function healthzUrl(base2) {
   return stripTrailingSlash(base2).replace(/\/embed$/, "") + "/healthz";
 }
 function resolveTimeout(opts) {
-  if (typeof opts.timeoutMs === "number") return opts.timeoutMs;
+  if (typeof opts.timeoutMs === "number") return clampTimerMs(opts.timeoutMs);
   const env2 = Number(process.env.CODEINDEX_EMBED_TIMEOUT_MS);
-  return Number.isFinite(env2) && env2 > 0 ? env2 : 3e4;
+  return Number.isFinite(env2) && env2 > 0 ? clampTimerMs(env2) : 3e4;
+}
+function capText(text) {
+  if (text.length <= ENDPOINT_MAX_TEXT_CHARS) return text;
+  const last = text.charCodeAt(ENDPOINT_MAX_TEXT_CHARS - 1);
+  const end = last >= 55296 && last <= 56319 ? ENDPOINT_MAX_TEXT_CHARS - 1 : ENDPOINT_MAX_TEXT_CHARS;
+  return text.slice(0, end);
 }
 async function embedViaEndpoint(texts, opts = {}) {
   const base2 = resolveEmbedEndpoint(opts);
@@ -32675,7 +32932,7 @@ async function embedViaEndpoint(texts, opts = {}) {
     const res = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json", ...opts.headers ?? {} },
-      body: JSON.stringify({ texts }),
+      body: JSON.stringify({ texts: texts.map(capText) }),
       signal: controller.signal
     });
     if (!res.ok) throw new Error(`embedding endpoint ${url} returned HTTP ${res.status}`);
@@ -32759,14 +33016,17 @@ async function buildEndpointIndex(scan2, opts = {}) {
   });
   return { embedVersion: EMBED_VERSION, modelId, dim, records };
 }
+var ENDPOINT_MAX_TEXT_CHARS;
 var CANARY;
 var init_endpoint = __esm2({
   "src/embed/endpoint.ts"() {
     "use strict";
     init_hash();
+    init_util();
     init_encode();
     init_model();
     init_embed();
+    ENDPOINT_MAX_TEXT_CHARS = 8192;
     CANARY = "codeindex endpoint fingerprint: parse the request, retry on timeout";
   }
 });
@@ -33049,7 +33309,7 @@ function onboardBrief(scan2, graph, opts = {}) {
   try {
     writeMemory(scan2.root, memoryName, brief);
   } catch (e) {
-    return { brief, memoryError: `not saved as the ${memoryName} memory: ${e instanceof Error ? e.message : String(e)}` };
+    return { brief, memoryError: `not saved as the ${memoryName} memory: ${errMessage2(e)}` };
   }
   return { brief, memory: memoryName };
 }
@@ -33064,6 +33324,7 @@ var init_onboard = __esm2({
     init_git();
     init_memory();
     init_sort();
+    init_util();
     README_NAMES = ["README.md", "README.markdown", "README.rst", "README.txt", "README"];
     MIN_HOTSPOT_COMMITS = 10;
   }
@@ -33145,7 +33406,7 @@ function loadLspConfig(repo, trust = {}) {
   try {
     payload = JSON.parse(readFileSync132(path, "utf8"));
   } catch (e) {
-    throw new Error(`${path}: ${e instanceof Error ? e.message : String(e)}`);
+    throw new Error(`${path}: ${errMessage2(e)}`);
   }
   return parseLspConfig(payload);
 }
@@ -33153,16 +33414,16 @@ function serverForLang(config, lang) {
   return config.servers.find((s) => s.languages.includes(lang));
 }
 function timeoutFor(server) {
-  return positiveEnv("CODEINDEX_LSP_TIMEOUT_MS") ?? server.timeoutMs ?? DEFAULT_TIMEOUT_MS22;
+  return clampTimerMs(positiveEnv("CODEINDEX_LSP_TIMEOUT_MS") ?? server.timeoutMs ?? DEFAULT_TIMEOUT_MS22);
 }
 function startupTimeoutFor(server) {
-  return positiveEnv("CODEINDEX_LSP_STARTUP_TIMEOUT_MS") ?? server.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS;
+  return clampTimerMs(positiveEnv("CODEINDEX_LSP_STARTUP_TIMEOUT_MS") ?? server.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS);
 }
 function positiveEnv(name2) {
   const raw = process.env[name2];
   if (raw === void 0) return void 0;
   const value = Number(raw);
-  return Number.isFinite(value) && value > 0 ? value : void 0;
+  return Number.isFinite(value) && value > 0 ? clampTimerMs(value) : void 0;
 }
 var LSP_CONFIG_NAME;
 var LSP_CONFIG_DIR;
@@ -33172,6 +33433,7 @@ var DEFAULT_STARTUP_TIMEOUT_MS;
 var init_config2 = __esm2({
   "src/lsp/config.ts"() {
     "use strict";
+    init_util();
     LSP_CONFIG_NAME = "lsp.json";
     LSP_CONFIG_DIR = ".codeindex";
     LSP_TRUST_HINT = "a repository's lsp.json names commands to run, so it is read only with --trust-lsp-config or CODEINDEX_TRUST_LSP_CONFIG=1";
@@ -33272,7 +33534,7 @@ async function annotateWithLsp(scan2, name2, statik, session, serverId, language
       lsp: {
         server: serverId,
         ok: false,
-        reason: e instanceof Error ? e.message : String(e),
+        reason: errMessage2(e),
         refs: refs.sort(refOrder),
         agreement: agreementOf(refs, statik)
       }
@@ -33297,6 +33559,7 @@ var init_refs = __esm2({
   "src/lsp/refs.ts"() {
     "use strict";
     init_sort();
+    init_util();
     IDENT_CHAR = /[\p{L}\p{N}_$]/u;
     DECLARATION_WORDS = /* @__PURE__ */ new Set([
       "abstract",
@@ -33468,6 +33731,7 @@ function relFromUri(root, uri) {
     return void 0;
   }
   if (/^\/[A-Za-z]:/.test(path)) path = path.slice(1);
+  path = withoutDotSegments(path);
   const base2 = root.replace(/\\/g, "/").replace(/\/+$/, "");
   const windows = /^[A-Za-z]:/.test(base2) || base2.startsWith("//");
   const comparablePath = windows ? path.toLowerCase() : path;
@@ -33475,6 +33739,17 @@ function relFromUri(root, uri) {
   if (comparablePath === comparableBase) return "";
   if (!comparablePath.startsWith(`${comparableBase}/`)) return void 0;
   return path.slice(base2.length + 1);
+}
+function withoutDotSegments(path) {
+  if (!/(?:^|\/)\.\.?(?:\/|$)/.test(path)) return path;
+  const lead = /^\/*/.exec(path)[0];
+  const kept = [];
+  for (const segment of path.slice(lead.length).split("/")) {
+    if (segment === ".") continue;
+    if (segment === "..") kept.pop();
+    else kept.push(segment);
+  }
+  return lead + kept.join("/");
 }
 function locationsToRefs(root, raw) {
   const list = Array.isArray(raw) ? raw : raw && typeof raw === "object" ? [raw] : [];
@@ -33513,8 +33788,8 @@ function withServerError(message, transport) {
   return detail && !message.includes(detail) ? `${message}: ${detail}` : message;
 }
 async function openLspSession(transport, options) {
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT;
-  const startupTimeoutMs = options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT;
+  const timeoutMs = clampTimerMs(options.timeoutMs ?? DEFAULT_TIMEOUT);
+  const startupTimeoutMs = clampTimerMs(options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT);
   const framer = createFramer();
   const pending = /* @__PURE__ */ new Map();
   const open2 = /* @__PURE__ */ new Set();
@@ -33529,8 +33804,26 @@ async function openLspSession(transport, options) {
     }
     pending.clear();
   };
+  const answerServerRequest = (message) => {
+    if (dead4) return;
+    const reply = (body2) => {
+      transport.write(encodeMessage({ jsonrpc: "2.0", id: message.id, ...body2 }));
+    };
+    if (message.method === "workspace/configuration") {
+      const items = message.params?.items;
+      reply({ result: Array.isArray(items) ? items.map(() => null) : [] });
+    } else if (ACKNOWLEDGED_SERVER_REQUESTS.has(message.method)) {
+      reply({ result: null });
+    } else {
+      reply({ error: { code: -32601, message: `method not found: ${message.method}` } });
+    }
+  };
   transport.onData((chunk) => {
     for (const message of framer.push(chunk)) {
+      if (typeof message.method === "string") {
+        if (message.id !== void 0) answerServerRequest(message);
+        continue;
+      }
       if (typeof message.id !== "number") continue;
       const waiter = pending.get(message.id);
       if (!waiter) continue;
@@ -33652,10 +33945,12 @@ var LspTimeout;
 var LspIncomingCallsError;
 var DEFAULT_TIMEOUT;
 var DEFAULT_STARTUP_TIMEOUT;
+var ACKNOWLEDGED_SERVER_REQUESTS;
 var init_client = __esm2({
   "src/lsp/client.ts"() {
     "use strict";
     init_protocol();
+    init_util();
     LspTimeout = class extends Error {
       constructor(method, ms) {
         super(`${method} exceeded ${ms}ms`);
@@ -33664,7 +33959,7 @@ var init_client = __esm2({
     };
     LspIncomingCallsError = class extends Error {
       constructor(error, calls) {
-        super(error instanceof Error ? error.message : String(error), { cause: error });
+        super(errMessage2(error), { cause: error });
         this.calls = calls;
         this.name = "LspIncomingCallsError";
       }
@@ -33672,6 +33967,12 @@ var init_client = __esm2({
     };
     DEFAULT_TIMEOUT = 5e3;
     DEFAULT_STARTUP_TIMEOUT = 15e3;
+    ACKNOWLEDGED_SERVER_REQUESTS = /* @__PURE__ */ new Set([
+      "client/registerCapability",
+      "client/unregisterCapability",
+      "window/workDoneProgress/create",
+      "window/showMessageRequest"
+    ]);
   }
 });
 function callersAgreement(calls, statik) {
@@ -33702,7 +34003,7 @@ async function collectIncomingCalls(scan2, defs, session, languageId) {
     return { calls: uniqueIncomingCalls(calls) };
   } catch (error) {
     if (error instanceof LspIncomingCallsError) calls.push(...error.calls);
-    return { calls: uniqueIncomingCalls(calls), reason: error instanceof Error ? error.message : String(error) };
+    return { calls: uniqueIncomingCalls(calls), reason: errMessage2(error) };
   }
 }
 var init_callers2 = __esm2({
@@ -33712,6 +34013,7 @@ var init_callers2 = __esm2({
     init_client();
     init_protocol();
     init_refs();
+    init_util();
   }
 });
 function spawnLspTransport(server, cwd) {
@@ -33824,7 +34126,7 @@ async function openServer(server, root) {
     return { ok: true, session, transport };
   } catch (e) {
     transport.close();
-    return { ok: false, reason: withServerError(e instanceof Error ? e.message : String(e), transport) };
+    return { ok: false, reason: withServerError(errMessage2(e), transport) };
   }
 }
 function scanStamp(scan2) {
@@ -33878,7 +34180,7 @@ var init_pool22 = __esm2({
       hooked = false;
       closed = false;
       constructor(options = {}) {
-        this.idleMs = options.idleMs ?? idleFromEnv() ?? DEFAULT_IDLE_MS;
+        this.idleMs = clampTimerMs(options.idleMs ?? idleFromEnv() ?? DEFAULT_IDLE_MS);
         this.open = options.open ?? openServer;
       }
       /** Live sessions, for tests and status. */
@@ -34028,7 +34330,7 @@ async function referencesWithLsp(scan2, repo, name2, statik, options = {}) {
   try {
     config = loadLspConfig(repo, options);
   } catch (e) {
-    return { ...statik, lsp: lspUnavailable("(config)", e instanceof Error ? e.message : String(e)) };
+    return { ...statik, lsp: lspUnavailable("(config)", errMessage2(e)) };
   }
   if (!config) {
     const ignored = resolveLspConfigPath(repo, options).ignored;
@@ -34087,7 +34389,7 @@ async function callersWithLsp(scan2, repo, name2, statik, options = {}) {
   try {
     config = loadLspConfig(repo, options);
   } catch (error) {
-    return { ...statik, lsp: callersUnavailable("(config)", error instanceof Error ? error.message : String(error)) };
+    return { ...statik, lsp: callersUnavailable("(config)", errMessage2(error)) };
   }
   if (!config) {
     const ignored = resolveLspConfigPath(repo, options).ignored;
@@ -34204,13 +34506,13 @@ function findOrphans(graph) {
   const connectedPackages = /* @__PURE__ */ new Set();
   for (const f of graph.files) {
     if (!PACKAGE_DIR_LANGS.has(f.lang)) continue;
-    if (f.degIn > 0 || f.degOut > 0 && !f.testFile) connectedPackages.add(`${f.lang}\0${dirOf6(f.rel)}`);
+    if (f.degIn > 0 || f.degOut > 0 && !f.testFile) connectedPackages.add(`${f.lang}\0${dirOf(f.rel)}`);
   }
   const out2 = [];
   for (const f of graph.files) {
     if (f.fileKind !== "code" || f.degIn !== 0 || f.degOut !== 0) continue;
     if (f.testFile || !importable.has(f.lang) || isEntrypointLike(f.rel)) continue;
-    if (PACKAGE_DIR_LANGS.has(f.lang) && connectedPackages.has(`${f.lang}\0${dirOf6(f.rel)}`)) continue;
+    if (PACKAGE_DIR_LANGS.has(f.lang) && connectedPackages.has(`${f.lang}\0${dirOf(f.rel)}`)) continue;
     out2.push(f.rel);
   }
   return out2;
@@ -34240,7 +34542,7 @@ function parseRulesText(text, source2) {
   try {
     return parseRules(payload);
   } catch (e) {
-    throw new Error(`rules config ${source2}: ${e instanceof Error ? e.message : String(e)}`);
+    throw new Error(`rules config ${source2}: ${errMessage2(e)}`);
   }
 }
 function parseRules(input) {
@@ -34461,13 +34763,13 @@ var LITERALS_KEYS;
 var GATED_TIERS;
 var ENTRYPOINT_STEMS;
 var PACKAGE_DIR_LANGS;
-var dirOf6;
 var init_rules = __esm2({
   "src/rules.ts"() {
     "use strict";
     init_glob();
     init_literals2();
     init_sort();
+    init_util();
     EDGE_KIND_TABLE = {
       contains: true,
       "doc-link": true,
@@ -34508,11 +34810,10 @@ var init_rules = __esm2({
       "manage"
     ]);
     PACKAGE_DIR_LANGS = /* @__PURE__ */ new Set(["go", "java", "kotlin", "scala"]);
-    dirOf6 = (rel2) => rel2.includes("/") ? rel2.slice(0, rel2.lastIndexOf("/")) : "";
   }
 });
 function isTail(rel2) {
-  return tierForPath(dirOf7(rel2) || "(root)") === 2 || /(^|\/)testdata\//.test(rel2);
+  return tierForPath(dirOf(rel2) || "(root)") === 2 || /(^|\/)testdata\//.test(rel2);
 }
 function isCallable(s) {
   if (CALLABLE_KINDS2.has(s.kind)) return true;
@@ -34751,7 +35052,7 @@ function libraryApi(scan2, ctx) {
   const mainDirs = /* @__PURE__ */ new Set();
   for (const f of scan2.files) {
     if (f.lang === "go" && !f.rel.endsWith("_test.go") && f.symbols.some((s) => s.name === "main" && !s.parent && s.kind === "function")) {
-      mainDirs.add(dirOf7(f.rel));
+      mainDirs.add(dirOf(f.rel));
     }
   }
   const libraryDirs = [];
@@ -34760,7 +35061,7 @@ function libraryApi(scan2, ctx) {
     if (base2 !== "build.gradle" && base2 !== "build.gradle.kts" && base2 !== "pom.xml") continue;
     const text = readText(join23(scan2.root, f.rel));
     const published = base2 === "pom.xml" ? /<distributionManagement>|maven-deploy-plugin|central-publishing-maven-plugin|nexus-staging-maven-plugin/.test(text) : /\bjava-library\b|\bmaven-publish\b|com\.vanniktech\.maven\.publish/.test(text);
-    if (published) libraryDirs.push(dirOf7(f.rel));
+    if (published) libraryDirs.push(dirOf(f.rel));
   }
   const under = (rel2, dir) => !dir || rel2.startsWith(dir + "/");
   for (const f of scan2.files) {
@@ -34769,7 +35070,7 @@ function libraryApi(scan2, ctx) {
       if (f.rel.endsWith("_test.go")) continue;
       const mod = ctx.goModules.find((g) => under(f.rel, g.dir));
       if (!mod) continue;
-      const dir = dirOf7(f.rel);
+      const dir = dirOf(f.rel);
       const inModule = mod.dir ? dir.slice(mod.dir.length + 1) : dir;
       if (mainDirs.has(dir) || /(^|\/)internal(\/|$)/.test(inModule)) continue;
       for (const s of f.symbols) if (s.exported) keys.push(`${s.name}${SEP4}${s.file}`);
@@ -34785,7 +35086,7 @@ function manifestEntries(scan2, ctx, byRel) {
   const isCode2 = (rel2) => byRel.get(rel2)?.kind === "code";
   for (const f of scan2.files) {
     const base2 = f.rel.slice(f.rel.lastIndexOf("/") + 1);
-    const dir = dirOf7(f.rel);
+    const dir = dirOf(f.rel);
     if (base2 === "package.json") {
       const pkg = tolerantJsonParse(readText(join23(scan2.root, f.rel)));
       if (!pkg || typeof pkg !== "object") continue;
@@ -34838,7 +35139,6 @@ var CONTAINER_KINDS2;
 var ENTRY_BASENAME;
 var IDENT_VISIBLE;
 var SEP4;
-var dirOf7;
 var JVM_LANGS;
 var init_deadcode = __esm2({
   "src/deadcode.ts"() {
@@ -34853,6 +35153,7 @@ var init_deadcode = __esm2({
     init_walk();
     init_sort();
     init_complexity();
+    init_util();
     REFERENCE_KINDS8 = /* @__PURE__ */ new Set(["reexport", "reexport-all", "default"]);
     CALLABLE_KINDS2 = /* @__PURE__ */ new Set(["function", "method", "def", "constructor", "operator", "class", "macro"]);
     FN_INITIALIZER = /^[\w$]+\s*(?::[^=]*)?=\s*(?:async\s+)?(?:function\b|\(|[\w$]+\s*=>)/;
@@ -34861,7 +35162,6 @@ var init_deadcode = __esm2({
     ENTRY_BASENAME = /(^|\/)(index|main|cli|mod|lib|__main__)\.[a-z]+$/;
     IDENT_VISIBLE = /^[A-Za-z_]\w{4,}$/;
     SEP4 = "\0";
-    dirOf7 = (rel2) => rel2.includes("/") ? rel2.slice(0, rel2.lastIndexOf("/")) : "";
     JVM_LANGS = /* @__PURE__ */ new Set(["java", "kotlin", "scala"]);
   }
 });
@@ -35849,9 +36149,6 @@ function getArtifacts(repo, opts = {}, walked, prepared) {
   if (entry2) return entry2.arts ??= entry2.loadArtifacts?.() ?? buildArtifactsFromScan(scan2, opts);
   return buildArtifactsFromScan(scan2, opts);
 }
-async function warmGrammarsForRepo(repo) {
-  await warmGrammarsForWalk(walk(repo, {}));
-}
 async function warmGrammarsForWalk(walked) {
   await ensureGrammars(grammarKeysForExts(walked.files.map((f) => f.ext)));
 }
@@ -35866,7 +36163,6 @@ var init_session2 = __esm2({
     init_scan();
     init_pool2();
     init_preload();
-    init_walk();
     init_loader();
     init_model();
     init_embed();
@@ -35895,7 +36191,7 @@ function hintWatch(repo, warn) {
       sessionInvalidate(repo);
     });
   } catch (error) {
-    warn(`MCP watcher unavailable (${error instanceof Error ? error.message : String(error)}); using freshness scans`);
+    warn(`MCP watcher unavailable (${errMessage2(error)}); using freshness scans`);
   }
   return {
     walk: async () => ({ walked: walk(repo, {}), reused: false }),
@@ -35910,6 +36206,7 @@ var init_watch = __esm2({
     "use strict";
     init_walk();
     init_session2();
+    init_util();
     MAX_WATCHED_DIRS = 8192;
     BARRIER_TIMEOUT_MS = 2e3;
     DirWatch = class {
@@ -35986,7 +36283,7 @@ var init_watch = __esm2({
           return barrier;
         } catch (error) {
           if (dir) rmSync52(dir, { recursive: true, force: true });
-          this.disable(error instanceof Error ? error.message : String(error));
+          this.disable(errMessage2(error));
           return null;
         }
       }
@@ -36031,7 +36328,7 @@ var init_watch = __esm2({
         } catch (error) {
           const code = error.code;
           if (code === "ENOENT" || code === "ENOTDIR" || code === "EACCES") return;
-          this.disable(error instanceof Error ? error.message : String(error));
+          this.disable(errMessage2(error));
         }
       }
       onEvent(rel2, event, filename) {
@@ -36136,9 +36433,6 @@ function artifactState(path, text, bytes) {
     return "absent";
   }
 }
-function shellArg(s) {
-  return /^[A-Za-z0-9_\-./=@:]+$/.test(s) ? s : "'" + s.replace(/'/g, "'\\''") + "'";
-}
 function capResponse2(text, tool, repo, maxBytes, wholeRepo = true, onWire) {
   const textBytes = Buffer.byteLength(text, "utf8");
   const bytes = onWire ?? textBytes;
@@ -36146,7 +36440,7 @@ function capResponse2(text, tool, repo, maxBytes, wholeRepo = true, onWire) {
   const artifactName = wholeRepo && Object.hasOwn(ARTIFACT_FOR, tool) ? ARTIFACT_FOR[tool] : void 0;
   const artifact = artifactName ? join27(repo, INDEX_DIR, artifactName) : void 0;
   const state = artifact ? artifactState(artifact, text, textBytes) : void 0;
-  const refresh = `codeindex index --repo ${shellArg(repo)} --out ${shellArg(join27(repo, INDEX_DIR))}`;
+  const refresh = `codeindex index --repo ${shellQuote(repo)} --out ${shellQuote(join27(repo, INDEX_DIR))}`;
   return JSON.stringify(
     {
       truncated: true,
@@ -36192,6 +36486,7 @@ var init_protocol2 = __esm2({
   "src/mcp/protocol.ts"() {
     "use strict";
     init_preload();
+    init_util();
     PROTOCOL_VERSIONS2 = ["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"];
     LATEST_PROTOCOL2 = PROTOCOL_VERSIONS2[PROTOCOL_VERSIONS2.length - 1];
     ANNOTATIONS_SINCE2 = "2025-03-26";
@@ -37206,7 +37501,6 @@ __export2(mcp_exports, {
   toolsFor: () => toolsFor,
   toolsInProfiles: () => toolsInProfiles,
   validateArgs: () => validateArgs2,
-  warmGrammarsForRepo: () => warmGrammarsForRepo,
   warmGrammarsForWalk: () => warmGrammarsForWalk
 });
 function isRpcRequest(value) {
@@ -37238,9 +37532,6 @@ function wholeNum(v, key) {
 function positiveNum(v) {
   const n = num2(v);
   return n !== void 0 && n > 0 ? n : void 0;
-}
-function errMessage2(e) {
-  return e instanceof Error ? e.message : String(e);
 }
 function withCoverage(answer, coverage) {
   return coverage ? { ...answer, coverage } : answer;
@@ -37866,7 +38157,8 @@ async function runMcpServer(opts = {}) {
   async function callResult(name2, args2, version, progress) {
     try {
       const repo = repoRoot(args2, defaultRepo);
-      const raw = await callTool(name2, args2, repo, progress, walkRepo, { pool: lspPool, trustRepoConfig: opts.trustLspConfig });
+      const trustRepoConfig = opts.trustLspConfig === true && (defaultRepo === void 0 || repo === defaultRepo);
+      const raw = await callTool(name2, args2, repo, progress, walkRepo, { pool: lspPool, trustRepoConfig });
       const narrowed = str2(args2.scope) !== void 0 || strArray(args2.include) !== void 0 || strArray(args2.exclude) !== void 0 || str2(args2.name) !== void 0 || args2.concise === true;
       const maxBytes = opts.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES3;
       const assemble = (text2) => {
@@ -37945,6 +38237,7 @@ var init_mcp = __esm2({
     init_tools();
     init_protocol2();
     init_session2();
+    init_util();
     init_tools();
     init_protocol2();
     init_session2();
@@ -38029,10 +38322,6 @@ function lex(line22) {
 }
 function tokenize2(line22) {
   return lex(line22)?.map((t) => t.value);
-}
-function shellQuote(s) {
-  if (s !== "" && !/[^A-Za-z0-9_\-./=@:]/.test(s)) return s;
-  return "'" + s.replace(/'/g, `'\\''`) + "'";
 }
 function splitArgs(args2, takesValue) {
   const flags2 = [];
@@ -38511,6 +38800,9 @@ function hasUpperLiteral(p) {
   const literal2 = p.replace(/\\[pP]\{[^}]*\}|\\[pP][A-Za-z]|\\./g, "");
   return literal2 !== literal2.toLowerCase();
 }
+function hasBackReference(js) {
+  return /(?:^|[^\\])(?:\\\\)*\\[1-9]/.test(js);
+}
 function toPattern(p) {
   const parts2 = [];
   for (const raw of p.patterns) {
@@ -38519,6 +38811,7 @@ function toPattern(p) {
     if (js === void 0) return void 0;
     parts2.push(js);
   }
+  if (parts2.length > 1 && parts2.some(hasBackReference)) return void 0;
   let pattern = parts2.length === 1 ? parts2[0] : parts2.map((s) => `(?:${s})`).join("|");
   if (p.word) {
     const literals = p.patterns.every((s) => (p.fixed || !/[\\^$.*+?()[\]{}|]/.test(s)) && /^\w(?:.*\w)?$/.test(s));
@@ -38954,14 +39247,18 @@ function extractTags(ext, content) {
 init_loader();
 init_loader();
 init_types();
+init_util();
 var DEFAULT_GRAMMARS_URL = `https://github.com/maxgfr/codeindex/releases/download/v${ENGINE_VERSION}/grammars-${ENGINE_VERSION}.tar.gz`;
+var GRAMMARS_CHECKSUM_TIMEOUT_MS = 3e4;
+var GRAMMARS_DOWNLOAD_TIMEOUT_MS = 6e5;
+var MAX_INFLATED_BYTES = 512 * 1024 * 1024;
 function resolveGrammarsPullTarget() {
   const env2 = process.env.CODEINDEX_GRAMMARS_URL;
   if (env2 && env2.trim()) return { url: env2.trim() };
   return { url: DEFAULT_GRAMMARS_URL, sha256Url: `${DEFAULT_GRAMMARS_URL}.sha256` };
 }
-async function fetchGrammarsTarball(url, expectedSha256) {
-  const res = await fetch(url);
+async function fetchGrammarsTarball(url, expectedSha256, timeoutMs = GRAMMARS_DOWNLOAD_TIMEOUT_MS) {
+  const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
   if (!res.ok) throw new Error(`HTTP ${res.status} from ${url}`);
   const buf = Buffer.from(await res.arrayBuffer());
   if (expectedSha256) {
@@ -38975,8 +39272,8 @@ async function fetchGrammarsTarball(url, expectedSha256) {
 function asBuffer(u) {
   return Buffer.isBuffer(u) ? u : Buffer.from(u.buffer, u.byteOffset, u.byteLength);
 }
-async function fetchExpectedSha256(url) {
-  const res = await fetch(url);
+async function fetchExpectedSha256(url, timeoutMs = GRAMMARS_CHECKSUM_TIMEOUT_MS) {
+  const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
   if (!res.ok) throw new Error(`HTTP ${res.status} from ${url}`);
   const text = await res.text();
   const hex = (text.trim().split(/\s+/)[0] ?? "").toLowerCase();
@@ -39034,7 +39331,7 @@ function extractTarInto(rawTar, destDir) {
     if (dest !== root && !dest.startsWith(root + sep4)) {
       throw new Error(`tar entry escapes destination: ${entry2.name}`);
     }
-    mkdirSync8(dirname42(dest), { recursive: true });
+    mkdirSync9(dirname42(dest), { recursive: true });
     writeFileSync9(dest, entry2.data);
     written.push(rel2);
   }
@@ -39042,7 +39339,7 @@ function extractTarInto(rawTar, destDir) {
 }
 function extractGrammarsTarball(bytes, destDir) {
   const b = asBuffer(bytes);
-  const raw = b.length >= 2 && b[0] === 31 && b[1] === 139 ? gunzipSync(b) : b;
+  const raw = b.length >= 2 && b[0] === 31 && b[1] === 139 ? gunzipSync(b, { maxOutputLength: MAX_INFLATED_BYTES }) : b;
   return extractTarInto(raw, destDir);
 }
 function installGrammarCacheAtomically(tempDir, cacheDir2, markerPath, expectedSha256, rename2 = renameSync5, cleanup = rmSync8) {
@@ -39093,7 +39390,7 @@ function installGrammarCacheAtomically(tempDir, cacheDir2, markerPath, expectedS
     if (rollbackErrors.length > 0) {
       const rollbackError = rollbackErrors[0];
       throw new Error(
-        `${error instanceof Error ? error.message : String(error)}; rollback failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)} (backup preserved at ${swapDir})`
+        `${errMessage2(error)}; rollback failed: ${errMessage2(rollbackError)} (backup preserved at ${swapDir})`
       );
     }
     throw error;
@@ -39106,14 +39403,19 @@ function installGrammarCacheAtomically(tempDir, cacheDir2, markerPath, expectedS
 async function pullGrammars(cacheDir2, opts = {}) {
   const note = opts.onNote ?? (() => {
   });
-  const target = resolveGrammarsPullTarget();
+  const target = opts.target ?? resolveGrammarsPullTarget();
   let expected;
   if (target.sha256Url) {
     try {
       expected = await fetchExpectedSha256(target.sha256Url);
     } catch (e) {
-      note(`codeindex: could not fetch checksum (${e instanceof Error ? e.message : String(e)}) \u2014 proceeding unverified
-`);
+      return {
+        ok: false,
+        status: "failed",
+        cacheDir: cacheDir2,
+        message: `codeindex: pull failed \u2014 could not fetch the checksum, and the archive is not installed unverified: ${errMessage2(e)} (nothing written)
+`
+      };
     }
   }
   const runtime = join82(cacheDir2, "web-tree-sitter.wasm");
@@ -39139,13 +39441,13 @@ async function pullGrammars(cacheDir2, opts = {}) {
       ok: false,
       status: "failed",
       cacheDir: cacheDir2,
-      message: `codeindex: pull failed \u2014 ${e instanceof Error ? e.message : String(e)} (nothing written)
+      message: `codeindex: pull failed \u2014 ${errMessage2(e)} (nothing written)
 `
     };
   }
   let tmp;
   try {
-    mkdirSync8(dirname42(cacheDir2), { recursive: true });
+    mkdirSync9(dirname42(cacheDir2), { recursive: true });
     tmp = mkdtempSync4(join82(dirname42(cacheDir2), ".grammars-tmp-"));
     extractGrammarsTarball(bytes, tmp);
     if (!existsSync52(join82(tmp, "web-tree-sitter.wasm"))) {
@@ -39164,7 +39466,7 @@ async function pullGrammars(cacheDir2, opts = {}) {
       ok: false,
       status: "failed",
       cacheDir: cacheDir2,
-      message: `codeindex: pull failed \u2014 ${e instanceof Error ? e.message : String(e)} (nothing written)
+      message: `codeindex: pull failed \u2014 ${errMessage2(e)} (nothing written)
 `
     };
   }
@@ -39226,6 +39528,7 @@ init_bind();
 init_derived();
 init_relations();
 init_workspaces();
+init_util();
 var Bytes = class {
   buf;
   len = 0;
@@ -39508,10 +39811,9 @@ function findWord(line22, name2) {
   }
 }
 var endOf = (d) => d.sym.endLine ?? d.sym.line;
-var dirOf5 = (rel2) => rel2.includes("/") ? rel2.slice(0, rel2.lastIndexOf("/")) : "";
 function goPackageKey(f) {
   const pkg = f.symbols.find((s) => s.kind === "package")?.name ?? "";
-  return `${dirOf5(f.rel)}\0${pkg}`;
+  return `${dirOf(f.rel)}\0${pkg}`;
 }
 function renderScip(scan2, opts = {}) {
   const projectRoot = opts.projectRoot ?? pathToFileURL2(scan2.root).href;
@@ -39522,14 +39824,14 @@ function renderScip(scan2, opts = {}) {
     let hit = packageAt2.get(key);
     if (hit === void 0) {
       const c2 = manifestCoordinates(scan2.root, dir, manifest);
-      hit = c2 ? `${packageField(c2.manager)} ${packageField(c2.name)} ${packageField(c2.version)}` : dir ? packageOf(dirOf5(dir), manifest) : NO_PACKAGE;
+      hit = c2 ? `${packageField(c2.manager)} ${packageField(c2.name)} ${packageField(c2.version)}` : dir ? packageOf(dirOf(dir), manifest) : NO_PACKAGE;
       packageAt2.set(key, hit);
     }
     return hit;
   };
   const prefixOf = (f) => {
     const manifest = PACKAGE_MANIFEST.get(f.lang);
-    return `${SCHEME} ${manifest ? packageOf(dirOf5(f.rel), manifest) : NO_PACKAGE} ${fileNamespace(f.rel)}`;
+    return `${SCHEME} ${manifest ? packageOf(dirOf(f.rel), manifest) : NO_PACKAGE} ${fileNamespace(f.rel)}`;
   };
   const docs = scan2.files.filter((f) => f.kind === "code" && f.symbols.length > 0);
   const docDefs = /* @__PURE__ */ new Map();
@@ -40021,7 +40323,8 @@ Commands:
               skips the whole-tree walk when nothing changed since the last one
               (Linux; elsewhere it only invalidates eagerly);
               --trust-lsp-config lets a repo's .codeindex/lsp.json name the
-              servers \`lsp: true\` calls spawn
+              servers \`lsp: true\` calls spawn (with --repo: the pinned
+              repository's only, not one a call names)
   version     Print the engine version
 
 Flags (accepted before OR after the subcommand: '--repo X scan' and
@@ -40284,16 +40587,18 @@ function commandHelp(cmd) {
     return out3;
   };
   const at = lines.findIndex((l) => l.startsWith(`  ${cmd} `));
-  const spec = COMMAND_FLAGS[cmd];
+  const spec = Object.hasOwn(COMMAND_FLAGS, cmd) ? COMMAND_FLAGS[cmd] : void 0;
   const out2 = [`codeindex ${cmd}`, "", ...at === -1 ? [] : block(at)];
   const flagLines = (spec?.flags ?? []).flatMap((f) => {
     const i2 = lines.findIndex((l) => l.startsWith(`  ${f} `) || l === `  ${f}`);
     return i2 === -1 ? [] : block(i2);
   });
   if (flagLines.length) out2.push("", "Flags:", ...flagLines);
-  out2.push("", `Global flags: ${[...GLOBAL_FLAGS].join(", ")} (codeindex --help)`, "");
+  if (spec) out2.push("", `Global flags: ${[...GLOBAL_FLAGS].join(", ")} (codeindex --help)`);
+  out2.push("");
   return out2.join("\n");
 }
+var isHelpFlag = (arg) => arg === "--help" || arg === "-h";
 function parseFlags(args2) {
   const flags2 = { repo: process.cwd(), include: [], exclude: [], gitignore: true, ignoreDirs: [], noAst: false, fuzzy: true, semantic: false, positionals: [], given: [] };
   for (let i2 = 0; i2 < args2.length; i2++) {
@@ -40612,6 +40917,10 @@ async function runCli(rawArgv) {
   }
   if (cmd === "rewrite") {
     const line22 = rawArgv.slice(rawArgv.indexOf("rewrite") + 1);
+    if (line22.length === 1 && isHelpFlag(line22[0])) {
+      process.stdout.write(commandHelp("rewrite"));
+      return;
+    }
     if (line22.length !== 1) {
       process.stderr.write("codeindex: rewrite takes the command line as ONE argument: codeindex rewrite '<command line>'\n");
       process.exitCode = 1;
@@ -40627,11 +40936,15 @@ async function runCli(rawArgv) {
     return;
   }
   if (cmd === "mcp") {
+    if (rest.some(isHelpFlag)) {
+      process.stdout.write(commandHelp("mcp"));
+      return;
+    }
     const { runMcpServer: runMcpServer2 } = await Promise.resolve().then(() => (init_mcp(), mcp_exports));
     await runMcpServer2(parseMcpFlags(rest));
     return;
   }
-  if (!(cmd in COMMAND_FLAGS)) {
+  if (!Object.hasOwn(COMMAND_FLAGS, cmd)) {
     const hint = closest(cmd, Object.keys(COMMAND_FLAGS));
     process.stderr.write(`unknown command: ${cmd}${hint ? ` (did you mean ${hint}?)` : ""}
 
@@ -40640,7 +40953,7 @@ ${HELP}`);
     return;
   }
   const dashDash = rest.indexOf("--");
-  if ((dashDash === -1 ? rest : rest.slice(0, dashDash)).some((a) => a === "--help" || a === "-h")) {
+  if ((dashDash === -1 ? rest : rest.slice(0, dashDash)).some(isHelpFlag)) {
     process.stdout.write(commandHelp(cmd));
     return;
   }
@@ -41170,7 +41483,7 @@ ${HELP}`);
       try {
         body2 = await fetchEmbedModel(url, sha256);
       } catch (e) {
-        process.stderr.write(`codeindex: pull failed \u2014 ${e instanceof Error ? e.message : String(e)} (nothing written)
+        process.stderr.write(`codeindex: pull failed \u2014 ${errMessage2(e)} (nothing written)
 `);
         process.exitCode = 1;
         return;
@@ -41179,7 +41492,7 @@ ${HELP}`);
         parseEmbedModel(JSON.parse(body2), url);
       } catch (e) {
         process.stderr.write(
-          `codeindex: pull failed \u2014 response is not a valid model.json (${e instanceof Error ? e.message : String(e)}) (nothing written)
+          `codeindex: pull failed \u2014 response is not a valid model.json (${errMessage2(e)}) (nothing written)
 `
         );
         process.exitCode = 1;
@@ -41857,7 +42170,7 @@ ${USE_HINT[stack]}` } : r;
 
 // src/research/dossier.ts
 import { createHash as createHash5 } from "crypto";
-import { existsSync as existsSync15, mkdirSync as mkdirSync9, readFileSync as readFileSync23, writeFileSync as writeFileSync10 } from "fs";
+import { existsSync as existsSync15, mkdirSync as mkdirSync10, readFileSync as readFileSync23, writeFileSync as writeFileSync10 } from "fs";
 import { join as join31 } from "path";
 var SOURCE_ORDER = ["market", "oss", "docs", "so", "issue", "pr"];
 var SOURCE_LABEL = {
@@ -41968,7 +42281,7 @@ function fmtBytes(n) {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 function writeDossier(dir, evidence, meta, ledger = emptyLedger()) {
-  mkdirSync9(dir, { recursive: true });
+  mkdirSync10(dir, { recursive: true });
   const evidenceJson = join31(dir, "evidence.json");
   const evidenceMd = join31(dir, "EVIDENCE.md");
   const metaJson = join31(dir, "meta.json");
@@ -42053,7 +42366,7 @@ async function runResearch(ctx, builtAt) {
 }
 
 // src/render.ts
-import { existsSync as existsSync17, mkdirSync as mkdirSync10, readFileSync as readFileSync25, writeFileSync as writeFileSync12, rmSync as rmSync9 } from "fs";
+import { existsSync as existsSync17, mkdirSync as mkdirSync11, readFileSync as readFileSync25, writeFileSync as writeFileSync12, rmSync as rmSync9 } from "fs";
 import { join as join36, dirname as dirname9 } from "path";
 
 // src/srd.ts
@@ -43004,7 +43317,7 @@ function writePlan(runDir, plan) {
 // src/render.ts
 function writeFile2(out2, rel2, content, files) {
   const abs = join36(out2, rel2);
-  mkdirSync10(dirname9(abs), { recursive: true });
+  mkdirSync11(dirname9(abs), { recursive: true });
   writeFileSync12(abs, content.endsWith("\n") ? content : content + "\n");
   files.push(rel2);
 }
